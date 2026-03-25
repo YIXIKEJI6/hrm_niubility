@@ -304,7 +304,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                             )}
                           </div>
 
-                          {/* Progress — pure static bar + number input, bar only changes after save */}
+                          {/* Progress — draggable range slider, saves on release */}
                           <div className="w-full"
                             onClick={e => e.stopPropagation()}
                             onPointerDown={e => e.stopPropagation()}
@@ -312,26 +312,30 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                           >
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-[9px] text-slate-400">当前进度</span>
-                              {plan.status === 'in_progress' ? (
-                                <span className="flex items-center gap-0.5">
-                                  <input
-                                    type="number" min="0" max="100" defaultValue={pct}
-                                    onBlur={e => {
-                                      const v = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                                      e.target.value = String(v);
-                                      submitProgress(plan.id, v);
-                                    }}
-                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                    className="w-8 text-right text-[10px] font-black bg-transparent outline-none tabular-nums" style={{ color: barColor }}
-                                  />
-                                  <span className="text-[10px] font-bold" style={{ color: barColor }}>%</span>
-                                </span>
-                              ) : (
-                                <span className="text-[9px] font-bold" style={{ color: barColor }}>{pct}%</span>
-                              )}
+                              <span className="text-[10px] font-black" style={{ color: barColor }}>
+                                <span data-pct-label={plan.id}>{pct}</span>%
+                              </span>
                             </div>
-                            <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                            <div className="relative">
+                              <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                <div data-pct-bar={plan.id} className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                              </div>
+                              {plan.status === 'in_progress' && (
+                                <input type="range" min="0" max="100" defaultValue={pct}
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                  onInput={e => {
+                                    const v = parseInt((e.target as HTMLInputElement).value);
+                                    const bar = document.querySelector(`[data-pct-bar="${plan.id}"]`) as HTMLElement;
+                                    const label = document.querySelector(`[data-pct-label="${plan.id}"]`) as HTMLElement;
+                                    if (bar) bar.style.width = `${v}%`;
+                                    if (label) label.textContent = String(v);
+                                  }}
+                                  onChange={e => {
+                                    const v = parseInt((e.target as HTMLInputElement).value);
+                                    submitProgress(plan.id, v);
+                                  }}
+                                />
+                              )}
                             </div>
                           </div>
 
@@ -461,37 +465,41 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                   />
                 </div>
 
-                {/* Progress — pure static bar + number input */}
+                {/* Progress — draggable range slider in modal */}
                 <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-5 py-4 mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
                       <span className="material-symbols-outlined text-[14px]">trending_up</span>当前进度
                     </span>
-                    {sp.status === 'in_progress' ? (
-                      <span className="flex items-center gap-0.5">
-                        <input
-                          type="number" min="0" max="100" defaultValue={pct}
-                          onBlur={e => {
-                            const v = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                            e.target.value = String(v);
-                            submitProgress(sp.id, v);
-                          }}
-                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                          className="w-12 text-right text-xl font-black bg-transparent outline-none tabular-nums" style={{ color: accentColor }}
-                        />
-                        <span className="text-xl font-black" style={{ color: accentColor }}>%</span>
-                      </span>
-                    ) : (
-                      <span className="text-xl font-black" style={{ color: accentColor }}>{pct}%</span>
-                    )}
+                    <span className="text-xl font-black" style={{ color: accentColor }}>
+                      <span data-pct-label={`modal-${sp.id}`}>{pct}</span>%
+                    </span>
                   </div>
-                  <div className="w-full h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: accentColor }} />
+                  <div className="relative">
+                    <div className="w-full h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div data-pct-bar={`modal-${sp.id}`} className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: accentColor }} />
+                    </div>
+                    {sp.status === 'in_progress' && (
+                      <input type="range" min="0" max="100" defaultValue={pct}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onInput={e => {
+                          const v = parseInt((e.target as HTMLInputElement).value);
+                          const bar = document.querySelector(`[data-pct-bar="modal-${sp.id}"]`) as HTMLElement;
+                          const label = document.querySelector(`[data-pct-label="modal-${sp.id}"]`) as HTMLElement;
+                          if (bar) bar.style.width = `${v}%`;
+                          if (label) label.textContent = String(v);
+                        }}
+                        onChange={e => {
+                          const v = parseInt((e.target as HTMLInputElement).value);
+                          submitProgress(sp.id, v);
+                        }}
+                      />
+                    )}
                   </div>
                   {sp.status === 'in_progress' && (
                     <p className="text-[10px] text-blue-400 mt-2 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px]">edit</span>
-                      直接修改数字，回车或点击其他区域即可保存
+                      <span className="material-symbols-outlined text-[12px]">swipe</span>
+                      拖动进度条或点击任意位置调整，松手后自动保存
                     </p>
                   )}
                 </div>
