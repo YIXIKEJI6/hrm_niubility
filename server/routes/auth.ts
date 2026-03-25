@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../config/database';
-import { generateToken, AuthRequest, authMiddleware } from '../middleware/auth';
+import { generateToken, AuthRequest, authMiddleware, isSuperAdmin } from '../middleware/auth';
 import { getUserIdByCode } from '../services/wecom';
 
 const router = Router();
@@ -43,12 +43,14 @@ router.post('/login', async (req, res) => {
       return res.status(404).json({ code: 404, message: '用户不存在，请先同步组织架构' });
     }
 
-    const token = generateToken(user.id, user.role);
+    // Super admin 强制 admin 角色
+    const effectiveRole = isSuperAdmin(user.id) ? 'admin' : user.role;
+    const token = generateToken(user.id, effectiveRole);
     return res.json({
       code: 0,
       data: {
         token,
-        user: { id: user.id, name: user.name, title: user.title, avatar_url: user.avatar_url, role: user.role, department_id: user.department_id },
+        user: { id: user.id, name: user.name, title: user.title, avatar_url: user.avatar_url, role: effectiveRole, department_id: user.department_id, is_super_admin: isSuperAdmin(user.id) },
       },
     });
   } catch (error: any) {
@@ -59,13 +61,18 @@ router.post('/login', async (req, res) => {
 // 获取当前用户信息
 router.get('/me', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
-  const user = db.prepare('SELECT id, name, title, department_id, avatar_url, mobile, email, role, status FROM users WHERE id = ?').get(req.userId);
+  const user = db.prepare('SELECT id, name, title, department_id, avatar_url, mobile, email, role, status FROM users WHERE id = ?').get(req.userId) as any;
 
   if (!user) {
     return res.status(404).json({ code: 404, message: '用户不存在' });
   }
 
-  return res.json({ code: 0, data: user });
+  // Super admin 强制 admin 角色
+  if (isSuperAdmin(user.id)) {
+    user.role = 'admin';
+  }
+
+  return res.json({ code: 0, data: { ...user, is_super_admin: isSuperAdmin(user.id) } });
 });
 
 export default router;

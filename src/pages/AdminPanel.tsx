@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 
-type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | null;
+type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | 'admin_mgmt' | null;
 
 function useApiGet(url: string, deps: any[] = []) {
   const [data, setData] = useState<any>(null);
@@ -984,10 +984,139 @@ function PermissionsModule() {
   );
 }
 
+// ─── MODULE: 系统管理员管理 ───────────────────────────────────────────
+function AdminMgmtModule() {
+  const { currentUser } = useAuth();
+  const { data: adminData, loading, refetch } = useApiGet('/api/org/admins');
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [searchQ, setSearchQ] = useState('');
+
+  const loadAllUsers = async () => {
+    const res = await apiCall('/api/org/all-users', 'GET');
+    if (res.code === 0) setAllUsers(res.data);
+    setShowPicker(true);
+  };
+
+  const toggleAdmin = async (userId: string, isAdmin: boolean) => {
+    setMsg('');
+    const res = await apiCall('/api/org/admins/set', 'POST', { userId, isAdmin });
+    setMsg(res.code === 0 ? `✅ ${res.message}` : `❌ ${res.message}`);
+    refetch();
+  };
+
+  if (!currentUser?.is_super_admin) {
+    return (
+      <div className="text-center py-12 text-slate-400">
+        <span className="material-symbols-outlined text-[48px] mb-3 block">lock</span>
+        <p className="text-sm font-bold">仅最高系统管理员可管理此模块</p>
+      </div>
+    );
+  }
+
+  const admins = adminData?.admins || [];
+  const superAdminId = adminData?.super_admin_id || '';
+  const filteredUsers = allUsers.filter(u =>
+    (u.name?.includes(searchQ) || u.id?.toLowerCase().includes(searchQ.toLowerCase())) &&
+    u.role !== 'admin'
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h4 className="font-bold text-slate-700">当前系统管理员</h4>
+          <p className="text-xs text-slate-400 mt-0.5">最高管理员: {superAdminId}（不可修改）</p>
+        </div>
+        <button onClick={loadAllUsers}
+          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[14px]">person_add</span>
+          添加管理员
+        </button>
+      </div>
+
+      {msg && <div className="mb-3 text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{msg}</div>}
+
+      {loading ? <div className="text-center py-8 text-slate-400">加载中...</div> : (
+        <div className="space-y-2">
+          {admins.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-4">暂无管理员</p>
+          ) : admins.map((admin: any) => (
+            <div key={admin.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-600">
+                  {admin.name?.[0] || '?'}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                    {admin.name}
+                    {admin.id.toLowerCase() === superAdminId.toLowerCase() && (
+                      <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">最高管理员</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-400">{admin.title || admin.department_name || admin.id}</p>
+                </div>
+              </div>
+              {admin.id.toLowerCase() !== superAdminId.toLowerCase() && (
+                <button onClick={() => toggleAdmin(admin.id, false)}
+                  className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors font-medium">
+                  撤销管理员
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* User Picker Modal */}
+      {showPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowPicker(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[70vh] flex flex-col">
+            <div className="shrink-0 px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">选择人员授予管理员</h3>
+              <button onClick={() => setShowPicker(false)} className="text-slate-400 hover:text-slate-600">
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+            <div className="shrink-0 px-5 py-3 border-b border-slate-100">
+              <input type="text" placeholder="搜索姓名或ID..." value={searchQ} onChange={e => setSearchQ(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-200" />
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-1">
+              {filteredUsers.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">没有可添加的用户</p>
+              ) : filteredUsers.map((user: any) => (
+                <div key={user.id} className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">
+                      {user.name?.[0] || '?'}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-700">{user.name}</p>
+                      <p className="text-[10px] text-slate-400">{user.department_name || user.title || user.id}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { toggleAdmin(user.id, true); setShowPicker(false); }}
+                    className="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors font-medium">
+                    设为管理员
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────
 const MODULES = [
   { key: 'org', label: '组织架构管理', desc: '同步企业微信通讯录，管理部门与人员信息', icon: 'account_tree', color: 'blue', hoverColor: 'hover:border-blue-400/30', iconBg: 'bg-blue-50', iconColor: 'text-[#0060a9]', stats: ['6 个部门', '8 名员工'] },
+  { key: 'admin_mgmt', label: '管理员分配', desc: '最高管理员可指定系统管理员，授予或撤销管理权限', icon: 'shield_person', color: 'cyan', hoverColor: 'hover:border-cyan-400/30', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600', stats: ['角色分配', '权限管控'], superAdminOnly: true },
   { key: 'perf', label: '绩效管理', desc: '绩效计划审批、考核评分与奖金发放', icon: 'trending_up', color: 'emerald', hoverColor: 'hover:border-emerald-400/30', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600', stats: ['审批流程', '评分管理'] },
   { key: 'salary', label: '工资表管理', desc: '制作月度工资表、审批发放、推送工资条', icon: 'payments', color: 'amber', hoverColor: 'hover:border-amber-400/30', iconBg: 'bg-amber-50', iconColor: 'text-amber-600', stats: ['薪资模板', '自动计算'] },
   { key: 'msg', label: '消息推送', desc: '企业微信消息推送、审批卡片与推送记录', icon: 'send', color: 'purple', hoverColor: 'hover:border-purple-400/30', iconBg: 'bg-purple-50', iconColor: 'text-purple-600', stats: ['卡片交互', '推送记录'] },
@@ -1066,12 +1195,13 @@ export default function AdminPanel({ navigate }: { navigate: (view: string) => v
               {activeModule === 'pool' && <PoolModule />}
               {activeModule === 'settings' && <SettingsModule currentUser={currentUser} />}
               {activeModule === 'permissions' && <PermissionsModule />}
+              {activeModule === 'admin_mgmt' && <AdminMgmtModule />}
             </div>
           )}
 
           {/* Module Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {MODULES.map(mod => (
+            {MODULES.filter(mod => !(mod as any).superAdminOnly || currentUser?.is_super_admin).map(mod => (
               <div key={mod.key}
                 onClick={() => setActiveModule(activeModule === mod.key ? null : mod.key as Module)}
                 className={`bg-white dark:bg-slate-900 rounded-2xl p-6 border transition-all cursor-pointer group ${

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../config/database';
-import { authMiddleware, requireRole, AuthRequest } from '../middleware/auth';
+import { authMiddleware, requireRole, requireSuperAdmin, AuthRequest, isSuperAdmin, SUPER_ADMIN_ID } from '../middleware/auth';
 import { getDepartmentList, getDepartmentMembers } from '../services/wecom';
 
 const router = Router();
@@ -152,9 +152,58 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'hr'), (req: AuthR
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
 
+  // 不允许通过此接口修改 super admin 的角色
+  if (isSuperAdmin(req.params.id) && role && role !== 'admin') {
+    return res.status(403).json({ code: 403, message: '不可修改最高系统管理员角色' });
+  }
+
   db.prepare('UPDATE users SET name=?, title=?, mobile=?, email=?, role=?, status=? WHERE id=?')
     .run(name, title, mobile, email, role, status, req.params.id);
   return res.json({ code: 0, message: '更新成功' });
+});
+
+// ── 系统管理员管理 (仅 Super Admin) ───────────────────────────────
+
+// 获取所有管理员列表
+router.get('/admins', authMiddleware, requireRole('admin'), (_req, res) => {
+  const db = getDb();
+  const admins = db.prepare(
+    `SELECT u.id, u.name, u.title, u.avatar_url, u.department_id, d.name as department_name
+     FROM users u LEFT JOIN departments d ON u.department_id = d.id
+     WHERE u.role = 'admin' ORDER BY u.name`
+  ).all();
+  return res.json({ code: 0, data: { admins, super_admin_id: SUPER_ADMIN_ID } });
+});
+
+// 设置/取消管理员 (仅 Super Admin)
+router.post('/admins/set', authMiddleware, requireSuperAdmin(), (req: AuthRequest, res) => {
+  const { userId, isAdmin } = req.body;
+  const db = getDb();
+
+  if (!userId) return res.status(400).json({ code: 400, message: '缺少 userId' });
+
+  // 不允许修改自己的角色
+  if (isSuperAdmin(userId)) {
+    return res.status(400).json({ code: 400, message: '最高管理员角色不可修改' });
+  }
+
+  const user = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(userId) as any;
+  if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+
+  const newRole = isAdmin ? 'admin' : 'employee';
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(newRole, userId);
+  return res.json({ code: 0, message: `已${isAdmin ? '授予' : '撤销'} ${user.name} 的管理员权限` });
+});
+
+// 获取所有用户列表 (用于管理员分配选人)
+router.get('/all-users', authMiddleware, requireSuperAdmin(), (_req, res) => {
+  const db = getDb();
+  const users = db.prepare(
+    `SELECT u.id, u.name, u.title, u.role, u.avatar_url, u.department_id, d.name as department_name
+     FROM users u LEFT JOIN departments d ON u.department_id = d.id
+     WHERE u.status = 'active' ORDER BY u.name`
+  ).all();
+  return res.json({ code: 0, data: users });
 });
 
 export default router;

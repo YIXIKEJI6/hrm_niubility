@@ -7,6 +7,7 @@ export interface User {
   avatar_url: string | null;
   role: string;
   department_id: number;
+  is_super_admin?: boolean;
 }
 
 interface AuthContextType {
@@ -139,6 +140,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const hasPermission = (key: string) => {
+    // Super admin 拥有所有权限
+    if (currentUser?.is_super_admin) return true;
     // 如果权限列表为空（未加载完成），暂时放行，避免闪烁
     if (userPerms.length === 0) return true;
     return userPerms.includes(key);
