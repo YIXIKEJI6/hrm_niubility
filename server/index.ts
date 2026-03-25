@@ -47,6 +47,15 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// 企微域名归属自动验证 (免手动传文件验证)
+// 企微验证文件的内容永远和它文件名里的随机串一致
+app.get('/WW_verify_*.txt', (req, res) => {
+  // 提取如 WW_verify_12345.txt 中的 12345
+  const verifyCode = req.path.replace('/WW_verify_', '').replace('.txt', '');
+  res.type('text/plain');
+  res.send(verifyCode);
+});
+
 // 生产模式: serve 前端静态文件
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.resolve(PROJECT_ROOT, 'dist');

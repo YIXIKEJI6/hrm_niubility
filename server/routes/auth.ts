@@ -5,6 +5,16 @@ import { getUserIdByCode } from '../services/wecom';
 
 const router = Router();
 
+// 获取企微 OAuth 跳转链接
+router.get('/wecom-url', (req, res) => {
+  // 注意：在真实生产环境中，应使用实际绑定的域名
+  const redirectUri = encodeURIComponent('http://8.129.5.180:3001/'); 
+  const appid = process.env.WECOM_CORP_ID || 'CORPID_MISSING';
+  const agentid = process.env.WECOM_AGENT_ID || 'AGENTID_MISSING';
+  const url = `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${appid}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_base&state=HRM_LOGIN&agentid=${agentid}#wechat_redirect`;
+  res.redirect(url);
+});
+
 // 企微 OAuth 登录
 router.post('/login', async (req, res) => {
   const { code } = req.body;
