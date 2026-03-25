@@ -194,6 +194,19 @@ export function initDatabase(): void {
       status TEXT DEFAULT 'sent',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- ============ 日常待办任务 ============
+    CREATE TABLE IF NOT EXISTS tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      due_date DATE,
+      priority TEXT DEFAULT 'normal',
+      status TEXT DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   console.log('✅ Database tables initialized');

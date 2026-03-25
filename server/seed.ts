@@ -70,5 +70,17 @@ export function seedData(): void {
   db.prepare(`INSERT INTO salary_templates (name, type, default_amount, calc_formula, sort_order) VALUES (?, ?, ?, ?, ?)`).run('公积金代扣', 'deduction', 0, 'base * 0.12', 5);
   db.prepare(`INSERT INTO salary_templates (name, type, default_amount, calc_formula, sort_order) VALUES (?, ?, ?, ?, ?)`).run('个人所得税', 'deduction', 0, 'auto_tax', 6);
 
+  // 日常待办任务
+  const dailyTasks = [
+    ['zhangwei', '审核 UX 设计规范初稿', '查看交互设计师赵敏提交的新版全景图规范文档', '2026-03-30', 'high', 'pending'],
+    ['zhangwei', '更新下季度招聘需求', '随着企微集成完成，需要补充两名全栈工程师', '2026-04-05', 'normal', 'pending'],
+    ['zhangwei', '确认前端性能优化方案', '审核加载白屏和 SSR 在国内服务器的访问瓶颈', '2026-03-27', 'high', 'pending'],
+    ['zhangwei', '参加数据平台组联调会', '', '2026-03-28', 'normal', 'completed'],
+  ];
+  const insertTask = db.prepare('INSERT INTO tasks (user_id, title, description, due_date, priority, status) VALUES (?, ?, ?, ?, ?, ?)');
+  for (const t of dailyTasks) {
+    insertTask.run(...t);
+  }
+
   console.log('✅ 种子数据填充完成');
 }

@@ -1,14 +1,87 @@
+import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 
+interface Task {
+  id: number;
+  title: string;
+  description: string;
+  due_date: string;
+  priority: string;
+  status: string;
+}
+
 export default function EmployeeDashboard({ navigate }: { navigate: (view: string) => void }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [newTask, setNewTask] = useState({ title: '', description: '', due_date: '', priority: 'normal' });
+
+  // Fetch tasks
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+
+  const fetchTasks = async () => {
+    try {
+      const res = await fetch('/api/tasks', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch tasks', err);
+    }
+  };
+
+  const handleToggleTaskStatus = async (task: Task) => {
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    // Optimistic update
+    setTasks(tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+
+    try {
+      await fetch(`/api/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      fetchTasks(); // Refresh to get sort order correct
+    } catch (err) {
+      console.error('Failed to update task', err);
+      fetchTasks(); // Revert on failure
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(newTask)
+      });
+      if (res.ok) {
+        fetchTasks();
+        setIsTaskModalOpen(false);
+        setNewTask({ title: '', description: '', due_date: '', priority: 'normal' });
+      }
+    } catch (err) {
+      console.error('Failed to create task', err);
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-surface text-on-surface antialiased">
       <Sidebar currentView="dashboard" navigate={navigate} />
 
       {/* Main Canvas */}
-      <main className="flex-1 h-[calc(100vh-4rem)] mt-16 overflow-y-auto">
-
-        {/* Content Area */}
+      <main className="flex-1 h-[calc(100vh-4rem)] mt-16 overflow-y-auto relative">
         <div className="p-8 space-y-8">
           {/* Welcome Header & Quick Actions */}
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -88,15 +161,6 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
                       <div className="h-full bg-primary-container" style={{ width: '60%' }}></div>
                     </div>
                   </div>
-                  <div>
-                    <div className="flex justify-between text-sm mb-2">
-                      <span className="font-bold">客户满意度提升</span>
-                      <span className="text-primary font-bold">45%</span>
-                    </div>
-                    <div className="w-full h-2 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-primary-container" style={{ width: '45%' }}></div>
-                    </div>
-                  </div>
                 </div>
               </section>
             </div>
@@ -108,41 +172,40 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
                   <span className="material-symbols-outlined mr-2 text-sm">checklist</span>
                   待办事项
                 </h3>
-                <div className="space-y-4 flex-1">
-                  <div className="group bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-4 border-l-4 border-error hover:shadow-md transition-shadow">
-                    <input className="mt-1 rounded border-outline-variant text-primary focus:ring-primary h-5 w-5" type="checkbox" />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <p className="font-bold text-sm">完成 Q2 绩效自评</p>
-                        <span className="text-[10px] px-2 py-0.5 bg-error-container text-on-error-container rounded-full font-bold">紧急</span>
-                      </div>
-                      <p className="text-xs text-on-surface-variant mt-1">截止日期: 今天 18:00</p>
-                    </div>
-                  </div>
-                  <div className="group bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-4 border-l-4 border-primary transition-shadow">
-                    <input className="mt-1 rounded border-outline-variant text-primary focus:ring-primary h-5 w-5" type="checkbox" />
-                    <div className="flex-1">
-                      <p className="font-bold text-sm">提交差旅报销申请</p>
-                      <p className="text-xs text-on-surface-variant mt-1">截止日期: 5月25日</p>
-                    </div>
-                  </div>
-                  <div className="group bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-4 border-l-4 border-tertiary transition-shadow">
-                    <input className="mt-1 rounded border-outline-variant text-primary focus:ring-primary h-5 w-5" type="checkbox" />
-                    <div className="flex-1">
-                      <p className="font-bold text-sm">参加安全生产在线培训</p>
-                      <p className="text-xs text-on-surface-variant mt-1">需完成 45 分钟课程</p>
-                    </div>
-                  </div>
-                  <div className="group bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-4 border-l-4 border-primary transition-shadow">
-                    <input className="mt-1 rounded border-outline-variant text-primary focus:ring-primary h-5 w-5" type="checkbox" />
-                    <div className="flex-1">
-                      <p className="font-bold text-sm">准备下周一早会汇报</p>
-                      <p className="text-xs text-on-surface-variant mt-1">重点: 云平台迁移进度</p>
-                    </div>
-                  </div>
+                <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[500px]">
+                  {tasks.length === 0 ? (
+                    <div className="text-center py-8 text-on-surface-variant">暂无待办任务，真棒！</div>
+                  ) : (
+                    tasks.map(task => {
+                      const isCompleted = task.status === 'completed';
+                      return (
+                        <div key={task.id} className={`group bg-surface-container-lowest p-4 rounded-xl flex items-start space-x-4 border-l-4 transition-all duration-300 ${isCompleted ? 'border-green-500 opacity-60' : task.priority === 'high' ? 'border-error shadow-sm' : 'border-primary'}`}>
+                          <input 
+                            className="mt-1 rounded border-outline-variant text-primary focus:ring-primary h-5 w-5 cursor-pointer peer transition-transform active:scale-90" 
+                            type="checkbox" 
+                            checked={isCompleted}
+                            onChange={() => handleToggleTaskStatus(task)}
+                          />
+                          <div className={`flex-1 transition-all ${isCompleted ? 'line-through text-outline' : ''}`}>
+                            <div className="flex items-center justify-between">
+                              <p className="font-bold text-sm tracking-tight">{task.title}</p>
+                              {!isCompleted && task.priority === 'high' && (
+                                <span className="text-[10px] px-2 py-0.5 bg-error-container text-on-error-container rounded-full font-bold">紧急</span>
+                              )}
+                            </div>
+                            {task.description && <p className="text-[11px] text-on-surface-variant mt-1.5 leading-relaxed">{task.description}</p>}
+                            {task.due_date && <p className="text-[10px] font-medium text-outline mt-2 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">schedule</span> {task.due_date}</p>}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
-                <button className="w-full mt-6 py-3 border border-dashed border-outline-variant rounded-xl text-sm font-bold text-on-surface-variant hover:bg-surface-container transition-colors">
-                  + 添加新任务
+                <button 
+                  onClick={() => setIsTaskModalOpen(true)}
+                  className="w-full mt-6 py-3 border border-dashed border-outline-variant rounded-xl text-sm font-bold text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-center gap-2 group active:scale-[0.98]">
+                  <span className="material-symbols-outlined group-hover:scale-110 transition-transform">add_task</span>
+                  添加新任务
                 </button>
               </section>
             </div>
@@ -162,24 +225,7 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
                     <div>
                       <p className="text-xs font-bold text-primary mb-1">系统公告</p>
                       <p className="text-sm font-bold text-on-surface">公司年会活动报名已开始</p>
-                      <p className="text-xs text-on-surface-variant mt-2 leading-relaxed bg-surface-container-lowest p-3 rounded-xl">
-                        各位同事，本年度公司年会将于下月15日举行，请在周五前提交报名...
-                      </p>
                       <p className="text-[10px] text-outline mt-2">10 分钟前</p>
-                    </div>
-                  </div>
-                  <div className="relative pl-10">
-                    <div className="absolute left-0 top-1 w-9 h-9 bg-secondary rounded-full border-4 border-surface-container-low flex items-center justify-center text-white z-10">
-                      <span className="material-symbols-outlined text-sm">group_add</span>
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-secondary mb-1">团队入职</p>
-                      <p className="text-sm font-bold text-on-surface">欢迎新成员：赵敏 (交互设计师)</p>
-                      <div className="flex items-center mt-3 space-x-2">
-                        <img className="w-6 h-6 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCooiLc3rFXYwKekscVUu_XlKH6nWBpf4SE8s0cHJd0t2sNtT_0OMgdkg3X_hz8DgocQoXkVRDQFDTS4MbPtni3W8BDTm0sJ4UPopY9Uqr8ubQhGkSyOlxQymDXclfl07loCFr8ytL5Zrshs5OrwdrTwTT3Znqem_WEr7VzqAlPMeRlRlvvY0hMnZA1chC-WedlwGzL_Ba-RNKIoc5dOKJccjJ5jC-j8mrB6Jvk84ou8VVrDq72a3f_X8WEi33SFvOZjJmtd6Pz2vM" alt="Avatar" />
-                        <span className="text-xs text-on-surface-variant">敏敏加入到了 <b>UX 设计组</b></span>
-                      </div>
-                      <p className="text-[10px] text-outline mt-2">2 小时前</p>
                     </div>
                   </div>
                   <div className="relative pl-10">
@@ -199,13 +245,83 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
         </div>
       </main>
 
-      {/* Contextual FAB */}
-      <button className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-br from-[#0060a9] to-[#409eff] text-white rounded-full shadow-2xl flex items-center justify-center group active:scale-90 transition-all z-50">
-        <span className="material-symbols-outlined text-[28px]">chat_bubble</span>
-        <span className="absolute right-16 bg-on-surface text-surface text-xs font-bold py-2 px-4 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-          联系 HR 助手
-        </span>
-      </button>
+      {/* Task Creation Modal */}
+      {isTaskModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-surface-container-lowest w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-surface-container flex justify-between items-center bg-surface-container-low">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">add_task</span>
+                新建待办事项
+              </h3>
+              <button onClick={() => setIsTaskModalOpen(false)} className="text-outline hover:text-on-surface transition-colors p-1 rounded-full hover:bg-surface-container">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleCreateTask} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">任务标题 *</label>
+                <input 
+                  required 
+                  autoFocus
+                  type="text" 
+                  value={newTask.title} 
+                  onChange={e => setNewTask({...newTask, title: e.target.value})}
+                  className="w-full bg-surface-container-low border border-outline-variant/50 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all placeholder:text-outline/50"
+                  placeholder="例如：准备项目季度汇报PPT"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">截止日期</label>
+                <input 
+                  type="date" 
+                  value={newTask.due_date} 
+                  onChange={e => setNewTask({...newTask, due_date: e.target.value})}
+                  className="w-full bg-surface-container-low border border-outline-variant/50 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all text-on-surface"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">细节描述</label>
+                <textarea 
+                  rows={3}
+                  value={newTask.description} 
+                  onChange={e => setNewTask({...newTask, description: e.target.value})}
+                  className="w-full bg-surface-container-low border border-outline-variant/50 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all resize-none placeholder:text-outline/50"
+                  placeholder="补充说明任务的具体要求或备注..."
+                ></textarea>
+              </div>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer group">
+                  <input 
+                    type="radio" 
+                    name="priority" 
+                    value="normal" 
+                    checked={newTask.priority === 'normal'} 
+                    onChange={() => setNewTask({...newTask, priority: 'normal'})}
+                    className="accent-primary w-4 h-4 cursor-pointer"
+                  />
+                  <span className="group-hover:text-primary transition-colors">普通优先级</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer group">
+                  <input 
+                    type="radio" 
+                    name="priority" 
+                    value="high" 
+                    checked={newTask.priority === 'high'} 
+                    onChange={() => setNewTask({...newTask, priority: 'high'})}
+                    className="accent-error w-4 h-4 cursor-pointer"
+                  />
+                  <span className="text-error font-bold">紧急优先高</span>
+                </label>
+              </div>
+              <div className="pt-4 flex justify-end gap-3 border-t border-surface-container mt-6">
+                <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-on-surface-variant hover:bg-surface-container rounded-xl transition-colors">取消</button>
+                <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-primary hover:opacity-90 active:scale-95 shadow-md rounded-xl transition-all">创建任务</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
