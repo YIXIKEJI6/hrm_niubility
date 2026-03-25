@@ -77,7 +77,7 @@ function OrgModule() {
     const result = await apiCall('/api/org/sync', 'POST');
     setSyncing(false);
     if (result.code === 0) {
-      setMsg(`✅ 同步成功：${result.data.departments} 个部门，${result.data.members} 名成员`);
+      setMsg(`✅ 同步成功：${result.data.departments} 个部门，${result.data.members} 名成员（新增 ${result.data.new_members || 0}，更新 ${result.data.updated_members || 0}）${result.data.failed_departments?.length ? `\n⚠️ 失败部门: ${result.data.failed_departments.join('、')}` : ''}`);
       refetch();
     } else {
       setMsg(`❌ 同步失败：${result.message}`);
@@ -1008,7 +1008,7 @@ export default function AdminPanel({ navigate }: { navigate: (view: string) => v
     if (action === 'sync') {
       setActionMsg('正在同步企微通讯录...');
       const res = await apiCall('/api/org/sync', 'POST');
-      setActionMsg(res.code === 0 ? `✅ 同步成功：${res.data.departments} 个部门，${res.data.members} 名成员` : `❌ ${res.message}`);
+      setActionMsg(res.code === 0 ? `✅ 同步成功：${res.data.departments} 个部门，${res.data.members} 名成员（新增 ${res.data.new_members || 0}，更新 ${res.data.updated_members || 0}）` : `❌ ${res.message}`);
     } else if (action === 'generate') {
       const month = new Date().toISOString().slice(0, 7);
       setActionMsg(`正在生成 ${month} 工资表...`);

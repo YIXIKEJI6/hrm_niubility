@@ -9,6 +9,17 @@ const router = Router();
 router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, res) => {
   try {
     const db = getDb();
+
+    // 1. 预检查配置
+    const { wecomConfig } = await import('../config/wecom');
+    if (!wecomConfig.corpId) {
+      return res.status(400).json({ code: 400, message: '未配置企业微信 Corp ID (WECOM_CORP_ID)' });
+    }
+    if (!wecomConfig.contactSecret && !wecomConfig.secret) {
+      return res.status(400).json({ code: 400, message: '未配置企业微信通讯录密钥 (WECOM_CONTACT_SECRET)，请在管理后台 → 应用管理 → 通讯录同步 中获取' });
+    }
+
+    // 2. 拉取企微部门列表
     const departments = await getDepartmentList();
 
     const deptStmt = db.prepare(`INSERT OR REPLACE INTO departments (id, name, parent_id) VALUES (?, ?, ?)`);
@@ -16,32 +27,79 @@ router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, re
       `INSERT OR REPLACE INTO users (id, name, title, department_id, avatar_url, mobile, email, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    const syncTransaction = db.transaction(() => {
+    // 3. 同步部门
+    const syncDeptTransaction = db.transaction(() => {
       for (const dept of departments) {
         deptStmt.run(dept.id, dept.name, dept.parentid || 0);
       }
     });
-    syncTransaction();
+    syncDeptTransaction();
 
-    // 同步各部门成员
+    // 4. 同步各部门成员
     let memberCount = 0;
+    let newCount = 0;
+    let updateCount = 0;
+    const failedDepts: string[] = [];
+    const existingUserIds = new Set(
+      (db.prepare('SELECT id FROM users').all() as any[]).map((u: any) => u.id)
+    );
+
     for (const dept of departments) {
       try {
         const members = await getDepartmentMembers(dept.id);
         const memberTransaction = db.transaction(() => {
           for (const m of members) {
-            userStmt.run(m.userid, m.name, m.position || '', dept.id, m.avatar || '', m.mobile || '', m.email || '', new Date().toISOString());
+            const userId = m.userid || m.UserId;
+            if (!userId) continue;
+            
+            if (existingUserIds.has(userId)) {
+              updateCount++;
+            } else {
+              newCount++;
+              existingUserIds.add(userId);
+            }
+            
+            userStmt.run(
+              userId,
+              m.name,
+              m.position || m.title || '',
+              dept.id,
+              m.avatar || m.thumb_avatar || '',
+              m.mobile || '',
+              m.email || '',
+              new Date().toISOString()
+            );
             memberCount++;
           }
         });
         memberTransaction();
-      } catch (e) {
-        console.error(`同步部门 ${dept.name} 成员失败:`, e);
+      } catch (e: any) {
+        console.error(`同步部门 ${dept.name} 成员失败:`, e.message);
+        failedDepts.push(dept.name);
       }
     }
 
-    return res.json({ code: 0, data: { departments: departments.length, members: memberCount } });
+    // 5. 同步部门 leader
+    for (const dept of departments) {
+      if (dept.department_leader && dept.department_leader.length > 0) {
+        const leaderId = Array.isArray(dept.department_leader) ? dept.department_leader[0] : dept.department_leader;
+        db.prepare('UPDATE departments SET leader_user_id = ? WHERE id = ?').run(leaderId, dept.id);
+      }
+    }
+
+    return res.json({
+      code: 0,
+      data: {
+        departments: departments.length,
+        members: memberCount,
+        new_members: newCount,
+        updated_members: updateCount,
+        failed_departments: failedDepts,
+        using_contact_secret: !!wecomConfig.contactSecret,
+      }
+    });
   } catch (error: any) {
+    console.error('同步企微通讯录失败:', error);
     return res.status(500).json({ code: 500, message: error.message });
   }
 });

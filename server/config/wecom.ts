@@ -2,6 +2,8 @@ export const wecomConfig = {
   corpId: process.env.WECOM_CORP_ID || '',
   agentId: process.env.WECOM_AGENT_ID || '',
   secret: process.env.WECOM_SECRET || '',
+  // 通讯录同步：需要使用「通讯录同步助手」的 Secret，而非自建应用 Secret
+  contactSecret: process.env.WECOM_CONTACT_SECRET || '',
   // 企微API基础地址
   apiBase: 'https://qyapi.weixin.qq.com/cgi-bin',
 };
