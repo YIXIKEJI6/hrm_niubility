@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+server-dist/
+coverage/
+data/*.db
+.DS_Store
+*.log
+*.zip
+.env*
+!.env.example
+deploy.config
+
+data/
