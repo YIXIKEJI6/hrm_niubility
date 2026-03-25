@@ -239,6 +239,95 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
         </div>
       </div>
     )}
+
+    {/* Changelog / Update Notification Modal */}
+    {isNotifOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsNotifOpen(false)} />
+        <div className="relative bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-6 fade-in duration-200 max-h-[85vh] flex flex-col">
+          {/* Header */}
+          <div className="shrink-0 px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0060a9] to-[#409eff] flex items-center justify-center text-white shadow-md">
+                <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>campaign</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">系统更新通知</h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Release Changelog</p>
+              </div>
+            </div>
+            <button onClick={() => setIsNotifOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+          </div>
+
+          {/* Body — scrollable list of all versions */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {changelogData.map((item, idx) => (
+              <div key={item.version} className={`relative pl-6 ${idx < changelogData.length - 1 ? 'pb-6 border-l-2 border-slate-200 dark:border-slate-700 ml-2' : 'ml-2'}`}>
+                {/* Timeline dot */}
+                <div className={`absolute -left-[9px] top-0 w-5 h-5 rounded-full border-2 border-white dark:border-slate-900 ${idx === 0 ? 'bg-[#0060a9] shadow-md shadow-primary/30' : 'bg-slate-300 dark:bg-slate-600'}`} />
+
+                {/* Version header */}
+                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                  <span className={`text-sm font-black px-3 py-0.5 rounded-lg ${idx === 0 ? 'bg-[#0060a9] text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                    {item.version}
+                  </span>
+                  <span className="text-xs text-slate-400 font-medium">{item.date}</span>
+                  {item.isMajor && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">重大更新</span>
+                  )}
+                </div>
+
+                {/* Title */}
+                <h4 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">{item.title}</h4>
+
+                {/* Features */}
+                {item.features.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px]">new_releases</span> 新功能
+                    </p>
+                    <ul className="space-y-1">
+                      {item.features.map((f, fi) => (
+                        <li key={fi} className="text-sm text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                          <span className="text-emerald-500 mt-1 shrink-0">•</span>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Fixes */}
+                {item.fixes && item.fixes.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px]">build</span> 修复
+                    </p>
+                    <ul className="space-y-1">
+                      {item.fixes.map((f, fi) => (
+                        <li key={fi} className="text-sm text-slate-500 dark:text-slate-400 flex items-start gap-2">
+                          <span className="text-blue-400 mt-1 shrink-0">•</span>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="shrink-0 px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30 flex justify-between items-center">
+            <p className="text-[10px] text-slate-400">共 {changelogData.length} 个版本</p>
+            <button onClick={() => setIsNotifOpen(false)} className="px-5 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-bold rounded-xl transition-colors">关闭</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     </>
   );
 }
