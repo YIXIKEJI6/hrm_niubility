@@ -62,8 +62,11 @@ export async function getUserIdByCode(code: string): Promise<{ userId: string }>
 // 获取部门列表（使用通讯录 token）
 export async function getDepartmentList(): Promise<any[]> {
   const token = await getContactAccessToken();
-  const url = `${wecomConfig.apiBase}/department/list?access_token=${token}`;
+  // 显式传 id=1 (根部门) 确保返回完整部门树
+  const url = `${wecomConfig.apiBase}/department/list?access_token=${token}&id=1`;
   const res = await axios.get(url);
+
+  console.log('[WeCom] department/list response:', JSON.stringify(res.data).slice(0, 500));
 
   if (res.data.errcode !== 0) {
     throw new Error(`获取部门列表失败: ${res.data.errmsg} (errcode: ${res.data.errcode})`);
