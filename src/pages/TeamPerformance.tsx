@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
+import SmartFormInputs, { SmartData, encodeSmartDescription } from '../components/SmartFormInputs';
+import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
 
 interface PerfPlan {
   id: number;
@@ -25,6 +27,9 @@ interface Subordinate {
   tasks: {
     id: number;
     title: string;
+    description: string;
+    target_value: string;
+    category: string;
     status: string;
     deadline: string;
     progress: number;
@@ -36,7 +41,8 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
   const [approvals, setApprovals] = useState<PerfPlan[]>([]);
   const [subordinates, setSubordinates] = useState<Subordinate[]>([]);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [newPlan, setNewPlan] = useState({ title: '', description: '', category: '业务', target_value: '', deadline: '', assignee_id: '' });
+  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [newPlan, setNewPlan] = useState<SmartData & { assignee_id: string }>({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', assignee_id: '' });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -110,6 +116,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ 
           ...newPlan, 
+          description: encodeSmartDescription(newPlan.resource, newPlan.relevance),
           quarter: '2024 Q2', 
           creator_id: currentUser?.id,
           approver_id: currentUser?.id // 主管自己做审批人
@@ -124,7 +131,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         await fetch(`/api/perf/plans/${planId}/approve`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
         
         setIsAssignModalOpen(false);
-        setNewPlan({ title: '', description: '', category: '业务', target_value: '', deadline: '', assignee_id: '' });
+        setNewPlan({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', assignee_id: '' });
         fetchTeamStatus(); // Refresh subordinates' tasks after assigning
       }
     } catch (err) {
@@ -188,7 +195,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
             </h3>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               {approvals.map(plan => (
-                <div key={plan.id} className="bg-amber-50/50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-900/30 p-5 rounded-2xl flex flex-col sm:flex-row justify-between gap-4 group hover:shadow-md transition-all relative overflow-hidden">
+                <div key={plan.id} 
+                  onClick={() => setSelectedTask(plan)}
+                  className="bg-amber-50/50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-900/30 p-5 rounded-2xl flex flex-col sm:flex-row justify-between gap-4 group hover:shadow-md transition-all relative overflow-hidden cursor-pointer"
+                >
                   <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
                   <div className="pl-2">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -203,10 +213,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                     </div>
                   </div>
                   <div className="flex sm:flex-col items-center justify-end gap-2 shrink-0">
-                    <button onClick={() => handleApprove(plan.id)} className="w-full sm:w-28 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95">
+                    <button onClick={(e) => { e.stopPropagation(); handleApprove(plan.id); }} className="w-full sm:w-28 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95">
                       <span className="material-symbols-outlined text-[16px]">check_circle</span> 通过
                     </button>
-                    <button onClick={() => handleReject(plan.id)} className="w-full sm:w-28 px-4 py-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 font-bold rounded-xl text-sm transition-all flex items-center justify-center gap-1 active:scale-95">
+                    <button onClick={(e) => { e.stopPropagation(); handleReject(plan.id); }} className="w-full sm:w-28 px-4 py-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 font-bold rounded-xl text-sm transition-all flex items-center justify-center gap-1 active:scale-95">
                        <span className="material-symbols-outlined text-[16px]">cancel</span> 驳回
                     </button>
                   </div>
@@ -283,7 +293,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                       <div className="text-xs text-slate-400 py-6 text-center border border-dashed border-slate-200 dark:border-slate-700/50 rounded-lg">该成员暂无可追踪的绩效任务</div>
                     ) : (
                       sub.tasks.map(task => (
-                        <div key={task.id} className="p-3 bg-white/80 dark:bg-slate-800/80 rounded-lg flex flex-col gap-1.5 border border-slate-100 dark:border-slate-700/50 hover:border-primary/30 transition-colors">
+                        <div key={task.id} 
+                          onClick={() => setSelectedTask(task)}
+                          className="p-3 bg-white/80 dark:bg-slate-800/80 rounded-lg flex flex-col gap-1.5 border border-slate-100 dark:border-slate-700/50 hover:border-primary/30 transition-colors cursor-pointer"
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <span className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-2 leading-tight">{task.title}</span>
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap shrink-0 ${
@@ -341,32 +354,11 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                 )}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">强制目标标题</label>
-                <input required value={newPlan.title} onChange={e => setNewPlan({...newPlan, title: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="例如：本月必须拿下的 3 个大客户" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">执行策略</label>
-                <textarea required value={newPlan.description} onChange={e => setNewPlan({...newPlan, description: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm h-20 resize-none focus:ring-2 focus:ring-primary outline-none" placeholder="强制要求的落地细节..." />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">分类</label>
-                  <select value={newPlan.category} onChange={e => setNewPlan({...newPlan, category: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                    <option>业务</option>
-                    <option>技术</option>
-                    <option>团队</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">死线 (Deadline)</label>
-                  <input required type="date" value={newPlan.deadline} onChange={e => setNewPlan({...newPlan, deadline: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">关键结果 (Target)</label>
-                <input required value={newPlan.target_value} onChange={e => setNewPlan({...newPlan, target_value: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="明确的数值或交付物" />
-              </div>
+              <SmartFormInputs
+                data={newPlan}
+                onChange={(data) => setNewPlan({ ...newPlan, ...data })}
+                hideCategory={false}
+              />
               <div className="pt-4 flex justify-end gap-3 border-t border-outline-variant/20">
                 <button type="button" onClick={() => setIsAssignModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-highest transition-colors">取消</button>
                 <button type="submit" disabled={submitting} className="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold hover:shadow-lg disabled:opacity-70 transition-all flex items-center gap-2">
@@ -375,6 +367,46 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedTask(null)} />
+          <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 fade-in duration-200">
+            {/* Header */}
+            <div className="shrink-0 px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center shadow-inner">
+                  <span className="material-symbols-outlined">description</span>
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800 dark:text-slate-100 text-lg leading-tight">任务详情</h3>
+                  <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">SMART Goal Details</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedTask(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <SmartGoalDisplayFromPlan
+                title={selectedTask.title}
+                target_value={selectedTask.target_value}
+                description={selectedTask.description}
+                deadline={selectedTask.deadline}
+                category={selectedTask.category}
+              />
+            </div>
+            
+            {/* Footer Actions (Only for Team Manager to close) */}
+            <div className="shrink-0 p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30 flex justify-end">
+               <button onClick={() => setSelectedTask(null)} className="px-6 py-2.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-bold rounded-xl transition-colors min-w-[100px]">关闭</button>
+            </div>
           </div>
         </div>
       )}

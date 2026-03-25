@@ -34,18 +34,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthenticating, setIsAuthenticating] = useState(true);
   const [userPerms, setUserPerms] = useState<string[]>([]);
 
-  const fetchPerms = async (userId: string) => {
+  const fetchPerms = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/permissions/user/${userId}`, {
+      const res = await fetch('/api/permissions/me', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
       if (json.code === 0) setUserPerms(json.data);
     } catch {
-      // 网络错误时沿用空权限列表（不影响正常使用）
+      // 网络错误时沿用空权限列表
     }
   };
+
 
   const fetchCurrentUser = async (token: string) => {
     try {
@@ -56,7 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await res.json();
         if (data.code === 0 && data.data) {
           setCurrentUser(data.data);
-          await fetchPerms(data.data.id);
+          await fetchPerms();
           return true;
         }
       }
@@ -93,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (data.code === 0 && data.data?.token) {
               localStorage.setItem('token', data.data.token);
               setCurrentUser(data.data.user);
-              await fetchPerms(data.data.user.id);
+              await fetchPerms();
               window.history.replaceState({}, document.title, window.location.pathname);
             }
           } catch (err) {

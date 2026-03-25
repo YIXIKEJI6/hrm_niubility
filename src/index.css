@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Force dark mode to use class strategy, not OS prefers-color-scheme.
+   Without this, dark: variants fire based on macOS system settings,
+   causing a black flash on every page load. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-surface: #f8f9ff;
   --color-surface-container-lowest: #ffffff;

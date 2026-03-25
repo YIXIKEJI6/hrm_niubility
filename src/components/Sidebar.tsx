@@ -21,13 +21,14 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
   // permKey → 对应 /api/permissions/definitions 中的功能模块 key
   const navItems = [
     { id: 'dashboard', icon: 'dashboard', label: '仪表盘', permKey: 'view_dashboard' },
-    { id: 'personal', icon: 'person', label: '个人管理', permKey: null },
+    { id: 'personal', icon: 'person', label: '个人管理', permKey: 'view_personal' },
     { id: 'team', icon: 'groups', label: '团队管理', permKey: 'view_team_perf' },
     { id: 'company', icon: 'analytics', label: '公司绩效池', permKey: 'view_company_pool' },
-    { id: 'hrmap', icon: 'map', label: '人力地图', permKey: null },
+    { id: 'hrmap', icon: 'map', label: '人力地图', permKey: 'view_hr_map' },
     { id: 'panorama', icon: 'view_quilt', label: '全景仪表盘', permKey: 'view_panorama' },
     { id: 'org', icon: 'account_tree', label: '组织关系', permKey: 'view_org_chart' },
   ].filter(item => !item.permKey || hasPermission(item.permKey));
+
 
   useEffect(() => {
     // Check if user has read the latest version changelog

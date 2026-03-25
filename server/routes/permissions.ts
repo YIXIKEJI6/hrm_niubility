@@ -8,8 +8,10 @@ const router = Router();
 export const ALL_PERMISSIONS = [
   // 功能模块
   { key: 'view_dashboard',    label: '查看仪表盘',      module: '功能模块', defaultRoles: ['admin','hr','manager','employee'] },
+  { key: 'view_personal',     label: '个人管理中心',    module: '功能模块', defaultRoles: ['admin','hr','manager','employee'] },
   { key: 'view_team_perf',    label: '团队绩效管理',    module: '功能模块', defaultRoles: ['admin','hr','manager'] },
   { key: 'view_company_pool', label: '公司绩效池',      module: '功能模块', defaultRoles: ['admin','hr','manager','employee'] },
+  { key: 'view_hr_map',       label: '人力地图',        module: '功能模块', defaultRoles: ['admin','hr','manager','employee'] },
   { key: 'view_panorama',     label: '全景仪表盘',      module: '功能模块', defaultRoles: ['admin','hr','manager'] },
   { key: 'view_admin',        label: '管理后台',        module: '功能模块', defaultRoles: ['admin','hr'] },
   { key: 'view_org_chart',    label: '组织关系图',      module: '功能模块', defaultRoles: ['admin','hr','manager','employee'] },
@@ -17,6 +19,8 @@ export const ALL_PERMISSIONS = [
   { key: 'create_perf_plan',  label: '发起绩效目标',    module: '操作权限', defaultRoles: ['admin','hr','manager','employee'] },
   { key: 'approve_perf_plan', label: '审批绩效计划',    module: '操作权限', defaultRoles: ['admin','hr','manager'] },
   { key: 'push_goal_to_member',label: '向下派发目标',   module: '操作权限', defaultRoles: ['admin','hr','manager'] },
+  { key: 'manage_perf_pool',  label: '发布/删除绩效池任务', module: '操作权限', defaultRoles: ['admin','hr','manager'] },
+  { key: 'delete_perf_task',  label: '删除绩效池任务(仅管理员)', module: '操作权限', defaultRoles: ['admin'] },
   { key: 'manage_salary',     label: '工资表管理',      module: '操作权限', defaultRoles: ['admin','hr'] },
   { key: 'send_message',      label: '群发通知消息',    module: '操作权限', defaultRoles: ['admin','hr'] },
   // 字段权限
@@ -57,12 +61,20 @@ router.get('/definitions', authMiddleware, requireRole('admin', 'hr'), (_req, re
   return res.json({ code: 0, data: ALL_PERMISSIONS });
 });
 
+// ── GET /api/permissions/me ───────────────────────────────────────────
+// 返回当前登录用户自己的有效权限 key 列表（不限角色，任何登录用户可用）
+router.get('/me', authMiddleware, (req: AuthRequest, res) => {
+  const effective = getUserEffectivePerms(req.userId!);
+  return res.json({ code: 0, data: effective });
+});
+
 // ── GET /api/permissions/user/:userId ────────────────────────────────
 // 返回某用户的有效权限 key 列表
 router.get('/user/:userId', authMiddleware, requireRole('admin', 'hr'), (req, res) => {
   const effective = getUserEffectivePerms(req.params.userId);
   return res.json({ code: 0, data: effective });
 });
+
 
 // ── PUT /api/permissions/user/:userId ────────────────────────────────
 // 保存某用户的权限覆盖（传入该用户最终拥有的 key 列表）

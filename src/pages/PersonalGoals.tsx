@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
+import SmartFormInputs, { SmartData, encodeSmartDescription, decodeSmartDescription } from '../components/SmartFormInputs';
+import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
 
 interface PerfPlan {
   id: number;
@@ -23,16 +25,28 @@ const statusMap: Record<string, { label: string, color: string, bg: string }> = 
   rejected: { label: '被驳回', color: 'text-error', bg: 'bg-red-100' },
 };
 
+
 export default function PersonalGoals({ navigate }: { navigate: (view: string) => void }) {
+
   const { currentUser } = useAuth();
   const [plans, setPlans] = useState<PerfPlan[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newPlan, setNewPlan] = useState({ title: '', description: '', category: '业务', target_value: '', deadline: '', quarter: '2024 Q2' });
+  const [newPlan, setNewPlan] = useState<SmartData & { quarter: string }>({
+    title: '完成人事管理系统（HRM）性能优化与看板重构',
+    target_value: '核心页面加载速度提升 50%（<1.5s），重构看板组件且达到 0 P0 Bug',
+    resource: '需要前端团队提供 2 周专项开发工时，UI 设计配合打磨看板交互细节',
+    relevance: '直接关联公司年度数字化转型战略，极大提升内网工具的操作效率',
+    deadline: '2024-09-30',
+    category: '技术',
+    quarter: '2024 Q3'
+  });
   const [submitting, setSubmitting] = useState(false);
   // 二次编辑被驳回的目标
   const [editingPlan, setEditingPlan] = useState<PerfPlan | null>(null);
-  const [editForm, setEditForm] = useState({ title: '', description: '', category: '业务', target_value: '', deadline: '' });
+  const [editForm, setEditForm] = useState<SmartData>({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务' });
   const [resubmitting, setResubmitting] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PerfPlan | null>(null);
+
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -63,15 +77,16 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
-          ...newPlan, 
+        body: JSON.stringify({
+          ...newPlan,
+          description: encodeSmartDescription(newPlan.resource, newPlan.relevance),
           // 向上申请
           assignee_id: currentUser?.id,
           approver_id: approverId
         })
       });
       const createData = await createRes.json();
-      
+
       // 2. 立即送审
       if (createData.code === 0 && createData.data?.id) {
         await fetch(`/api/perf/plans/${createData.data.id}/submit`, {
@@ -79,7 +94,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           headers: { 'Authorization': `Bearer ${token}` }
         });
         setIsModalOpen(false);
-        setNewPlan({ title: '', description: '', category: '业务', target_value: '', deadline: '', quarter: '2024 Q2' });
+        setNewPlan({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', quarter: '2024 Q2' });
         fetchPlans();
       }
     } catch (err) {
@@ -89,14 +104,12 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
     }
   };
 
-  const handleUpdateProgress = async (id: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const newProgress = parseInt(e.target.value, 10);
-    // Optimistic update
-    setPlans(plans.map(p => p.id === id ? { ...p, progress: newProgress } : p));
-  };
-
   const submitProgress = async (id: number, progress: number) => {
     try {
+      // Optimistic update to keep views perfectly in sync without deep re-fetching
+      setPlans(prev => prev.map(p => p.id === id ? { ...p, progress } : p));
+      setSelectedPlan(prev => prev && prev.id === id ? { ...prev, progress } : prev);
+
       const token = localStorage.getItem('token');
       await fetch(`/api/perf/plans/${id}/progress`, {
         method: 'PUT',
@@ -112,9 +125,11 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
   // 打开驳回任务的编辑弹窗
   const handleOpenEdit = (plan: PerfPlan) => {
     setEditingPlan(plan);
+    const decoded = decodeSmartDescription(plan.description || '');
     setEditForm({
       title: plan.title,
-      description: plan.description || '',
+      resource: decoded.resource,
+      relevance: decoded.relevance,
       category: plan.category,
       target_value: plan.target_value || '',
       deadline: plan.deadline || '',
@@ -131,7 +146,10 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
       await fetch(`/api/perf/plans/${editingPlan.id}/resubmit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify({
+          ...editForm,
+          description: encodeSmartDescription(editForm.resource, editForm.relevance)
+        }),
       });
       setEditingPlan(null);
       fetchPlans();
@@ -184,81 +202,159 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             </div>
           </div>
 
-          {/* Goals List */}
-          <div className="bg-surface-container-low rounded-xl overflow-hidden p-1 shadow-sm">
-            <div className="bg-surface-container-lowest rounded-lg">
-              <div className="p-6 border-b border-surface-container-low">
-                <h3 className="text-lg font-bold">我参与的绩效目标 ({plans.length})</h3>
-              </div>
+          {/* ── Kanban Board ─────────────────────────────────────────── */}
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="material-symbols-outlined text-primary text-[18px]">view_kanban</span>
+              <h3 className="font-bold text-base text-on-surface">我参与的绩效目标</h3>
+              <span className="text-[11px] px-2 py-0.5 bg-primary-container text-on-primary-container rounded-full font-bold">{plans.length}</span>
+            </div>
+            <button onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-bold text-primary hover:bg-primary-container/20 px-3 py-1.5 rounded-xl transition-colors border border-primary/20">
+              <span className="material-symbols-outlined text-[14px]">add</span>申请新目标
+            </button>
+          </div>
 
-              <div className="divide-y divide-surface-container-low">
-                {plans.length === 0 ? (
-                  <div className="p-12 text-center text-outline">暂无目标数据，赶紧点击上方按钮申请吧！</div>
-                ) : plans.map((plan) => (
-                  <div key={plan.id} className="p-6 hover:bg-surface-container-low transition-colors group">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="bg-blue-100 text-primary text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">{plan.category}</span>
-                          <h4 className="text-lg font-bold text-on-surface">{plan.title}</h4>
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusMap[plan.status]?.bg || 'bg-slate-100'} ${statusMap[plan.status]?.color || 'text-slate-500'}`}>
-                            {statusMap[plan.status]?.label || plan.status}
-                          </span>
-                        </div>
-                        <p className="text-sm text-on-surface-variant mb-4">{plan.description}</p>
-                        <div className="flex items-center gap-4 text-xs font-label">
-                          <div className="flex items-center gap-1.5 text-on-surface-variant">
-                            <span className="material-symbols-outlined text-sm">flag</span>
-                            <span className="font-medium">目标: {plan.target_value}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-on-surface-variant">
-                            <span className="material-symbols-outlined text-sm">schedule</span>
-                            <span>截止: {plan.deadline}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Interactive Progress Slider */}
-                      <div className="lg:w-72">
-                        <div className="flex justify-between text-xs mb-2 font-label">
-                          <span className="font-bold">当前进度 {plan.progress || 0}%</span>
-                          {plan.status === 'in_progress' ? <span className="text-primary cursor-pointer animate-pulse">拖曳更新</span> : null}
-                        </div>
-                        <div className="relative h-2.5 bg-surface-container-high rounded-full overflow-hidden">
-                          <div className={`h-full ${plan.status === 'in_progress' ? 'bg-primary' : 'bg-outline-variant'} rounded-full`} style={{ width: `${plan.progress || 0}%` }}></div>
-                          {plan.status === 'in_progress' && (
-                            <input 
-                              type="range" 
-                              min="0" max="100" 
-                              value={plan.progress || 0} 
-                              onChange={(e) => handleUpdateProgress(plan.id, e)} 
-                              onMouseUp={() => submitProgress(plan.id, plan.progress)}
-                              onTouchEnd={() => submitProgress(plan.id, plan.progress)}
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-                            />
-                          )}
-                        </div>
-
-                        {/* 被驳回的操作按钮 */}
-                        {plan.status === 'rejected' && (
-                          <button
-                            onClick={() => handleOpenEdit(plan)}
-                            className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold rounded-xl shadow-sm hover:shadow-md active:scale-95 transition-all"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">edit_note</span>
-                            修改后重新提交审批
-                          </button>
-                        )}
-                      </div>
-
+          {/* Horizontal scroll kanban */}
+          <div className="flex gap-4 overflow-x-auto pb-4">
+            {([
+              { keys: ['draft', 'pending_review', 'rejected'], label: '筹备中', color: '#94a3b8', bg: '#f1f5f9', wide: false },
+              { keys: ['in_progress'],                          label: '进行中', color: '#3b82f6', bg: '#eff6ff', wide: true  },
+              { keys: ['completed'],                            label: '待考核', color: '#8b5cf6', bg: '#f5f3ff', wide: false },
+              { keys: ['approved'],                             label: '已归档', color: '#10b981', bg: '#ecfdf5', wide: false },
+            ] as const).map(col => {
+              const colPlans = plans.filter(p => (col.keys as readonly string[]).includes(p.status));
+              const colKey = col.keys[0]; // for UI keying
+              return (
+                <div key={colKey}
+                  className={`flex-none flex flex-col rounded-2xl overflow-hidden shadow-sm bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 ${col.wide ? 'w-[560px]' : 'w-72'}`}>
+                  {/* Column header */}
+                  <div className="px-4 pt-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="h-0.5 rounded-full mb-3" style={{ backgroundColor: col.color }} />
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-slate-700 dark:text-slate-200">{col.label}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                        style={{ background: col.bg, color: col.color }}>
+                        {colPlans.length}
+                      </span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+
+                  {/* Cards */}
+                  <div className="flex-1 overflow-y-auto p-3 space-y-3 max-h-[600px]">
+                    {colPlans.length === 0 && (
+                      <div className="py-8 text-center text-slate-300 dark:text-slate-600 text-xs">暂无</div>
+                    )}
+
+                    {colPlans.map((plan) => {
+                      const pct = plan.progress || 0;
+                      const today = new Date();
+                      const dl = plan.deadline ? new Date(plan.deadline) : null;
+                      const daysLeft = dl ? Math.ceil((dl.getTime() - today.getTime()) / 86400000) : null;
+                      const dlColor = daysLeft === null ? 'text-slate-400'
+                        : daysLeft < 0 ? 'text-red-500'
+                        : daysLeft <= 7 ? 'text-amber-500'
+                        : 'text-slate-400';
+                      const dlText = daysLeft === null ? '' : daysLeft < 0 ? `逾期${Math.abs(daysLeft)}天` : daysLeft === 0 ? '今天截止' : `${daysLeft}天后`;
+
+                      const barColor = plan.status === 'in_progress' ? '#3b82f6'
+                        : plan.status === 'approved' ? '#10b981'
+                        : plan.status === 'rejected' ? '#ef4444'
+                        : '#cbd5e1';
+
+                      return (
+                        <div key={plan.id}
+                          onClick={() => setSelectedPlan(plan)}
+                          className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3.5 border border-slate-200/50 dark:border-slate-700/50 hover:shadow-md hover:border-slate-300/80 dark:hover:border-slate-600 transition-all group cursor-pointer">
+
+                          {/* Card top: category + title */}
+                          <div className="flex items-start gap-2 mb-2.5">
+                            <span className="flex-none mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
+                              style={{ background: col.bg, color: col.color }}>
+                              {plan.category}
+                            </span>
+                            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-snug line-clamp-2 flex-1">
+                              {plan.title}
+                            </h4>
+                          </div>
+
+                          {/* Description */}
+                          {plan.description && (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 mb-2.5 leading-relaxed">
+                              {plan.description}
+                            </p>
+                          )}
+
+                          {/* Meta row */}
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3">
+                            {plan.deadline && (
+                              <span className={`flex items-center gap-0.5 text-[10px] font-medium ${dlColor}`}>
+                                <span className="material-symbols-outlined text-[11px]">{daysLeft !== null && daysLeft < 0 ? 'alarm_off' : 'schedule'}</span>
+                                {dlText || plan.deadline}
+                              </span>
+                            )}
+                            {plan.target_value && (
+                              <span className="flex items-center gap-0.5 text-[10px] text-slate-400">
+                                <span className="material-symbols-outlined text-[10px]">flag</span>
+                                {plan.target_value}
+                              </span>
+                            )}
+                            {plan.quarter && (
+                              <span className="text-[10px] text-slate-400">{plan.quarter}</span>
+                            )}
+                          </div>
+
+                          {/* Progress — pure static bar + number input, bar only changes after save */}
+                          <div className="w-full"
+                            onClick={e => e.stopPropagation()}
+                            onPointerDown={e => e.stopPropagation()}
+                            onMouseDown={e => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[9px] text-slate-400">当前进度</span>
+                              {plan.status === 'in_progress' ? (
+                                <span className="flex items-center gap-0.5">
+                                  <input
+                                    type="number" min="0" max="100" defaultValue={pct}
+                                    onBlur={e => {
+                                      const v = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                                      e.target.value = String(v);
+                                      submitProgress(plan.id, v);
+                                    }}
+                                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                    className="w-8 text-right text-[10px] font-black bg-transparent outline-none tabular-nums" style={{ color: barColor }}
+                                  />
+                                  <span className="text-[10px] font-bold" style={{ color: barColor }}>%</span>
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-bold" style={{ color: barColor }}>{pct}%</span>
+                              )}
+                            </div>
+                            <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                            </div>
+                          </div>
+
+                          {/* Rejected CTA */}
+                          {plan.status === 'rejected' && (
+                            <button onClick={() => handleOpenEdit(plan)}
+                              className="mt-2.5 w-full flex items-center justify-center gap-1 py-1.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-lg border border-amber-200/60 hover:bg-amber-100 transition-colors">
+                              <span className="material-symbols-outlined text-[12px]">edit_note</span>
+                              修改重新提交
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                </div>
+              );
+            })}
           </div>
         </div>
       </main>
+
 
       {/* Slide-in Modal for Application */}
       {isModalOpen && (
@@ -270,42 +366,19 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             <div className="px-6 py-5 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/50">
               <h3 className="text-lg font-black text-on-surface">向上申请目标</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-outline hover:bg-surface-container-highest p-1 rounded-full transition-colors">
-                 <span className="material-symbols-outlined">close</span>
+                <span className="material-symbols-outlined">close</span>
               </button>
             </div>
             <form onSubmit={handleCreatePlan} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">目标标题</label>
-                <input required value={newPlan.title} onChange={e => setNewPlan({...newPlan, title: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="例如：Q3 营收增长计划" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">行动描述</label>
-                <textarea required value={newPlan.description} onChange={e => setNewPlan({...newPlan, description: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm h-24 resize-none focus:ring-2 focus:ring-primary outline-none" placeholder="描述你的关键步骤..." />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">分类</label>
-                  <select value={newPlan.category} onChange={e => setNewPlan({...newPlan, category: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                    <option>业务</option>
-                    <option>技术</option>
-                    <option>团队</option>
-                    <option>其他</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">截止日期</label>
-                  <input required type="date" value={newPlan.deadline} onChange={e => setNewPlan({...newPlan, deadline: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">衡量指标 (Target)</label>
-                <input required value={newPlan.target_value} onChange={e => setNewPlan({...newPlan, target_value: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="例如：达成 100 万销售额" />
-              </div>
+              <SmartFormInputs
+                data={newPlan}
+                onChange={(data) => setNewPlan({ ...newPlan, ...data })}
+              />
               <div className="pt-4 flex justify-end gap-3 border-t border-outline-variant/20">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-highest transition-colors">取消</button>
                 <button type="submit" disabled={submitting} className="primary-gradient text-white px-6 py-2.5 rounded-xl font-bold hover:shadow-lg disabled:opacity-70 transition-all flex items-center gap-2">
-                   {submitting ? <span className="material-symbols-outlined animate-spin" style={{fontVariationSettings:"'wght' 300"}}>progress_activity</span> : null}
-                   确认发起申请
+                  {submitting ? <span className="material-symbols-outlined animate-spin" style={{ fontVariationSettings: "'wght' 300" }}>progress_activity</span> : null}
+                  确认发起申请
                 </button>
               </div>
             </form>
@@ -327,48 +400,122 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                 <p className="text-[11px] text-on-surface-variant mt-0.5">该目标已被主管驳回，请修改后重新提交审批</p>
               </div>
               <button onClick={() => setEditingPlan(null)} className="text-outline hover:bg-surface-container-highest p-1 rounded-full transition-colors">
-                 <span className="material-symbols-outlined">close</span>
+                <span className="material-symbols-outlined">close</span>
               </button>
             </div>
             <form onSubmit={handleResubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">目标标题</label>
-                <input required value={editForm.title} onChange={e => setEditForm({...editForm, title: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">行动描述</label>
-                <textarea required value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm h-24 resize-none focus:ring-2 focus:ring-amber-400 outline-none" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">分类</label>
-                  <select value={editForm.category} onChange={e => setEditForm({...editForm, category: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 outline-none">
-                    <option>业务</option>
-                    <option>技术</option>
-                    <option>团队</option>
-                    <option>其他</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">截止日期</label>
-                  <input required type="date" value={editForm.deadline} onChange={e => setEditForm({...editForm, deadline: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">衡量指标 (Target)</label>
-                <input required value={editForm.target_value} onChange={e => setEditForm({...editForm, target_value: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-amber-400 outline-none" />
-              </div>
+              <SmartFormInputs
+                data={editForm}
+                onChange={(data) => setEditForm({ ...editForm, ...data })}
+              />
               <div className="pt-4 flex justify-end gap-3 border-t border-outline-variant/20">
                 <button type="button" onClick={() => setEditingPlan(null)} className="px-5 py-2.5 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-highest transition-colors">取消</button>
                 <button type="submit" disabled={resubmitting} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-2.5 rounded-xl font-bold hover:shadow-lg disabled:opacity-70 transition-all flex items-center gap-2">
-                   {resubmitting ? <span className="material-symbols-outlined animate-spin" style={{fontVariationSettings:"'wght' 300"}}>progress_activity</span> : <span className="material-symbols-outlined text-[18px]">send</span>}
-                   修改并重新提交
+                  {resubmitting ? <span className="material-symbols-outlined animate-spin" style={{ fontVariationSettings: "'wght' 300" }}>progress_activity</span> : <span className="material-symbols-outlined text-[18px]">send</span>}
+                  修改并重新提交
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ── Plan Detail Modal ─────────────────────────────────────── */}
+      {selectedPlan && (() => {
+        const sp = selectedPlan;
+        const st = statusMap[sp.status] || { label: sp.status, color: 'text-slate-500', bg: 'bg-slate-100' };
+        const today = new Date();
+        const dl = sp.deadline ? new Date(sp.deadline) : null;
+        const daysLeft = dl ? Math.ceil((dl.getTime() - today.getTime()) / 86400000) : null;
+        const accentColor = {
+          in_progress: '#3b82f6', pending_review: '#f59e0b', completed: '#8b5cf6',
+          approved: '#10b981', rejected: '#ef4444', draft: '#94a3b8',
+        }[sp.status] || '#94a3b8';
+        const pct = sp.progress || 0;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setSelectedPlan(null)} />
+            <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 fade-in duration-200">
+              {/* Color accent header bar */}
+              <div className="h-2" style={{ backgroundColor: accentColor }} />
+              <div className="px-8 py-6">
+                {/* Top row: badges + close */}
+                <div className="flex items-start justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500">{sp.category}</span>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${st.bg} ${st.color}`}>{st.label}</span>
+                    {sp.quarter && <span className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-lg">{sp.quarter}</span>}
+                  </div>
+                  <button onClick={() => setSelectedPlan(null)} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                    <span className="material-symbols-outlined text-[20px]">close</span>
+                  </button>
+                </div>
+
+                <div className="mb-6">
+                  <SmartGoalDisplayFromPlan
+                    title={sp.title}
+                    target_value={sp.target_value}
+                    description={sp.description}
+                    deadline={sp.deadline}
+                    category={sp.category}
+                  />
+                </div>
+
+                {/* Progress — pure static bar + number input */}
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-5 py-4 mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[14px]">trending_up</span>当前进度
+                    </span>
+                    {sp.status === 'in_progress' ? (
+                      <span className="flex items-center gap-0.5">
+                        <input
+                          type="number" min="0" max="100" defaultValue={pct}
+                          onBlur={e => {
+                            const v = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                            e.target.value = String(v);
+                            submitProgress(sp.id, v);
+                          }}
+                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          className="w-12 text-right text-xl font-black bg-transparent outline-none tabular-nums" style={{ color: accentColor }}
+                        />
+                        <span className="text-xl font-black" style={{ color: accentColor }}>%</span>
+                      </span>
+                    ) : (
+                      <span className="text-xl font-black" style={{ color: accentColor }}>{pct}%</span>
+                    )}
+                  </div>
+                  <div className="w-full h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: accentColor }} />
+                  </div>
+                  {sp.status === 'in_progress' && (
+                    <p className="text-[10px] text-blue-400 mt-2 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px]">edit</span>
+                      直接修改数字，回车或点击其他区域即可保存
+                    </p>
+                  )}
+                </div>
+
+
+                {/* Actions */}
+                <div className="flex gap-3">
+                  {sp.status === 'rejected' && (
+                    <button onClick={() => { setSelectedPlan(null); handleOpenEdit(sp); }}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 text-sm font-bold rounded-xl border border-amber-200/60 hover:bg-amber-100 transition-colors">
+                      <span className="material-symbols-outlined text-[16px]">edit_note</span>
+                      修改后重新提交
+                    </button>
+                  )}
+                  <button onClick={() => setSelectedPlan(null)}
+                    className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                    关闭
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

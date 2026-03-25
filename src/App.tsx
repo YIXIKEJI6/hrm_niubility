@@ -11,11 +11,12 @@ import DevRoleSwitcher from './components/DevRoleSwitcher';
 import { useAuth } from './context/AuthContext';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState(() => localStorage.getItem('hrm_current_view') || 'company');
   const { isAuthenticating, currentUser } = useAuth();
 
   const navigate = (view: string) => {
     setCurrentView(view);
+    localStorage.setItem('hrm_current_view', view);
   };
 
   if (isAuthenticating) {

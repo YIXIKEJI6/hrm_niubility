@@ -188,7 +188,7 @@ router.get('/team-status', authMiddleware, (req: AuthRequest, res) => {
 
   // 为每个下属查找他们所有的任务
   for (let sub of subordinates) {
-    const plans = db.prepare(`SELECT id, title, status, deadline, progress FROM perf_plans WHERE assignee_id = ? AND status != 'draft' ORDER BY deadline ASC`).all(sub.id);
+    const plans = db.prepare(`SELECT id, title, status, deadline, progress, description, target_value, category, quarter FROM perf_plans WHERE assignee_id = ? AND status != 'draft' ORDER BY deadline ASC`).all(sub.id);
     sub.tasks = plans;
     // 模拟一个绩效评分以美化 UI
     sub.score = 90 + Math.floor(Math.random() * 10); 
