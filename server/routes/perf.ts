@@ -98,21 +98,36 @@ router.post('/plans/:id/reject', authMiddleware, async (req: AuthRequest, res) =
   return res.json({ code: result.success ? 0 : 400, message: result.message });
 });
 
-// 考核评分
-router.post('/plans/:id/assess', authMiddleware, async (req: AuthRequest, res) => {
-  // 先过渡到 pending_assessment，再到 assessed
-  const step1 = await transitionPlan(Number(req.params.id), 'pending_assessment', req.userId!);
-  if (!step1.success) return res.json({ code: 400, message: step1.message });
-  const result = await transitionPlan(Number(req.params.id), 'assessed', req.userId!, { score: req.body.score });
-  return res.json({ code: result.success ? 0 : 400, message: result.message });
-});
+// 统一审批操作 (approve / reject / assess / reward)
+router.post('/plans/:id/review', authMiddleware, async (req: AuthRequest, res) => {
+  const { action, reason, score, bonus } = req.body;
+  const planId = Number(req.params.id);
 
-// 发放奖励
-router.post('/plans/:id/reward', authMiddleware, async (req: AuthRequest, res) => {
-  const step1 = await transitionPlan(Number(req.params.id), 'pending_reward', req.userId!, { bonus: req.body.bonus });
-  if (!step1.success) return res.json({ code: 400, message: step1.message });
-  const result = await transitionPlan(Number(req.params.id), 'completed', req.userId!);
-  return res.json({ code: result.success ? 0 : 400, message: result.message });
+  switch (action) {
+    case 'approve': {
+      const result = await transitionPlan(planId, 'approved', req.userId!);
+      return res.json({ code: result.success ? 0 : 400, message: result.message });
+    }
+    case 'reject': {
+      const result = await transitionPlan(planId, 'rejected', req.userId!, { comment: reason });
+      return res.json({ code: result.success ? 0 : 400, message: result.message });
+    }
+    case 'assess': {
+      // pending_assessment → assessed
+      const step1 = await transitionPlan(planId, 'pending_assessment', req.userId!);
+      if (!step1.success) return res.json({ code: 400, message: step1.message });
+      const result = await transitionPlan(planId, 'assessed', req.userId!, { score });
+      return res.json({ code: result.success ? 0 : 400, message: result.message });
+    }
+    case 'reward': {
+      const step1 = await transitionPlan(planId, 'pending_reward', req.userId!, { bonus });
+      if (!step1.success) return res.json({ code: 400, message: step1.message });
+      const result = await transitionPlan(planId, 'completed', req.userId!);
+      return res.json({ code: result.success ? 0 : 400, message: result.message });
+    }
+    default:
+      return res.status(400).json({ code: 400, message: `未知操作: ${action}` });
+  }
 });
 
 // 更新进度
@@ -157,16 +172,13 @@ router.get('/team-status', authMiddleware, (req: AuthRequest, res) => {
 
   let subordinates: any[] = [];
   if (['admin', 'hr'].includes(currentUser.role)) {
-    // HR/Admin: 看所有激活用户
     subordinates = db.prepare('SELECT id, name, title, avatar_url, role FROM users WHERE status = ? AND id != ?').all('active', req.userId);
   } else {
-    // 查找当前用户作为负责人的所有部门及其子部门
     const departments = db.prepare('SELECT id, parent_id FROM departments').all() as any[];
     const leaderDepts = db.prepare('SELECT id FROM departments WHERE leader_user_id = ?').all(req.userId) as any[];
     
     let deptIds = leaderDepts.map(d => d.id);
     
-    // 递归查找所有子部门
     const findChildren = (parentIds: number[]) => {
       const children = departments.filter(d => parentIds.includes(d.parent_id)).map(d => d.id);
       if (children.length > 0) {
@@ -186,12 +198,12 @@ router.get('/team-status', authMiddleware, (req: AuthRequest, res) => {
     }
   }
 
-  // 为每个下属查找他们所有的任务
+  // 使用真实数据：平均分 + 任务列表
   for (let sub of subordinates) {
-    const plans = db.prepare(`SELECT id, title, status, deadline, progress, description, target_value, category, quarter FROM perf_plans WHERE assignee_id = ? AND status != 'draft' ORDER BY deadline ASC`).all(sub.id);
+    const plans = db.prepare(`SELECT id, title, status, deadline, progress, description, target_value, category, quarter, score, bonus FROM perf_plans WHERE assignee_id = ? AND status != 'draft' ORDER BY deadline ASC`).all(sub.id);
     sub.tasks = plans;
-    // 模拟一个绩效评分以美化 UI
-    sub.score = 90 + Math.floor(Math.random() * 10); 
+    const avgScore = (db.prepare("SELECT AVG(score) as avg FROM perf_plans WHERE assignee_id = ? AND score IS NOT NULL").get(sub.id) as any)?.avg;
+    sub.score = avgScore ? Math.round(avgScore * 10) / 10 : null;
   }
 
   return res.json({ code: 0, data: subordinates });

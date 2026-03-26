@@ -7,6 +7,7 @@ import HRMap from './pages/HRMap';
 import PanoramaDashboard from './pages/PanoramaDashboard';
 import AdminPanel from './pages/AdminPanel';
 import OrgChart from './pages/OrgChart';
+import MyWorkflows from './pages/MyWorkflows';
 import DevRoleSwitcher from './components/DevRoleSwitcher';
 import { useAuth } from './context/AuthContext';
 
@@ -62,6 +63,8 @@ export default function App() {
         return <AdminPanel navigate={navigate} />;
       case 'org':
         return <OrgChart navigate={navigate} />;
+      case 'workflows':
+        return <MyWorkflows navigate={navigate} />;
       default:
         return <EmployeeDashboard navigate={navigate} />;
     }

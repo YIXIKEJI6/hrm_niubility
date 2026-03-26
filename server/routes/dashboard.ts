@@ -62,6 +62,9 @@ router.get('/panorama', authMiddleware, (_req, res) => {
   const completedPlans = (db.prepare("SELECT COUNT(*) as c FROM perf_plans WHERE status = 'completed'").get() as any)?.c || 0;
   const avgScore = (db.prepare("SELECT AVG(score) as avg FROM perf_plans WHERE score IS NOT NULL").get() as any)?.avg;
   const totalBonus = (db.prepare("SELECT COALESCE(SUM(bonus), 0) as total FROM perf_plans WHERE status = 'completed'").get() as any)?.total || 0;
+  const pendingCount = (db.prepare("SELECT COUNT(*) as c FROM perf_plans WHERE status = 'pending_review'").get() as any)?.c || 0;
+  const inProgressCount = (db.prepare("SELECT COUNT(*) as c FROM perf_plans WHERE status = 'in_progress'").get() as any)?.c || 0;
+  const rejectedCount = (db.prepare("SELECT COUNT(*) as c FROM perf_plans WHERE status = 'rejected'").get() as any)?.c || 0;
 
   // 按部门统计
   const deptStats = db.prepare(`
@@ -76,13 +79,40 @@ router.get('/panorama', authMiddleware, (_req, res) => {
     ORDER BY avg_progress DESC
   `).all();
 
+  // 状态分布
+  const statusDistribution = { pending_review: pendingCount, in_progress: inProgressCount, completed: completedPlans, rejected: rejectedCount };
+
+  // 月度趋势（最近6个月）
+  const monthlyTrends = db.prepare(`
+    SELECT strftime('%Y-%m', created_at) as month,
+      COUNT(*) as created,
+      COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed
+    FROM perf_plans
+    WHERE created_at >= date('now', '-6 months')
+    GROUP BY month ORDER BY month
+  `).all();
+
+  // 优秀员工排行（按平均分）
+  const topPerformers = db.prepare(`
+    SELECT u.id, u.name, u.title, u.avatar_url, u.department_id,
+      d.name as dept_name,
+      AVG(pp.score) as avg_score,
+      COUNT(pp.id) as plan_count
+    FROM users u
+    JOIN perf_plans pp ON pp.assignee_id = u.id AND pp.score IS NOT NULL
+    LEFT JOIN departments d ON u.department_id = d.id
+    GROUP BY u.id
+    HAVING plan_count >= 1
+    ORDER BY avg_score DESC LIMIT 5
+  `).all();
+
   return res.json({
     code: 0,
     data: {
       totalEmployees, totalPlans, completedPlans,
       completionRate: totalPlans > 0 ? Math.round((completedPlans / totalPlans) * 100 * 10) / 10 : 0,
       avgScore: avgScore ? Math.round(avgScore * 10) / 10 : null,
-      totalBonus, deptStats,
+      totalBonus, deptStats, statusDistribution, monthlyTrends, topPerformers,
     },
   });
 });

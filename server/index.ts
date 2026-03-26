@@ -24,6 +24,8 @@ import poolRoutes from './routes/pool';
 import aiRoutes from './routes/ai';
 import taskRoutes from './routes/tasks';
 import permissionsRoutes from './routes/permissions';
+import notificationsRoutes from './routes/notifications';
+import workflowsRoutes from './routes/workflows';
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
@@ -45,6 +47,8 @@ app.use('/api/pool', poolRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/permissions', permissionsRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/workflows', workflowsRoutes);
 
 // 健康检查
 app.get('/api/health', (_req, res) => {

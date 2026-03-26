@@ -18,10 +18,17 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
   const avatarRef = useRef<HTMLDivElement>(null);
   const { currentUser, logout, hasPermission } = useAuth();
 
+  // 消息盒状态
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+  const [inboxMessages, setInboxMessages] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const inboxRef = useRef<HTMLDivElement>(null);
+
   // permKey → 对应 /api/permissions/definitions 中的功能模块 key
   const navItems = [
-    { id: 'dashboard', icon: 'dashboard', label: '仪表盘', permKey: 'view_dashboard' },
+    { id: 'dashboard', icon: 'home', label: '我的主页', permKey: 'view_dashboard' },
     { id: 'personal', icon: 'person', label: '个人管理', permKey: 'view_personal' },
+    { id: 'workflows', icon: 'assignment', label: '我的流程', permKey: '' },
     { id: 'team', icon: 'groups', label: '团队管理', permKey: 'view_team_perf' },
     { id: 'company', icon: 'analytics', label: '公司绩效池', permKey: 'view_company_pool' },
     { id: 'hrmap', icon: 'map', label: '人力地图', permKey: 'view_hr_map' },
@@ -45,10 +52,65 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
       if (avatarRef.current && !avatarRef.current.contains(event.target as Node)) {
         setIsAvatarMenuOpen(false);
       }
+      if (inboxRef.current && !inboxRef.current.contains(event.target as Node)) {
+        setIsInboxOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // 获取通知列表和未读数
+  const fetchInbox = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const [msgRes, countRes] = await Promise.all([
+        fetch('/api/notifications?limit=20', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/notifications/unread-count', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const msgJson = await msgRes.json();
+      const countJson = await countRes.json();
+      if (msgJson.code === 0) setInboxMessages(msgJson.data || []);
+      if (countJson.code === 0) setUnreadCount(countJson.data?.count || 0);
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchInbox();
+    const interval = setInterval(fetchInbox, 30000); // 每30秒刷新
+    return () => clearInterval(interval);
+  }, []);
+
+  const markRead = async (id: number) => {
+    const token = localStorage.getItem('token');
+    await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    fetchInbox();
+  };
+
+  const markAllRead = async () => {
+    const token = localStorage.getItem('token');
+    await fetch('/api/notifications/read-all', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    fetchInbox();
+  };
+
+  const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return '刚刚';
+    if (diffMin < 60) return `${diffMin}分钟前`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}小时前`;
+    return `${Math.floor(diffHr / 24)}天前`;
+  };
+
+  const NOTIF_ICON: Record<string, string> = {
+    proposal: 'description',
+    perf: 'trending_up',
+    salary: 'payments',
+    system: 'settings',
+  };
 
   const handleNotifClick = () => {
     setIsNotifOpen(!isNotifOpen);
@@ -118,6 +180,67 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
         <div className="relative group hidden md:block">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
           <input className="w-56 lg:w-72 pl-9 pr-4 py-1.5 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-lg focus:ring-2 focus:ring-[#0060a9]/20 text-xs placeholder:text-slate-400 outline-none transition-all focus:w-80" placeholder="搜索功能、员工或文档..." type="text" />
+        </div>
+        <div className="h-6 w-px bg-slate-200/60 dark:bg-slate-800/60 mx-1"></div>
+
+        {/* 消息盒 Bell Icon */}
+        <div ref={inboxRef} className="relative">
+          <button onClick={() => { setIsInboxOpen(p => !p); if (!isInboxOpen) fetchInbox(); }}
+            className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            <span className="material-symbols-outlined text-slate-500 text-[20px]">mail</span>
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 animate-pulse">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {isInboxOpen && (
+            <div className="absolute right-0 top-12 w-80 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200/60 dark:border-slate-800 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-blue-500">inbox</span>
+                  消息盒
+                  {unreadCount > 0 && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">{unreadCount}</span>}
+                </h3>
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} className="text-[10px] text-blue-500 hover:text-blue-700 font-bold">全部已读</button>
+                )}
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {inboxMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+                    <span className="material-symbols-outlined text-4xl mb-2 opacity-30">notifications_off</span>
+                    <p className="text-xs">暂无消息</p>
+                  </div>
+                ) : inboxMessages.map((msg: any) => (
+                  <div key={msg.id}
+                    onClick={() => {
+                      markRead(msg.id);
+                      navigate('dashboard');
+                      setIsInboxOpen(false);
+                    }}
+                    className={`px-4 py-3 border-b border-slate-50 dark:border-slate-800/50 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${!msg.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                    <div className="flex gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!msg.is_read ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                        <span className={`material-symbols-outlined text-[16px] ${!msg.is_read ? 'text-blue-600' : 'text-slate-400'}`}>
+                          {NOTIF_ICON[msg.type] || 'notifications'}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <p className={`text-xs font-bold truncate ${!msg.is_read ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500'}`}>{msg.title}</p>
+                          <span className="text-[10px] text-slate-400 flex-shrink-0 ml-2">{formatTime(msg.created_at)}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{msg.content}</p>
+                      </div>
+                      {!msg.is_read && <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1.5"></div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="h-6 w-px bg-slate-200/60 dark:bg-slate-800/60 mx-1"></div>
         {/* Avatar Dropdown */}

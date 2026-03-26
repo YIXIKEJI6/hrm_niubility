@@ -45,6 +45,8 @@ export async function transitionPlan(
       notifyAction = 'approved';
       notifyUsers.push(plan.creator_id);
       if (plan.assignee_id) notifyUsers.push(plan.assignee_id);
+      // 审批通过后自动流转到 in_progress，覆盖初始 status
+      updates[0] = `status = 'in_progress'`;
       break;
     case 'rejected':
       if (extra?.comment) updates.push(`reject_reason = '${extra.comment}'`);

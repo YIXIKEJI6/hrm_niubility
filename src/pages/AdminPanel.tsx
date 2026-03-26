@@ -56,6 +56,9 @@ function StatusBadge({ status }: { status: string }) {
     pending: ['待处理', 'bg-amber-100 text-amber-700'],
     sent: ['已发送', 'bg-green-100 text-green-700'],
     failed: ['发送失败', 'bg-red-100 text-red-600'],
+    assessed: ['已评分', 'bg-violet-100 text-violet-700'],
+    pending_assessment: ['待评分', 'bg-purple-100 text-purple-700'],
+    pending_reward: ['待发奖', 'bg-orange-100 text-orange-700'],
   };
   const [label, cls] = map[status] || [status, 'bg-slate-100 text-slate-500'];
   return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{label}</span>;
@@ -227,44 +230,45 @@ function OrgModule() {
 
 // ─── MODULE: 绩效管理 ─────────────────────────────────────────────────
 function PerfModule() {
-  const { data: plans, loading, refetch } = useApiGet('/api/perf/plans?status=pending_review');
-  const { data: allPlans, refetch: refetchAll } = useApiGet('/api/perf/plans');
-  const [tab, setTab] = useState<'pending' | 'all'>('pending');
+  const { data: allPlans, loading, refetch } = useApiGet('/api/perf/plans');
+  const [tab, setTab] = useState<'pending' | 'active' | 'assess' | 'done'>('pending');
   const [actionMsg, setActionMsg] = useState('');
-  const [rejectIds, setRejectIds] = useState<Set<number>>(new Set());
   const [rejectReason, setRejectReason] = useState('');
   const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [scoreInputs, setScoreInputs] = useState<Record<number, string>>({});
+  const [bonusInputs, setBonusInputs] = useState<Record<number, string>>({});
   const [working, setWorking] = useState(false);
 
-  const handleApprove = async (id: number) => {
+  const pending = allPlans?.filter((p: any) => p.status === 'pending_review') || [];
+  const active = allPlans?.filter((p: any) => ['in_progress', 'approved'].includes(p.status)) || [];
+  const assess = allPlans?.filter((p: any) => ['in_progress', 'assessed'].includes(p.status)) || [];
+  const done = allPlans?.filter((p: any) => p.status === 'completed') || [];
+
+  const doAction = async (id: number, action: string, extra?: any) => {
     setWorking(true);
-    const res = await apiCall(`/api/perf/plans/${id}/review`, 'POST', { action: 'approve' });
+    const res = await apiCall(`/api/perf/plans/${id}/review`, 'POST', { action, ...extra });
     setWorking(false);
-    setActionMsg(res.code === 0 ? '✅ 审批通过' : `❌ ${res.message}`);
-    refetch(); refetchAll();
+    setActionMsg(res.code === 0 ? `✅ ${res.message}` : `❌ ${res.message}`);
+    refetch();
   };
 
-  const handleReject = async (id: number) => {
-    if (!rejectReason.trim()) return;
-    setWorking(true);
-    const res = await apiCall(`/api/perf/plans/${id}/review`, 'POST', { action: 'reject', reason: rejectReason });
-    setWorking(false);
-    setRejectingId(null);
-    setRejectReason('');
-    setActionMsg(res.code === 0 ? '✅ 已驳回' : `❌ ${res.message}`);
-    refetch(); refetchAll();
-  };
+  const TABS = [
+    { key: 'pending', label: '待审批', count: pending.length, color: 'amber' },
+    { key: 'active', label: '进行中', count: active.length, color: 'blue' },
+    { key: 'assess', label: '评分/奖金', count: assess.length, color: 'violet' },
+    { key: 'done', label: '已完成', count: done.length, color: 'emerald' },
+  ];
 
-  const displayList = tab === 'pending' ? plans : allPlans;
+  const displayList = tab === 'pending' ? pending : tab === 'active' ? active : tab === 'assess' ? assess : done;
 
   return (
     <div>
       {actionMsg && <div className="mb-3 text-sm bg-slate-50 rounded-lg px-3 py-2">{actionMsg}</div>}
-      <div className="flex gap-2 mb-4">
-        {[['pending', `待审批 (${plans?.length || 0})`], ['all', `全部计划 (${allPlans?.length || 0})`]].map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k as any)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === k ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-            {label}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key as any)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === t.key ? `bg-${t.color}-600 text-white` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            {t.label} ({t.count})
           </button>
         ))}
       </div>
@@ -277,16 +281,52 @@ function PerfModule() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm text-slate-800 truncate">{plan.title}</span>
                     <StatusBadge status={plan.status} />
+                    {plan.score != null && <span className="text-xs font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">{plan.score}分</span>}
+                    {plan.bonus != null && <span className="text-xs font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">¥{plan.bonus}</span>}
                   </div>
                   <p className="text-xs text-slate-400">发起人: {plan.creator_id} · 负责人: {plan.assignee_id} · 截止: {plan.deadline || '—'}</p>
-                  {plan.description && <p className="text-xs text-slate-500 mt-1 truncate">{plan.description}</p>}
+                  {plan.progress != null && plan.status !== 'completed' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${plan.progress}%` }} />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-500">{plan.progress}%</span>
+                    </div>
+                  )}
                 </div>
-                {plan.status === 'pending_review' && (
+
+                {/* 审批操作 */}
+                {tab === 'pending' && plan.status === 'pending_review' && (
                   <div className="flex gap-2 shrink-0">
-                    <button onClick={() => handleApprove(plan.id)} disabled={working}
+                    <button onClick={() => doAction(plan.id, 'approve')} disabled={working}
                       className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-60">通过</button>
                     <button onClick={() => setRejectingId(plan.id)}
                       className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100">驳回</button>
+                  </div>
+                )}
+
+                {/* 评分操作 */}
+                {tab === 'assess' && plan.status === 'in_progress' && (
+                  <div className="flex gap-2 shrink-0 items-center">
+                    <input type="number" min="0" max="100" placeholder="分数"
+                      value={scoreInputs[plan.id] || ''} onChange={e => setScoreInputs({ ...scoreInputs, [plan.id]: e.target.value })}
+                      className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                    <button onClick={() => doAction(plan.id, 'assess', { score: Number(scoreInputs[plan.id]) })}
+                      disabled={working || !scoreInputs[plan.id]}
+                      className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-60">评分</button>
+                  </div>
+                )}
+
+                {/* 发放奖金操作 */}
+                {tab === 'assess' && plan.status === 'assessed' && (
+                  <div className="flex gap-2 shrink-0 items-center">
+                    <span className="text-xs text-violet-600 font-bold">{plan.score}分</span>
+                    <input type="number" min="0" placeholder="奖金 ¥"
+                      value={bonusInputs[plan.id] || ''} onChange={e => setBonusInputs({ ...bonusInputs, [plan.id]: e.target.value })}
+                      className="w-20 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                    <button onClick={() => doAction(plan.id, 'reward', { bonus: Number(bonusInputs[plan.id]) })}
+                      disabled={working || !bonusInputs[plan.id]}
+                      className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-60">发放</button>
                   </div>
                 )}
               </div>
@@ -294,7 +334,8 @@ function PerfModule() {
                 <div className="mt-3 flex gap-2">
                   <input className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-300"
                     placeholder="驳回原因（必填）" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-                  <button onClick={() => handleReject(plan.id)} disabled={!rejectReason.trim() || working}
+                  <button onClick={() => { doAction(plan.id, 'reject', { reason: rejectReason }); setRejectingId(null); setRejectReason(''); }}
+                    disabled={!rejectReason.trim() || working}
                     className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-60">确认驳回</button>
                   <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="px-2 py-1.5 text-slate-400 hover:text-slate-600">
                     <span className="material-symbols-outlined text-[16px]">close</span>
@@ -561,6 +602,43 @@ function PoolModule() {
   const [creating, setCreating] = useState(false);
   const [msg, setMsg] = useState('');
 
+  // Proposal review state
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [proposalLoading, setProposalLoading] = useState(true);
+  const [reviewTab, setReviewTab] = useState<'pending_hr' | 'pending_admin'>('pending_hr');
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [reviewMsg, setReviewMsg] = useState('');
+
+  const fetchProposals = async () => {
+    setProposalLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/pool/proposals', { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      if (json.code === 0) setProposals(json.data || []);
+    } catch {}
+    setProposalLoading(false);
+  };
+
+  useEffect(() => { fetchProposals(); }, []);
+
+  const handleReview = async (id: number, action: 'approve' | 'reject', reason?: string) => {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/pool/proposals/${id}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, reason }),
+    });
+    const json = await res.json();
+    setReviewMsg(json.code === 0 ? `✅ ${json.message}` : `❌ ${json.message}`);
+    setRejectingId(null);
+    setRejectReason('');
+    fetchProposals();
+    if (action === 'approve' && json.code === 0) refetch();
+    setTimeout(() => setReviewMsg(''), 3000);
+  };
+
   const handleCreate = async () => {
     if (!form.title.trim() || !form.bonus) return;
     setCreating(true);
@@ -580,11 +658,99 @@ function PoolModule() {
     }
   };
 
-  const difficultyMap: Record<string, string> = { easy: '简单', normal: '普通', hard: '困难', expert: '专家级' };
-  const difficultyColor: Record<string, string> = { easy: 'text-green-600', normal: 'text-blue-600', hard: 'text-amber-600', expert: 'text-red-600' };
+  const difficultyMap: Record<string, string> = { easy: '简单', normal: '普通', hard: '困难', expert: '专家级', '低': '低', '中': '中', '高': '高', '专家': '专家' };
+  const difficultyColor: Record<string, string> = { easy: 'text-green-600', normal: 'text-blue-600', hard: 'text-amber-600', expert: 'text-red-600', '低': 'text-green-600', '中': 'text-blue-600', '高': 'text-amber-600', '专家': 'text-red-600' };
+
+  const pendingHr = proposals.filter(p => p.proposal_status === 'pending_hr');
+  const pendingAdmin = proposals.filter(p => p.proposal_status === 'pending_admin');
+  const rejectedList = proposals.filter(p => p.proposal_status === 'rejected');
+  const filtered = reviewTab === 'pending_hr' ? pendingHr : pendingAdmin;
 
   return (
     <div>
+      {/* ── Proposal Review Section ── */}
+      <div className="mb-6">
+        <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+          <span className="material-symbols-outlined text-[16px] text-amber-500">rate_review</span>
+          员工提案审批
+          {(pendingHr.length + pendingAdmin.length) > 0 && (
+            <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold">{pendingHr.length + pendingAdmin.length} 待处理</span>
+          )}
+        </h4>
+        {reviewMsg && <div className="text-sm mb-3 bg-slate-50 rounded-lg px-3 py-2">{reviewMsg}</div>}
+        <div className="flex gap-2 mb-3">
+          {[
+            { key: 'pending_hr' as const, label: `待人事审核 (${pendingHr.length})` },
+            { key: 'pending_admin' as const, label: `待总经理复核 (${pendingAdmin.length})` },
+          ].map(tab => (
+            <button key={tab.key} onClick={() => setReviewTab(tab.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${reviewTab === tab.key ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {proposalLoading ? <p className="text-slate-400 text-sm py-4 text-center">加载中...</p> : (
+          <div className="space-y-2">
+            {filtered.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6 bg-slate-50 rounded-xl">暂无待审批提案</p>
+            ) : filtered.map((p: any) => (
+              <div key={p.id} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="font-bold text-sm text-slate-800">{p.title}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">提案人: {p.creator_name || p.created_by} · {new Date(p.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <span className="text-sm font-black text-rose-600">¥{(p.bonus || 0).toLocaleString()}</span>
+                </div>
+                {p.description && <p className="text-xs text-slate-500 mb-2">{p.description}</p>}
+                <div className="flex items-center gap-2 text-[10px] text-slate-400 mb-3">
+                  {p.department && <span>部门: {p.department}</span>}
+                  <span>难度: {difficultyMap[p.difficulty] || p.difficulty}</span>
+                  <span>上限: {p.max_participants} 人</span>
+                </div>
+                {rejectingId === p.id ? (
+                  <div className="flex gap-2">
+                    <input className="flex-1 border border-red-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-300"
+                      placeholder="驳回原因..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
+                    <button onClick={() => handleReview(p.id, 'reject', rejectReason)} disabled={!rejectReason.trim()}
+                      className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 disabled:opacity-50">确认驳回</button>
+                    <button onClick={() => setRejectingId(null)} className="px-3 py-1.5 bg-slate-200 rounded-lg text-xs">取消</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => handleReview(p.id, 'approve')}
+                      className="px-4 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">check</span>
+                      {p.proposal_status === 'pending_hr' ? '人事通过' : '总经理通过'}
+                    </button>
+                    <button onClick={() => setRejectingId(p.id)}
+                      className="px-4 py-1.5 bg-white text-red-500 rounded-lg text-xs font-bold border border-red-200 hover:bg-red-50 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">close</span>驳回
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {rejectedList.length > 0 && (
+          <details className="mt-3">
+            <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-600">已驳回 ({rejectedList.length})</summary>
+            <div className="mt-2 space-y-2">
+              {rejectedList.map((p: any) => (
+                <div key={p.id} className="bg-red-50/50 rounded-lg p-3">
+                  <p className="text-sm font-medium text-slate-600">{p.title}</p>
+                  <p className="text-[10px] text-red-500 mt-1">驳回原因: {p.reject_reason}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
+      <hr className="border-slate-100 mb-4" />
+
+      {/* ── Existing Pool Tasks ── */}
       <div className="flex items-center justify-between mb-4">
         <h4 className="font-bold text-slate-700">绩效池任务</h4>
         <button onClick={() => setShowCreate(!showCreate)}

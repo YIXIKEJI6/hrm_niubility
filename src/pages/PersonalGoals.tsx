@@ -188,19 +188,36 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             </div>
           </div>
 
-          {/* Top Level Overview */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
-            <div className="bg-primary p-6 rounded-xl text-white relative overflow-hidden flex items-center shadow-xl lg:col-span-3">
-              <div className="z-10">
-                <p className="text-primary-fixed-dim font-medium mb-1">总体季度完成度</p>
-                <h3 className="text-4xl font-black mb-2 tracking-tighter">{overallProgress}%</h3>
-                <p className="text-sm text-primary-fixed-dim/80">包含所有推进中与待审核的目标</p>
+          {/* Three Category Progress Bars */}
+          {(() => {
+            // 分类：季度 / 月度 / 专项
+            const quarterly = plans.filter(p => p.quarter && !p.category?.includes('专项') && !p.category?.includes('公坚'));
+            const monthly = plans.filter(p => !p.quarter && !p.category?.includes('专项') && !p.category?.includes('公坚'));
+            const special = plans.filter(p => p.category?.includes('专项') || p.category?.includes('公坚'));
+            const calcPct = (arr: typeof plans) => arr.length > 0 ? Math.round(arr.reduce((a, p) => a + (p.progress || 0), 0) / arr.length) : 0;
+            const bars = [
+              { label: '季度任务', pct: calcPct(quarterly), count: quarterly.length, icon: 'calendar_month', gradient: 'from-[#0060a9] to-[#409eff]' },
+              { label: '月度任务', pct: calcPct(monthly), count: monthly.length, icon: 'event_note', gradient: 'from-[#7c3aed] to-[#a78bfa]' },
+              { label: '专项任务', pct: calcPct(special), count: special.length, icon: 'star', gradient: 'from-[#d97706] to-[#fbbf24]' },
+            ];
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+                {bars.map(b => (
+                  <div key={b.label} className={`bg-gradient-to-br ${b.gradient} p-5 rounded-xl text-white relative overflow-hidden shadow-lg`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="material-symbols-outlined text-white/60 text-[18px]">{b.icon}</span>
+                      <span className="text-white/80 text-xs font-bold">{b.label}</span>
+                      <span className="text-white/50 text-[10px]">{b.count} 项</span>
+                    </div>
+                    <h3 className="text-3xl font-black tracking-tighter mb-2">{b.pct}%</h3>
+                    <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-white/80 rounded-full transition-all duration-500" style={{ width: `${b.pct}%` }} />
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="absolute -right-8 -bottom-16 opacity-20">
-                <span className="material-symbols-outlined text-[200px]">auto_graph</span>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* ── Kanban Board ─────────────────────────────────────────── */}
           <div className="mb-4 flex items-center justify-between">

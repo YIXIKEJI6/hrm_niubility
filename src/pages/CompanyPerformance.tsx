@@ -62,6 +62,14 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [deptFilter, setDeptFilter] = useState('全部部门');
   const [sortByBonus, setSortByBonus] = useState(false);
 
+  // Proposal state
+  const [showPropose, setShowPropose] = useState(false);
+  const [proposeForm, setProposeForm] = useState({ title: '', description: '', department: '', difficulty: '中', bonus: '', max_participants: '5' });
+  const [proposing, setProposing] = useState(false);
+  const [proposeMsg, setProposeMsg] = useState('');
+  const [myProposals, setMyProposals] = useState<any[]>([]);
+  const [showMyProposals, setShowMyProposals] = useState(false);
+
   const { hasPermission, currentUser } = useAuth();
   const canManagePool = hasPermission('manage_perf_pool');
   const canDeleteTask = hasPermission('delete_perf_task');
@@ -76,7 +84,45 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
     setLoading(false);
   };
 
-  useEffect(() => { fetchTasks(); }, []);
+  const fetchMyProposals = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/pool/my-proposals', { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      if (json.code === 0) setMyProposals(json.data.filter((p: any) => p.proposal_status !== 'approved'));
+    } catch {}
+  };
+
+  useEffect(() => { fetchTasks(); fetchMyProposals(); }, []);
+
+  const handlePropose = async () => {
+    if (!proposeForm.title.trim()) return;
+    setProposing(true);
+    setProposeMsg('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/pool/tasks/propose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...proposeForm, bonus: Number(proposeForm.bonus) || 0, max_participants: Number(proposeForm.max_participants) || 5 }),
+      });
+      const json = await res.json();
+      setProposeMsg(json.code === 0 ? '✅ 提案已提交，等待人事审核' : `❌ ${json.message}`);
+      if (json.code === 0) {
+        setProposeForm({ title: '', description: '', department: '', difficulty: '中', bonus: '', max_participants: '5' });
+        fetchMyProposals();
+        setTimeout(() => setShowPropose(false), 1500);
+      }
+    } catch { setProposeMsg('❌ 网络错误'); }
+    setProposing(false);
+  };
+
+  const PROPOSAL_STATUS: Record<string, [string, string]> = {
+    pending_hr: ['⏳ 待人事审核', 'bg-amber-100 text-amber-700'],
+    pending_admin: ['🔍 待总经理复核', 'bg-blue-100 text-blue-700'],
+    approved: ['✅ 已通过', 'bg-emerald-100 text-emerald-700'],
+    rejected: ['❌ 已驳回', 'bg-red-100 text-red-600'],
+  };
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   let displayed = tasks.filter(t => {
@@ -303,13 +349,23 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               })}
 
               {/* Propose new task */}
-              <div className="group border-2 border-dashed border-outline-variant/40 rounded-2xl p-5 flex flex-col items-center justify-center text-center hover:border-primary/40 transition-all cursor-pointer">
+              <div onClick={() => setShowPropose(true)} className="group border-2 border-dashed border-outline-variant/40 rounded-2xl p-5 flex flex-col items-center justify-center text-center hover:border-primary/40 transition-all cursor-pointer">
                 <div className="w-10 h-10 bg-surface-container rounded-full flex items-center justify-center mb-3 group-hover:bg-primary-container/20 transition-all">
                   <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary">add_task</span>
                 </div>
                 <h4 className="font-bold text-sm text-on-surface">提议新任务</h4>
                 <p className="text-[11px] text-on-surface-variant mt-1.5 leading-relaxed">发现公司改进点？<br/>提交申请并获取奖励。</p>
               </div>
+              {/* My proposals badge */}
+              {myProposals.length > 0 && (
+                <div onClick={() => setShowMyProposals(!showMyProposals)} className="group border-2 border-dashed border-violet-300/40 rounded-2xl p-5 flex flex-col items-center justify-center text-center hover:border-violet-500/40 transition-all cursor-pointer">
+                  <div className="w-10 h-10 bg-violet-50 rounded-full flex items-center justify-center mb-3">
+                    <span className="material-symbols-outlined text-violet-600">pending_actions</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-on-surface">我的提案</h4>
+                  <p className="text-[11px] text-violet-600 font-bold mt-1">{myProposals.length} 个待审核</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -517,6 +573,119 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Propose Task Modal ─────────────────────────────────────────────── */}
+      {showPropose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => { setShowPropose(false); setProposeMsg(''); }} />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-gradient-to-br from-[#0060a9] to-[#409eff] px-6 py-4 text-white">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-lg">提议新任务</h3>
+                <button onClick={() => { setShowPropose(false); setProposeMsg(''); }} className="text-white/60 hover:text-white">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+              <div className="flex items-center gap-2 mt-2 text-[10px] text-white/70">
+                <span className="bg-white/20 px-2 py-0.5 rounded-full">① 提交</span>
+                <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+                <span className="bg-white/20 px-2 py-0.5 rounded-full">② 人事审核</span>
+                <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+                <span className="bg-white/20 px-2 py-0.5 rounded-full">③ 总经理复核</span>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              {proposeMsg && <div className="text-sm bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">{proposeMsg}</div>}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">任务标题 *</label>
+                <input className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
+                  placeholder="例：优化客户反馈响应流程"
+                  value={proposeForm.title} onChange={e => setProposeForm({ ...proposeForm, title: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">任务描述</label>
+                <textarea className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800 resize-none"
+                  rows={3} placeholder="详细描述任务目标、预期成果和实施思路..."
+                  value={proposeForm.description} onChange={e => setProposeForm({ ...proposeForm, description: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">所属部门</label>
+                  <select className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
+                    value={proposeForm.department} onChange={e => setProposeForm({ ...proposeForm, department: e.target.value })}>
+                    <option value="">不限</option>
+                    {['研发部', '市场部', '产品部', '人事部', '技术部'].map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">难度</label>
+                  <select className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
+                    value={proposeForm.difficulty} onChange={e => setProposeForm({ ...proposeForm, difficulty: e.target.value })}>
+                    {[['低', '低'], ['中', '中'], ['高', '高'], ['专家', '专家']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">建议奖金 (¥)</label>
+                  <input type="number" className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
+                    placeholder="0" value={proposeForm.bonus} onChange={e => setProposeForm({ ...proposeForm, bonus: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">最大参与人数</label>
+                  <input type="number" className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
+                    placeholder="5" value={proposeForm.max_participants} onChange={e => setProposeForm({ ...proposeForm, max_participants: e.target.value })} />
+                </div>
+              </div>
+              <button onClick={handlePropose} disabled={proposing || !proposeForm.title.trim()}
+                className="w-full py-3 bg-gradient-to-r from-[#0060a9] to-[#409eff] text-white rounded-xl font-bold text-sm hover:shadow-lg disabled:opacity-60 transition-all">
+                {proposing ? '提交中...' : '提交提案'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── My Proposals Panel ─────────────────────────────────────────────── */}
+      {showMyProposals && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowMyProposals(false)} />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-gradient-to-br from-[#7c3aed] to-[#a78bfa] px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-lg">我的提案</h3>
+              <button onClick={() => setShowMyProposals(false)} className="text-white/60 hover:text-white">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="p-4 max-h-96 overflow-y-auto space-y-3">
+              {myProposals.length === 0 ? (
+                <p className="text-center text-slate-400 py-8">暂无提案</p>
+              ) : myProposals.map((p: any) => {
+                const [statusLabel, statusCls] = PROPOSAL_STATUS[p.proposal_status] || [p.proposal_status, 'bg-slate-100 text-slate-500'];
+                return (
+                  <div key={p.id} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate">{p.title}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusCls}`}>{statusLabel}</span>
+                    </div>
+                    {p.description && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{p.description}</p>}
+                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                      <span>奖金: ¥{p.bonus || 0}</span>
+                      <span>难度: {p.difficulty || '中'}</span>
+                      <span>{new Date(p.created_at).toLocaleDateString()}</span>
+                    </div>
+                    {p.reject_reason && (
+                      <div className="mt-2 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-1.5 text-xs text-red-600">
+                        <span className="font-bold">驳回原因：</span>{p.reject_reason}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
