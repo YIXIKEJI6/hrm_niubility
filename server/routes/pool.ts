@@ -10,18 +10,20 @@ const router = Router();
 router.get('/tasks', authMiddleware, (req, res) => {
   const db = getDb();
   const { status, department } = req.query;
-  let sql = "SELECT * FROM pool_tasks WHERE proposal_status = 'approved'";
+  let sql = "SELECT pt.*, u.name as creator_name FROM pool_tasks pt LEFT JOIN users u ON pt.created_by = u.id WHERE pt.proposal_status = 'approved'";
   const params: any[] = [];
-  if (status) { sql += ' AND status = ?'; params.push(status); }
-  if (department) { sql += ' AND department = ?'; params.push(department); }
-  sql += ' ORDER BY created_at DESC';
+  if (status) { sql += ' AND pt.status = ?'; params.push(status); }
+  if (department) { sql += ' AND pt.department = ?'; params.push(department); }
+  sql += ' ORDER BY pt.created_at DESC';
 
   const tasks = db.prepare(sql).all(...params);
 
-  // 附加参与者信息
+  // 附加参与者信息（含姓名）
   const result = tasks.map((t: any) => {
-    const participants = db.prepare('SELECT user_id FROM pool_participants WHERE pool_task_id = ?').all(t.id);
-    return { ...t, participants, current_participants: participants.length };
+    const participants = db.prepare(
+      'SELECT pp.user_id, u2.name as user_name FROM pool_participants pp LEFT JOIN users u2 ON pp.user_id = u2.id WHERE pp.pool_task_id = ?'
+    ).all(t.id) as any[];
+    return { ...t, participants, current_participants: participants.length, participant_names: participants.map((p: any) => p.user_name).filter(Boolean) };
   });
 
   return res.json({ code: 0, data: result });

@@ -206,4 +206,15 @@ router.get('/all-users', authMiddleware, requireSuperAdmin(), (_req, res) => {
   return res.json({ code: 0, data: users });
 });
 
+// 获取用户列表 (admin/hr，用于审批流程指定人选)
+router.get('/users-list', authMiddleware, requireRole('admin', 'hr'), (_req, res) => {
+  const db = getDb();
+  const users = db.prepare(
+    `SELECT u.id, u.name, u.title, u.role, u.avatar_url, u.department_id, d.name as department_name
+     FROM users u LEFT JOIN departments d ON u.department_id = d.id
+     WHERE u.status = 'active' ORDER BY u.name`
+  ).all();
+  return res.json({ code: 0, data: users });
+});
+
 export default router;

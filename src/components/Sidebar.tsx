@@ -28,7 +28,6 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
   const navItems = [
     { id: 'dashboard', icon: 'home', label: '我的主页', permKey: 'view_dashboard' },
     { id: 'personal', icon: 'person', label: '个人管理', permKey: 'view_personal' },
-    { id: 'workflows', icon: 'assignment', label: '我的流程', permKey: '' },
     { id: 'team', icon: 'groups', label: '团队管理', permKey: 'view_team_perf' },
     { id: 'company', icon: 'analytics', label: '公司绩效池', permKey: 'view_company_pool' },
     { id: 'hrmap', icon: 'map', label: '人力地图', permKey: 'view_hr_map' },

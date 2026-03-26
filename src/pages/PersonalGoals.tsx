@@ -183,7 +183,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             <div className="flex items-center gap-3">
               <button onClick={() => setIsModalOpen(true)} className="primary-gradient text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-95 transition-all">
                 <span className="material-symbols-outlined">add</span>
-                <span>向上申请新目标</span>
+                <span>申请新目标</span>
               </button>
             </div>
           </div>

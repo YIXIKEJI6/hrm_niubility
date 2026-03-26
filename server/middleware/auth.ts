@@ -19,7 +19,7 @@ export interface AuthRequest extends Request {
 export function generateToken(userId: string, role: string): string {
   // Super admin 始终以 admin 角色生成 token
   const effectiveRole = isSuperAdmin(userId) ? 'admin' : role;
-  return jwt.sign({ userId, role: effectiveRole }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ userId, role: effectiveRole }, JWT_SECRET, { expiresIn: '24h' });
 }
 
 export function verifyToken(token: string): { userId: string; role: string } | null {

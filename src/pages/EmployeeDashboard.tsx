@@ -1,55 +1,654 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 
-interface Task {
-  id: number;
-  title: string;
-  description: string;
-  due_date: string;
-  priority: string;
-  status: string;
+/* ─── Types ─────────────────────────────────────────────────── */
+interface Task { id: number; title: string; description: string; due_date: string; priority: string; status: string; }
+interface ModuleProps { navigate: (v: string) => void; data: DashData; actions: DashActions; }
+
+interface DashData {
+  pendingWorkflows: number; unreadCount: number; myPlans: any[]; recentNotifs: any[];
+  myProposals: any[]; tasks: Task[]; pendingTasks: Task[]; completedTasks: Task[];
+}
+interface DashActions {
+  toggleTask: (t: Task) => void;
+  openTaskModal: () => void;
 }
 
-function formatDate(d: string) {
+const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
+  draft: { label: '草稿', color: 'text-slate-500', bg: 'bg-slate-100' },
+  submitted: { label: '审批中', color: 'text-blue-600', bg: 'bg-blue-50' },
+  approved: { label: '已通过', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  rejected: { label: '已驳回', color: 'text-red-500', bg: 'bg-red-50' },
+  assessed: { label: '已评分', color: 'text-purple-600', bg: 'bg-purple-50' },
+  pending_hr: { label: '待人事审核', color: 'text-amber-600', bg: 'bg-amber-50' },
+  pending_admin: { label: '待总经理复核', color: 'text-orange-600', bg: 'bg-orange-50' },
+};
+
+function fmtDate(d: string) {
   if (!d) return '';
-  const date = new Date(d);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return `${mins}分钟前`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}小时前`;
-  return `${Math.floor(hrs / 24)}天前`;
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return '刚刚'; if (m < 60) return `${m}分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}小时前`;
+  return `${Math.floor(h / 24)}天前`;
 }
 
+/* ─── Module Card Wrapper (with drag handle) ─────────────── */
+function ModCard({ children, className = '', dragHandleProps, isEditing, onRemove }: {
+  children: React.ReactNode; className?: string;
+  dragHandleProps?: any; isEditing?: boolean; onRemove?: () => void;
+}) {
+  return (
+    <div className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-5 relative group/card ${className}`}>
+      {isEditing && (
+        <>
+          <div {...dragHandleProps}
+            className="absolute -top-1 left-1/2 -translate-x-1/2 w-12 h-5 flex items-center justify-center cursor-grab active:cursor-grabbing z-10 rounded-b-lg bg-blue-50 dark:bg-blue-900/30 opacity-0 group-hover/card:opacity-100 transition-opacity">
+            <span className="material-symbols-outlined text-blue-400 text-[14px]">drag_indicator</span>
+          </div>
+          <button onClick={onRemove}
+            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-[12px] hover:bg-red-600 shadow-md z-10 opacity-0 group-hover/card:opacity-100 transition-opacity">
+            <span className="material-symbols-outlined text-[14px]">close</span>
+          </button>
+        </>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function ModHeader({ icon, color, title, badge, action }: {
+  icon: string; color: string; title: string; badge?: number; action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
+        <span className={`material-symbols-outlined text-[16px] ${color}`} style={{ fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+        {title}
+        {badge != null && badge > 0 && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">{badge}</span>}
+      </h3>
+      {action}
+    </div>
+  );
+}
+
+/* ================================================================
+   模块组件
+   ================================================================ */
+
+/* ─── 模块: 我的流程 ──────────────────────────────────────── */
+function WorkflowsModule({ navigate }: ModuleProps) {
+  const [tab, setTab] = useState<'initiated' | 'pending' | 'reviewed' | 'cc'>('pending');
+  const [items, setItems] = useState<any[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const token = localStorage.getItem('token');
+  const hdr = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchTab(); }, [tab]);
+
+  const fetchAll = async () => {
+    try {
+      const tabs = ['initiated', 'pending', 'reviewed', 'cc'] as const;
+      const results = await Promise.all(
+        tabs.map(t => fetch(`/api/workflows/${t}`, { headers: hdr }).then(r => r.json()).catch(() => ({ data: [] })))
+      );
+      const c: Record<string, number> = {};
+      tabs.forEach((t, i) => { c[t] = results[i]?.data?.length || 0; });
+      setCounts(c);
+      setItems(results[1]?.data?.slice(0, 5) || []);
+    } catch {}
+  };
+
+  const fetchTab = async () => {
+    try {
+      const r = await fetch(`/api/workflows/${tab}`, { headers: hdr });
+      const j = await r.json();
+      setItems((j?.data || []).slice(0, 5));
+    } catch {}
+  };
+
+  const TABS = [
+    { key: 'initiated' as const, label: '我发起的', icon: 'send' },
+    { key: 'pending' as const, label: '待我审核', icon: 'pending_actions' },
+    { key: 'reviewed' as const, label: '我已审核', icon: 'task_alt' },
+    { key: 'cc' as const, label: '抄送我的', icon: 'forward_to_inbox' },
+  ];
+
+  return (
+    <>
+      <ModHeader icon="assignment" color="text-blue-500" title="我的流程" badge={counts.pending || 0}
+        action={<button onClick={() => navigate('workflows')} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>} />
+      <div className="flex gap-1 mb-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-1">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+              tab === t.key ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+            }`}>
+            <span className="material-symbols-outlined text-[12px]">{t.icon}</span>
+            {t.label}
+            {(counts[t.key] || 0) > 0 && <span className={`text-[8px] px-1 py-px rounded-full font-black ${
+              tab === t.key ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'
+            }`}>{counts[t.key]}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-2 max-h-[240px] overflow-y-auto">
+        {items.length === 0 ? <div className="text-center py-6 text-slate-400 text-xs">暂无流程</div> :
+          items.map((w: any) => {
+            const s = STATUS_MAP[w.status] || STATUS_MAP[w.proposal_status] || { label: w.status, color: 'text-slate-500', bg: 'bg-slate-100' };
+            return (
+              <div key={`${w.type}-${w.id}`} onClick={() => navigate('workflows')}
+                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-all">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${w.type === 'proposal' ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                  <span className={`material-symbols-outlined text-[14px] ${w.type === 'proposal' ? 'text-purple-500' : 'text-blue-500'}`}>
+                    {w.type === 'proposal' ? 'lightbulb' : 'trending_up'}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{w.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
+                    {w.created_at && <span className="text-[9px] text-slate-400">{fmtDate(w.created_at)}</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </>
+  );
+}
+
+/* ─── 模块: 待办事项 ──────────────────────────────────────── */
+function TodoModule({ data, actions }: ModuleProps) {
+  const { tasks, pendingTasks } = data;
+  return (
+    <>
+      <ModHeader icon="checklist" color="text-amber-500" title="待办事项" badge={pendingTasks.length}
+        action={<button onClick={actions.openTaskModal} className="text-[10px] font-bold text-blue-500 hover:text-blue-700 flex items-center gap-0.5">
+          <span className="material-symbols-outlined text-[14px]">add</span>新建</button>} />
+      <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+        {tasks.length === 0 ? <div className="text-center py-6 text-slate-400 text-xs">暂无待办事项 🎉</div> :
+          tasks.map(t => {
+            const done = t.status === 'completed';
+            return (
+              <div key={t.id} className={`flex items-start gap-3 p-3 rounded-xl transition-all ${done ? 'opacity-50' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                <input type="checkbox" checked={done} onChange={() => actions.toggleTask(t)} className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-500 cursor-pointer" />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-bold ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-white'}`}>{t.title}</p>
+                  {t.due_date && <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">schedule</span>{t.due_date}</p>}
+                </div>
+                {!done && t.priority === 'high' && <span className="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">紧急</span>}
+              </div>
+            );
+          })}
+      </div>
+    </>
+  );
+}
+
+/* ─── 模块: 我的绩效计划 ──────────────────────────────────── */
+function PerfPlanModule({ navigate, data }: ModuleProps) {
+  const { myPlans } = data;
+  return (
+    <>
+      <ModHeader icon="trending_up" color="text-emerald-500" title="我的绩效计划"
+        action={<button onClick={() => navigate('personal')} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>} />
+      {myPlans.length === 0 ? <div className="text-center py-6 text-slate-400 text-xs">暂无进行中的绩效计划</div> :
+        <div className="space-y-3">
+          {myPlans.map((plan: any) => {
+            const s = STATUS_MAP[plan.status] || { label: plan.status, color: 'text-slate-500', bg: 'bg-slate-100' };
+            return (
+              <div key={plan.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all cursor-pointer" onClick={() => navigate('personal')}>
+                <div className="relative w-10 h-10 flex-shrink-0">
+                  <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="14" fill="none" stroke={plan.progress >= 80 ? '#22c55e' : plan.progress >= 40 ? '#3b82f6' : '#f59e0b'}
+                      strokeWidth="3" strokeDasharray={`${(plan.progress / 100) * 88} 88`} strokeLinecap="round" />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-slate-600">{plan.progress}%</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{plan.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
+                    {plan.deadline && <span className="text-[9px] text-slate-400">截止 {plan.deadline}</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>}
+    </>
+  );
+}
+
+/* ─── 模块: 最新消息 ──────────────────────────────────────── */
+function NotificationsModule({ navigate, data }: ModuleProps) {
+  const { recentNotifs, unreadCount } = data;
+  return (
+    <>
+      <ModHeader icon="inbox" color="text-blue-500" title="最新消息" badge={unreadCount} />
+      {recentNotifs.length === 0 ? <div className="text-center py-6 text-slate-400 text-xs">暂无消息</div> :
+        <div className="space-y-2">
+          {recentNotifs.map((n: any) => (
+            <div key={n.id} className={`p-3 rounded-xl transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${!n.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
+              onClick={() => navigate('dashboard')}>
+              <div className="flex items-start gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!n.is_read ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                  <span className={`material-symbols-outlined text-[14px] ${!n.is_read ? 'text-blue-600' : 'text-slate-400'}`}>
+                    {n.type === 'proposal' ? 'description' : n.type === 'perf' ? 'trending_up' : 'notifications'}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className={`text-xs font-bold truncate ${!n.is_read ? 'text-slate-800' : 'text-slate-500'}`}>{n.title}</p>
+                    <span className="text-[9px] text-slate-400 flex-shrink-0 ml-2">{fmtDate(n.created_at)}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">{n.content}</p>
+                </div>
+                {!n.is_read && <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />}
+              </div>
+            </div>
+          ))}
+        </div>}
+    </>
+  );
+}
+
+/* ─── 模块: 我的提案 ──────────────────────────────────────── */
+function ProposalsModule({ navigate, data }: ModuleProps) {
+  const { myProposals } = data;
+  if (myProposals.length === 0) return null;
+  return (
+    <>
+      <ModHeader icon="lightbulb" color="text-purple-500" title="我的提案"
+        action={<button onClick={() => navigate('company')} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>} />
+      <div className="space-y-2">
+        {myProposals.map((p: any) => {
+          const s = STATUS_MAP[p.proposal_status] || { label: p.proposal_status, color: 'text-slate-500', bg: 'bg-slate-100' };
+          return (
+            <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all">
+              <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                <span className="material-symbols-outlined text-purple-500 text-[14px]">lightbulb</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{p.title}</p>
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
+              </div>
+              {p.bonus > 0 && <span className="text-[10px] text-rose-500 font-bold">¥{p.bonus}</span>}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+/* ─── 模块: 快速入口 ──────────────────────────────────────── */
+function QuickLinksModule({ navigate }: ModuleProps) {
+  const links = [
+    { icon: 'person', label: '个人管理', view: 'personal', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { icon: 'groups', label: '团队管理', view: 'team', color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    { icon: 'analytics', label: '公司绩效池', view: 'company', color: 'text-orange-600', bg: 'bg-orange-50' },
+    { icon: 'view_quilt', label: '全景仪表盘', view: 'panorama', color: 'text-purple-600', bg: 'bg-purple-50' },
+  ];
+  return (
+    <>
+      <ModHeader icon="bolt" color="text-slate-500" title="快速入口" />
+      <div className="space-y-2">
+        {links.map(l => (
+          <button key={l.view} onClick={() => navigate(l.view)}
+            className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all text-left group">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${l.bg}`}>
+              <span className={`material-symbols-outlined text-[18px] ${l.color}`}>{l.icon}</span>
+            </div>
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex-1">{l.label}</span>
+            <span className="material-symbols-outlined text-[14px] text-slate-300 group-hover:text-slate-500 transition-colors">chevron_right</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* ─── 模块: 今日概览 ──────────────────────────────────────── */
+function SummaryModule({ data }: ModuleProps) {
+  return (
+    <div className="-m-5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl p-5 text-white">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
+        <h3 className="font-bold text-sm">今日概览</h3>
+      </div>
+      <div className="space-y-2 text-xs opacity-90">
+        <p>📋 {data.pendingTasks.length} 项待办事项</p>
+        <p>✅ {data.completedTasks.length} 项已完成</p>
+        <p>📊 {data.myPlans.length} 个绩效计划进行中</p>
+        <p>⏳ {data.pendingWorkflows} 个流程待审核</p>
+        <p>✉️ {data.unreadCount} 条未读消息</p>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   统一弹窗组件 — 点击顶部卡片打开详情
+   ================================================================ */
+type DetailModalType = 'workflows' | 'perf' | 'tasks' | 'notifications' | null;
+
+const MODAL_CONFIG: Record<string, { title: string; icon: string; color: string }> = {
+  workflows: { title: '流程审核', icon: 'pending_actions', color: 'text-blue-500' },
+  perf: { title: '进行中绩效计划', icon: 'trending_up', color: 'text-emerald-500' },
+  tasks: { title: '待办事项', icon: 'checklist', color: 'text-amber-500' },
+  notifications: { title: '消息中心', icon: 'inbox', color: 'text-purple-500' },
+};
+
+function DetailModal({ type, onClose, data, actions, navigate }: {
+  type: DetailModalType; onClose: () => void;
+  data: DashData; actions: DashActions; navigate: (v: string) => void;
+}) {
+  if (!type) return null;
+  const cfg = MODAL_CONFIG[type];
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 w-full max-w-2xl max-h-[80vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center flex-shrink-0">
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <span className={`material-symbols-outlined ${cfg.color}`} style={{ fontVariationSettings: "'FILL' 1" }}>{cfg.icon}</span>
+            {cfg.title}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100">
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {type === 'workflows' && <WorkflowsDetail navigate={navigate} />}
+          {type === 'perf' && <PerfDetail data={data} navigate={navigate} />}
+          {type === 'tasks' && <TasksDetail data={data} actions={actions} />}
+          {type === 'notifications' && <NotificationsDetail data={data} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 弹窗内容: 流程审核 ─── */
+function WorkflowsDetail({ navigate }: { navigate: (v: string) => void }) {
+  const [tab, setTab] = useState<'initiated' | 'pending' | 'reviewed' | 'cc'>('pending');
+  const [items, setItems] = useState<any[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const token = localStorage.getItem('token');
+  const hdr = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    const tabs = ['initiated', 'pending', 'reviewed', 'cc'] as const;
+    Promise.all(tabs.map(t => fetch(`/api/workflows/${t}`, { headers: hdr }).then(r => r.json()).catch(() => ({ data: [] }))))
+      .then(results => {
+        const c: Record<string, number> = {};
+        tabs.forEach((t, i) => { c[t] = results[i]?.data?.length || 0; });
+        setCounts(c);
+        setItems(results[1]?.data || []);
+      });
+  }, []);
+
+  useEffect(() => {
+    fetch(`/api/workflows/${tab}`, { headers: hdr }).then(r => r.json())
+      .then(j => setItems(j?.data || [])).catch(() => {});
+  }, [tab]);
+
+  const TABS = [
+    { key: 'initiated' as const, label: '我发起的', icon: 'send' },
+    { key: 'pending' as const, label: '待我审核', icon: 'pending_actions' },
+    { key: 'reviewed' as const, label: '我已审核', icon: 'task_alt' },
+    { key: 'cc' as const, label: '抄送我的', icon: 'forward_to_inbox' },
+  ];
+
+  return (
+    <>
+      <div className="flex gap-1 mb-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-1">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              tab === t.key ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+            }`}>
+            <span className="material-symbols-outlined text-[14px]">{t.icon}</span>
+            {t.label}
+            {(counts[t.key] || 0) > 0 && <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${
+              tab === t.key ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'
+            }`}>{counts[t.key]}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-2">
+        {items.length === 0 ? <div className="text-center py-10 text-slate-400 text-sm">暂无流程</div> :
+          items.map((w: any) => {
+            const s = STATUS_MAP[w.status] || STATUS_MAP[w.proposal_status] || { label: w.status, color: 'text-slate-500', bg: 'bg-slate-100' };
+            return (
+              <div key={`${w.type}-${w.id}`} onClick={() => navigate('workflows')}
+                className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-all border border-slate-100 dark:border-slate-800">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${w.type === 'proposal' ? 'bg-purple-50' : 'bg-blue-50'}`}>
+                  <span className={`material-symbols-outlined text-[18px] ${w.type === 'proposal' ? 'text-purple-500' : 'text-blue-500'}`}>
+                    {w.type === 'proposal' ? 'lightbulb' : 'trending_up'}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{w.title}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
+                    {w.applicant_name && <span className="text-[10px] text-slate-400">申请人: {w.applicant_name}</span>}
+                    {w.created_at && <span className="text-[10px] text-slate-400">{fmtDate(w.created_at)}</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </>
+  );
+}
+
+/* ─── 弹窗内容: 绩效计划 ─── */
+function PerfDetail({ data, navigate }: { data: DashData; navigate: (v: string) => void }) {
+  return (
+    <div className="space-y-3">
+      {data.myPlans.length === 0 ? <div className="text-center py-10 text-slate-400 text-sm">暂无进行中的绩效计划</div> :
+        data.myPlans.map((plan: any) => {
+          const s = STATUS_MAP[plan.status] || { label: plan.status, color: 'text-slate-500', bg: 'bg-slate-100' };
+          return (
+            <div key={plan.id} className="flex items-center gap-4 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all cursor-pointer border border-slate-100 dark:border-slate-800" onClick={() => navigate('personal')}>
+              <div className="relative w-12 h-12 flex-shrink-0">
+                <svg className="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="14" fill="none" stroke={plan.progress >= 80 ? '#22c55e' : plan.progress >= 40 ? '#3b82f6' : '#f59e0b'}
+                    strokeWidth="3" strokeDasharray={`${(plan.progress / 100) * 88} 88`} strokeLinecap="round" />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black text-slate-600">{plan.progress}%</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-slate-800 dark:text-white">{plan.title}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
+                  {plan.deadline && <span className="text-[10px] text-slate-400">截止 {plan.deadline}</span>}
+                </div>
+              </div>
+              <span className="material-symbols-outlined text-slate-300 text-[18px]">chevron_right</span>
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
+/* ─── 弹窗内容: 待办事项 ─── */
+function TasksDetail({ data, actions }: { data: DashData; actions: DashActions }) {
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-slate-500">{data.pendingTasks.length} 项待办 · {data.completedTasks.length} 项已完成</p>
+        <button onClick={actions.openTaskModal} className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 transition-all">
+          <span className="material-symbols-outlined text-[14px]">add</span>新建待办
+        </button>
+      </div>
+      <div className="space-y-2">
+        {data.tasks.length === 0 ? <div className="text-center py-10 text-slate-400 text-sm">暂无待办事项 🎉</div> :
+          data.tasks.map(t => {
+            const done = t.status === 'completed';
+            return (
+              <div key={t.id} className={`flex items-start gap-3 p-3 rounded-xl transition-all border border-slate-100 dark:border-slate-800 ${done ? 'opacity-50 bg-slate-50/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                <input type="checkbox" checked={done} onChange={() => actions.toggleTask(t)} className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-500 cursor-pointer" />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-bold ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-white'}`}>{t.title}</p>
+                  {t.description && <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{t.description}</p>}
+                  {t.due_date && <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">schedule</span>{t.due_date}</p>}
+                </div>
+                {!done && t.priority === 'high' && <span className="text-[9px] px-2 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">紧急</span>}
+              </div>
+            );
+          })}
+      </div>
+    </>
+  );
+}
+
+/* ─── 弹窗内容: 消息中心 ─── */
+function NotificationsDetail({ data }: { data: DashData }) {
+  const [allNotifs, setAllNotifs] = useState<any[]>([]);
+  const token = localStorage.getItem('token');
+
+  useEffect(() => {
+    fetch('/api/notifications?limit=50', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(j => setAllNotifs(j?.data || [])).catch(() => {});
+  }, []);
+
+  const markRead = async (id: number) => {
+    try {
+      await fetch(`/api/notifications/${id}/read`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
+      setAllNotifs(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    } catch {}
+  };
+
+  return (
+    <div className="space-y-2">
+      {allNotifs.length === 0 ? <div className="text-center py-10 text-slate-400 text-sm">暂无消息</div> :
+        allNotifs.map((n: any) => (
+          <div key={n.id} onClick={() => !n.is_read && markRead(n.id)}
+            className={`p-4 rounded-xl transition-all border border-slate-100 dark:border-slate-800 ${!n.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10 cursor-pointer hover:bg-blue-50' : ''}`}>
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${!n.is_read ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                <span className={`material-symbols-outlined text-[18px] ${!n.is_read ? 'text-blue-600' : 'text-slate-400'}`}>
+                  {n.type === 'proposal' ? 'description' : n.type === 'perf' ? 'trending_up' : 'notifications'}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <p className={`text-sm font-bold ${!n.is_read ? 'text-slate-800' : 'text-slate-500'}`}>{n.title}</p>
+                  <span className="text-[10px] text-slate-400 flex-shrink-0 ml-2">{fmtDate(n.created_at)}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">{n.content}</p>
+              </div>
+              {!n.is_read && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full flex-shrink-0 mt-1.5" />}
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/* ================================================================
+   模块注册表 — label + icon 用于自定义面板
+   ================================================================ */
+const MODULE_REGISTRY: { id: string; label: string; icon: string; component: React.FC<ModuleProps> }[] = [
+  { id: 'todo',          label: '待办事项',     icon: 'checklist',        component: TodoModule },
+  { id: 'workflows',     label: '我的流程',     icon: 'assignment',       component: WorkflowsModule },
+  { id: 'notifications', label: '最新消息',     icon: 'inbox',            component: NotificationsModule },
+  { id: 'perfPlan',      label: '我的绩效计划', icon: 'trending_up',      component: PerfPlanModule },
+  { id: 'quickLinks',    label: '快速入口',     icon: 'bolt',             component: QuickLinksModule },
+  { id: 'proposals',     label: '我的提案',     icon: 'lightbulb',        component: ProposalsModule },
+  { id: 'summary',       label: '今日概览',     icon: 'summarize',        component: SummaryModule },
+];
+
+const STORAGE_KEY = 'hrm_dashboard_layout_v2';
+const NUM_COLS = 3;
+
+// Default column distribution
+function defaultColumns(): string[][] {
+  const ids = MODULE_REGISTRY.map(m => m.id);
+  const cols: string[][] = [[], [], []];
+  ids.forEach((id, i) => cols[i % NUM_COLS].push(id));
+  return cols;
+}
+
+interface LayoutState { columns: string[][]; hidden: string[]; }
+
+function loadLayout(): LayoutState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const allIds = new Set(MODULE_REGISTRY.map(m => m.id));
+      const cols: string[][] = (parsed.columns || [[], [], []]).map((col: string[]) =>
+        (col || []).filter((id: string) => allIds.has(id))
+      );
+      // Ensure exactly 3 columns
+      while (cols.length < NUM_COLS) cols.push([]);
+      // Add any new modules not in saved layout
+      const usedIds = new Set(cols.flat());
+      const missing = MODULE_REGISTRY.map(m => m.id).filter(id => !usedIds.has(id));
+      missing.forEach((id, i) => cols[i % NUM_COLS].push(id));
+      return { columns: cols, hidden: parsed.hidden || [] };
+    }
+  } catch {}
+  return { columns: defaultColumns(), hidden: [] };
+}
+
+function saveLayout(columns: string[][], hidden: string[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ columns, hidden }));
+}
+
+/* ================================================================
+   主页组件
+   ================================================================ */
 export default function EmployeeDashboard({ navigate }: { navigate: (view: string) => void }) {
   const { currentUser } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [newTask, setNewTask] = useState({ title: '', description: '', due_date: '', priority: 'normal' });
-
-  // Dynamic data
   const [pendingWorkflows, setPendingWorkflows] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [myPlans, setMyPlans] = useState<any[]>([]);
   const [recentNotifs, setRecentNotifs] = useState<any[]>([]);
   const [myProposals, setMyProposals] = useState<any[]>([]);
 
+  // Layout state: 3-column grid
+  const [columns, setColumns] = useState<string[][]>(() => loadLayout().columns);
+  const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => new Set(loadLayout().hidden));
+  const [isEditing, setIsEditing] = useState(false);
+  const [showAddPanel, setShowAddPanel] = useState(false);
+
+  // Detail modal state
+  const [detailModal, setDetailModal] = useState<DetailModalType>(null);
+
+  // Drag state: track source position (colIdx, itemIdx) and drop target
+  const dragRef = useRef<{ id: string; colIdx: number; itemIdx: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ colIdx: number; itemIdx: number } | null>(null);
+
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
+  useEffect(() => { fetchTasks(); fetchDashboardData(); }, []);
+
+  // Persist layout changes
   useEffect(() => {
-    fetchTasks();
-    fetchDashboardData();
-  }, []);
+    saveLayout(columns, Array.from(hiddenModules));
+  }, [columns, hiddenModules]);
 
   const fetchTasks = async () => {
-    try {
-      const res = await fetch('/api/tasks', { headers });
-      if (res.ok) setTasks(await res.json());
-    } catch {}
+    try { const r = await fetch('/api/tasks', { headers }); if (r.ok) setTasks(await r.json()); } catch {}
   };
 
   const fetchDashboardData = async () => {
@@ -57,69 +656,122 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
       const [pendingRes, notifRes, plansRes, proposalsRes] = await Promise.all([
         fetch('/api/workflows/pending', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
         fetch('/api/notifications?limit=5', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
-        fetch('/api/perf/plans', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
+        fetch(`/api/perf/plans${currentUser?.id ? `?userId=${currentUser.id}` : ''}`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
         fetch('/api/pool/my-proposals', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
       ]);
       setPendingWorkflows(pendingRes?.data?.length || 0);
       setRecentNotifs(notifRes?.data || []);
-      // unread count
       const ucRes = await fetch('/api/notifications/unread-count', { headers }).then(r => r.json()).catch(() => ({ data: { count: 0 } }));
       setUnreadCount(ucRes?.data?.count || 0);
-      // my plans (in progress)
-      const plans = (plansRes?.data || []).filter((p: any) => !['completed', 'cancelled'].includes(p.status));
-      setMyPlans(plans.slice(0, 4));
+      setMyPlans((plansRes?.data || []).filter((p: any) => !['completed', 'cancelled'].includes(p.status)).slice(0, 4));
       setMyProposals((proposalsRes?.data || []).slice(0, 3));
     } catch {}
   };
 
   const handleToggleTaskStatus = async (task: Task) => {
-    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
-    setTasks(tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
-    try {
-      await fetch(`/api/tasks/${task.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ status: newStatus })
-      });
-      fetchTasks();
-    } catch { fetchTasks(); }
+    const ns = task.status === 'completed' ? 'pending' : 'completed';
+    setTasks(tasks.map(t => t.id === task.id ? { ...t, status: ns } : t));
+    try { await fetch(`/api/tasks/${task.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ status: ns }) }); fetchTasks(); } catch { fetchTasks(); }
   };
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify(newTask)
-      });
-      if (res.ok) {
-        fetchTasks();
-        setIsTaskModalOpen(false);
-        setNewTask({ title: '', description: '', due_date: '', priority: 'normal' });
-      }
+      const r = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(newTask) });
+      if (r.ok) { fetchTasks(); setIsTaskModalOpen(false); setNewTask({ title: '', description: '', due_date: '', priority: 'normal' }); }
     } catch {}
   };
 
-  const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
-    draft: { label: '草稿', color: 'text-slate-500', bg: 'bg-slate-100' },
-    submitted: { label: '审批中', color: 'text-blue-600', bg: 'bg-blue-50' },
-    approved: { label: '已通过', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    rejected: { label: '已驳回', color: 'text-red-500', bg: 'bg-red-50' },
-    assessed: { label: '已评分', color: 'text-purple-600', bg: 'bg-purple-50' },
-    pending_hr: { label: '待人事审核', color: 'text-amber-600', bg: 'bg-amber-50' },
-    pending_admin: { label: '待总经理复核', color: 'text-orange-600', bg: 'bg-orange-50' },
-  };
+  // ── Cross-column drag handlers ──
+  const handleDragStart = useCallback((id: string, colIdx: number, itemIdx: number) => {
+    dragRef.current = { id, colIdx, itemIdx };
+  }, []);
 
-  // Real date
+  const handleDragOverItem = useCallback((e: React.DragEvent, colIdx: number, itemIdx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTarget({ colIdx, itemIdx });
+  }, []);
+
+  const handleDragOverColumn = useCallback((e: React.DragEvent, colIdx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    // Drop at end of column
+    setDropTarget({ colIdx, itemIdx: -1 });
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const src = dragRef.current;
+    const dst = dropTarget;
+    if (!src || !dst) { setDropTarget(null); return; }
+
+    setColumns(prev => {
+      const newCols = prev.map(col => [...col]);
+      // Remove from source
+      const [removed] = newCols[src.colIdx].splice(src.itemIdx, 1);
+      if (!removed) return prev;
+      // Insert at destination
+      const targetIdx = dst.itemIdx === -1 ? newCols[dst.colIdx].length : dst.itemIdx;
+      // Adjust index if same column and source was before target
+      const adjustedIdx = src.colIdx === dst.colIdx && src.itemIdx < targetIdx ? targetIdx - 1 : targetIdx;
+      newCols[dst.colIdx].splice(Math.max(0, adjustedIdx), 0, removed);
+      return newCols;
+    });
+
+    dragRef.current = null;
+    setDropTarget(null);
+  }, [dropTarget]);
+
+  const handleDragEnd = useCallback(() => {
+    dragRef.current = null;
+    setDropTarget(null);
+  }, []);
+
+  const handleRemoveModule = useCallback((id: string) => {
+    setHiddenModules(prev => new Set([...prev, id]));
+  }, []);
+
+  const handleAddModule = useCallback((id: string) => {
+    // Add to shortest column
+    setColumns(prev => {
+      const newCols = prev.map(col => [...col]);
+      const visibleLengths = newCols.map(col => col.filter(cid => !hiddenModules.has(cid)).length);
+      const shortestCol = visibleLengths.indexOf(Math.min(...visibleLengths));
+      if (!newCols.flat().includes(id)) {
+        newCols[shortestCol].push(id);
+      }
+      return newCols;
+    });
+    setHiddenModules(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setShowAddPanel(false);
+  }, [hiddenModules]);
+
+  const handleResetLayout = useCallback(() => {
+    setColumns(defaultColumns());
+    setHiddenModules(new Set());
+    localStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+  // Date
   const now = new Date();
   const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
   const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${weekDays[now.getDay()]}`;
-  const hour = now.getHours();
-  const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
+  const hr = now.getHours();
+  const greeting = hr < 6 ? '夜深了' : hr < 12 ? '早上好' : hr < 14 ? '中午好' : hr < 18 ? '下午好' : '晚上好';
 
   const pendingTasks = tasks.filter(t => t.status !== 'completed');
   const completedTasks = tasks.filter(t => t.status === 'completed');
+
+  const dashData: DashData = { pendingWorkflows, unreadCount, myPlans, recentNotifs, myProposals, tasks, pendingTasks, completedTasks };
+  const dashActions: DashActions = { toggleTask: handleToggleTaskStatus, openTaskModal: () => setIsTaskModalOpen(true) };
+
+  const hiddenModuleList = MODULE_REGISTRY.filter(m => hiddenModules.has(m.id));
+  const modMap = Object.fromEntries(MODULE_REGISTRY.map(m => [m.id, m]));
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface text-on-surface antialiased">
@@ -127,274 +779,156 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
 
       <main className="flex-1 h-[calc(100vh-4rem)] mt-16 overflow-y-auto relative">
         <div className="max-w-6xl mx-auto p-6 space-y-6">
-          {/* Welcome Header */}
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          {/* Welcome + Edit Button */}
+          <div className="flex items-end justify-between">
             <div>
               <h2 className="text-3xl font-black text-on-surface tracking-tight mb-1">{greeting}, {currentUser?.name || '同事'} 👋</h2>
               <p className="text-sm text-on-surface-variant">{dateStr} — 以下是与您相关的事项概览</p>
             </div>
+            <button onClick={() => { setIsEditing(!isEditing); setShowAddPanel(false); }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                isEditing
+                  ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-600'
+                  : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 border border-slate-200 dark:border-slate-700 hover:shadow-md'
+              }`}>
+              <span className="material-symbols-outlined text-[16px]">{isEditing ? 'check' : 'dashboard_customize'}</span>
+              {isEditing ? '完成编辑' : '自定义'}
+            </button>
           </div>
 
-          {/* Quick Stat Cards */}
+          {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <button onClick={() => navigate('workflows')}
-              className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl p-4 text-left hover:shadow-md transition-all group border border-blue-100/60 dark:border-blue-800/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-9 h-9 bg-blue-100 dark:bg-blue-900/40 rounded-xl flex items-center justify-center">
-                  <span className="material-symbols-outlined text-blue-600 text-[18px]">pending_actions</span>
+            {[
+              { label: '待审核流程', value: pendingWorkflows, icon: 'pending_actions', from: 'from-blue-50', to: 'to-indigo-50', text: 'text-blue-700', sub: 'text-blue-600/70', border: 'border-blue-100/60', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', modal: 'workflows' as DetailModalType, badge: pendingWorkflows },
+              { label: '进行中绩效', value: myPlans.length, icon: 'trending_up', from: 'from-emerald-50', to: 'to-teal-50', text: 'text-emerald-700', sub: 'text-emerald-600/70', border: 'border-emerald-100/60', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', modal: 'perf' as DetailModalType },
+              { label: '待办事项', value: pendingTasks.length, icon: 'checklist', from: 'from-amber-50', to: 'to-orange-50', text: 'text-amber-700', sub: 'text-amber-600/70', border: 'border-amber-100/60', iconBg: 'bg-amber-100', iconColor: 'text-amber-600', modal: 'tasks' as DetailModalType, badge: pendingTasks.length },
+              { label: '未读消息', value: unreadCount, icon: 'mail', from: 'from-purple-50', to: 'to-violet-50', text: 'text-purple-700', sub: 'text-purple-600/70', border: 'border-purple-100/60', iconBg: 'bg-purple-100', iconColor: 'text-purple-600', modal: 'notifications' as DetailModalType, badge: unreadCount },
+            ].map(c => (
+              <button key={c.label} onClick={() => c.modal && setDetailModal(c.modal)}
+                className={`bg-gradient-to-br ${c.from} ${c.to} rounded-2xl p-4 text-left hover:shadow-md transition-all border ${c.border}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`w-9 h-9 ${c.iconBg} rounded-xl flex items-center justify-center`}>
+                    <span className={`material-symbols-outlined ${c.iconColor} text-[18px]`}>{c.icon}</span>
+                  </div>
+                  {c.badge != null && c.badge > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-black">{c.badge}</span>}
                 </div>
-                {pendingWorkflows > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-black animate-pulse">{pendingWorkflows}</span>}
-              </div>
-              <p className="text-2xl font-black text-blue-700 dark:text-blue-300">{pendingWorkflows}</p>
-              <p className="text-[11px] text-blue-600/70 font-bold">待审核流程</p>
-            </button>
-
-            <button onClick={() => navigate('personal')}
-              className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl p-4 text-left hover:shadow-md transition-all group border border-emerald-100/60 dark:border-emerald-800/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl flex items-center justify-center">
-                  <span className="material-symbols-outlined text-emerald-600 text-[18px]">trending_up</span>
-                </div>
-              </div>
-              <p className="text-2xl font-black text-emerald-700 dark:text-emerald-300">{myPlans.length}</p>
-              <p className="text-[11px] text-emerald-600/70 font-bold">进行中绩效</p>
-            </button>
-
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-2xl p-4 text-left border border-amber-100/60 dark:border-amber-800/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-9 h-9 bg-amber-100 dark:bg-amber-900/40 rounded-xl flex items-center justify-center">
-                  <span className="material-symbols-outlined text-amber-600 text-[18px]">checklist</span>
-                </div>
-              </div>
-              <p className="text-2xl font-black text-amber-700 dark:text-amber-300">{pendingTasks.length}</p>
-              <p className="text-[11px] text-amber-600/70 font-bold">待办事项</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-900/20 dark:to-violet-900/20 rounded-2xl p-4 text-left border border-purple-100/60 dark:border-purple-800/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-9 h-9 bg-purple-100 dark:bg-purple-900/40 rounded-xl flex items-center justify-center">
-                  <span className="material-symbols-outlined text-purple-600 text-[18px]">mail</span>
-                </div>
-                {unreadCount > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-black">{unreadCount}</span>}
-              </div>
-              <p className="text-2xl font-black text-purple-700 dark:text-purple-300">{unreadCount}</p>
-              <p className="text-[11px] text-purple-600/70 font-bold">未读消息</p>
-            </div>
+                <p className={`text-2xl font-black ${c.text}`}>{c.value}</p>
+                <p className={`text-[11px] ${c.sub} font-bold`}>{c.label}</p>
+              </button>
+            ))}
           </div>
 
-          {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Editing Toolbar */}
+          {isEditing && (
+            <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-200/60 dark:border-blue-800/30">
+              <span className="material-symbols-outlined text-blue-500 text-[18px]">info</span>
+              <span className="text-xs text-blue-700 dark:text-blue-300 font-medium flex-1">拖拽模块到任意位置，支持跨列移动。点击 × 隐藏模块</span>
+              <button onClick={() => setShowAddPanel(!showAddPanel)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-slate-800 rounded-lg text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 border border-emerald-200 dark:border-emerald-800 transition-all">
+                <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                添加模块 {hiddenModuleList.length > 0 && `(${hiddenModuleList.length})`}
+              </button>
+              <button onClick={handleResetLayout}
+                className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-slate-800 rounded-lg text-[10px] font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition-all">
+                <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                重置布局
+              </button>
+            </div>
+          )}
 
-            {/* Left: Todo + My Performance */}
-            <div className="lg:col-span-5 space-y-6">
-              {/* Todo List */}
-              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-amber-500" style={{ fontVariationSettings: "'FILL' 1" }}>checklist</span>
-                    待办事项
-                    {pendingTasks.length > 0 && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{pendingTasks.length}</span>}
-                  </h3>
-                  <button onClick={() => setIsTaskModalOpen(true)}
-                    className="text-[10px] font-bold text-blue-500 hover:text-blue-700 flex items-center gap-0.5">
-                    <span className="material-symbols-outlined text-[14px]">add</span>新建
-                  </button>
-                </div>
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                  {tasks.length === 0 ? (
-                    <div className="text-center py-6 text-slate-400 text-xs">暂无待办事项 🎉</div>
-                  ) : tasks.map(task => {
-                    const done = task.status === 'completed';
+          {/* Add Module Panel */}
+          {isEditing && showAddPanel && hiddenModuleList.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800">
+              {hiddenModuleList.map(mod => (
+                <button key={mod.id} onClick={() => handleAddModule(mod.id)}
+                  className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all border border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-400 group">
+                  <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-emerald-500">{mod.icon}</span>
+                  <span className="text-xs font-bold text-slate-600 group-hover:text-emerald-700">{mod.label}</span>
+                  <span className="material-symbols-outlined text-[14px] text-slate-300 group-hover:text-emerald-400 ml-auto">add</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── 3-Column Free Canvas Grid ── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+            {columns.map((col, colIdx) => {
+              const visibleItems = col.filter(id => !hiddenModules.has(id));
+              return (
+                <div
+                  key={colIdx}
+                  className={`space-y-4 min-h-[100px] rounded-2xl transition-all ${
+                    isEditing ? 'p-2 border-2 border-dashed border-transparent' : ''
+                  } ${dropTarget?.colIdx === colIdx && dropTarget?.itemIdx === -1 ? 'border-blue-300 bg-blue-50/30' : ''}`}
+                  onDragOver={(e) => {
+                    if (!isEditing) return;
+                    // Only activate column drop zone if not over a specific item
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    if (y > rect.height - 40 || visibleItems.length === 0) {
+                      handleDragOverColumn(e, colIdx);
+                    }
+                  }}
+                  onDrop={handleDrop}
+                >
+                  {visibleItems.map((modId, itemIdx) => {
+                    const mod = modMap[modId];
+                    if (!mod) return null;
+                    const Comp = mod.component;
+                    const isOver = dropTarget?.colIdx === colIdx && dropTarget?.itemIdx === itemIdx;
                     return (
-                      <div key={task.id} className={`flex items-start gap-3 p-3 rounded-xl transition-all ${done ? 'opacity-50' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
-                        <input type="checkbox" checked={done} onChange={() => handleToggleTaskStatus(task)}
-                          className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-400 cursor-pointer" />
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-bold ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-white'}`}>{task.title}</p>
-                          {task.due_date && <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[11px]">schedule</span>{task.due_date}
-                          </p>}
-                        </div>
-                        {!done && task.priority === 'high' && (
-                          <span className="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">紧急</span>
+                      <div key={mod.id}>
+                        {/* Drop indicator line */}
+                        {isEditing && isOver && (
+                          <div className="h-1 bg-blue-400 rounded-full mx-4 mb-2 animate-pulse" />
                         )}
+                        <div
+                          draggable={isEditing}
+                          onDragStart={() => handleDragStart(mod.id, colIdx, itemIdx)}
+                          onDragOver={(e) => { if (isEditing) handleDragOverItem(e, colIdx, itemIdx); }}
+                          onDrop={handleDrop}
+                          onDragEnd={handleDragEnd}
+                          className={`transition-all ${
+                            isEditing ? 'cursor-grab active:cursor-grabbing' : ''
+                          }`}
+                          style={{ WebkitUserDrag: isEditing ? 'element' : 'none' } as any}
+                        >
+                          <ModCard
+                            isEditing={isEditing}
+                            onRemove={() => handleRemoveModule(mod.id)}
+                            dragHandleProps={isEditing ? {
+                              onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+                            } : undefined}
+                          >
+                            <Comp navigate={navigate} data={dashData} actions={dashActions} />
+                          </ModCard>
+                        </div>
                       </div>
                     );
                   })}
+                  {/* Empty column drop zone */}
+                  {isEditing && visibleItems.length === 0 && (
+                    <div className="flex items-center justify-center h-32 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs">
+                      <span className="material-symbols-outlined text-[20px] mr-1">add</span>
+                      拖拽模块到此列
+                    </div>
+                  )}
                 </div>
-              </section>
-
-              {/* My Performance Plans */}
-              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-emerald-500" style={{ fontVariationSettings: "'FILL' 1" }}>trending_up</span>
-                    我的绩效计划
-                  </h3>
-                  <button onClick={() => navigate('personal')} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>
-                </div>
-                {myPlans.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs">暂无进行中的绩效计划</div>
-                ) : (
-                  <div className="space-y-3">
-                    {myPlans.map((plan: any) => {
-                      const s = STATUS_MAP[plan.status] || { label: plan.status, color: 'text-slate-500', bg: 'bg-slate-100' };
-                      return (
-                        <div key={plan.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all cursor-pointer"
-                          onClick={() => navigate('personal')}>
-                          <div className="relative w-10 h-10 flex-shrink-0">
-                            <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
-                              <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="3" />
-                              <circle cx="18" cy="18" r="14" fill="none"
-                                stroke={plan.progress >= 80 ? '#22c55e' : plan.progress >= 40 ? '#3b82f6' : '#f59e0b'}
-                                strokeWidth="3" strokeDasharray={`${(plan.progress / 100) * 88} 88`} strokeLinecap="round" />
-                            </svg>
-                            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-slate-600">{plan.progress}%</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{plan.title}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
-                              {plan.deadline && <span className="text-[9px] text-slate-400">截止 {plan.deadline}</span>}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            </div>
-
-            {/* Middle: Recent Notifications */}
-            <div className="lg:col-span-4 space-y-6">
-              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-blue-500" style={{ fontVariationSettings: "'FILL' 1" }}>inbox</span>
-                    最新消息
-                    {unreadCount > 0 && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">{unreadCount}</span>}
-                  </h3>
-                </div>
-                {recentNotifs.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs">暂无消息</div>
-                ) : (
-                  <div className="space-y-2">
-                    {recentNotifs.map((n: any) => (
-                      <div key={n.id} className={`p-3 rounded-xl transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${!n.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
-                        onClick={() => { if (n.link) navigate(n.link.replace(/^\//, '').split('?')[0]); }}>
-                        <div className="flex items-start gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!n.is_read ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                            <span className={`material-symbols-outlined text-[14px] ${!n.is_read ? 'text-blue-600' : 'text-slate-400'}`}>
-                              {n.type === 'proposal' ? 'description' : n.type === 'perf' ? 'trending_up' : 'notifications'}
-                            </span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <p className={`text-xs font-bold truncate ${!n.is_read ? 'text-slate-800' : 'text-slate-500'}`}>{n.title}</p>
-                              <span className="text-[9px] text-slate-400 flex-shrink-0 ml-2">{formatDate(n.created_at)}</span>
-                            </div>
-                            <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">{n.content}</p>
-                          </div>
-                          {!n.is_read && <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              {/* My Proposals */}
-              {myProposals.length > 0 && (
-                <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px] text-purple-500" style={{ fontVariationSettings: "'FILL' 1" }}>lightbulb</span>
-                      我的提案
-                    </h3>
-                    <button onClick={() => navigate('company')} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>
-                  </div>
-                  <div className="space-y-2">
-                    {myProposals.map((p: any) => {
-                      const s = STATUS_MAP[p.proposal_status] || { label: p.proposal_status, color: 'text-slate-500', bg: 'bg-slate-100' };
-                      return (
-                        <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all">
-                          <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                            <span className="material-symbols-outlined text-purple-500 text-[14px]">lightbulb</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{p.title}</p>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
-                          </div>
-                          {p.bonus > 0 && <span className="text-[10px] text-rose-500 font-bold">¥{p.bonus}</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
-            </div>
-
-            {/* Right: Quick Actions */}
-            <div className="lg:col-span-3 space-y-6">
-              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-5">
-                <h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2 mb-4">
-                  <span className="material-symbols-outlined text-[16px] text-slate-500">bolt</span>
-                  快速入口
-                </h3>
-                <div className="space-y-2">
-                  {[
-                    { icon: 'assignment', label: '我的流程', view: 'workflows', color: 'text-blue-600 bg-blue-50', badge: pendingWorkflows },
-                    { icon: 'person', label: '个人管理', view: 'personal', color: 'text-emerald-600 bg-emerald-50' },
-                    { icon: 'groups', label: '团队管理', view: 'team', color: 'text-indigo-600 bg-indigo-50' },
-                    { icon: 'analytics', label: '公司绩效池', view: 'company', color: 'text-orange-600 bg-orange-50' },
-                    { icon: 'view_quilt', label: '全景仪表盘', view: 'panorama', color: 'text-purple-600 bg-purple-50' },
-                  ].map(item => (
-                    <button key={item.view} onClick={() => navigate(item.view)}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all text-left group">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${item.color.split(' ')[1]}`}>
-                        <span className={`material-symbols-outlined text-[18px] ${item.color.split(' ')[0]}`}>{item.icon}</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex-1">{item.label}</span>
-                      {item.badge && item.badge > 0 ? (
-                        <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-black">{item.badge}</span>
-                      ) : (
-                        <span className="material-symbols-outlined text-[14px] text-slate-300 group-hover:text-slate-500 transition-colors">chevron_right</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {/* Summary Card */}
-              <section className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl p-5 text-white">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>summarize</span>
-                  <h3 className="font-bold text-sm">今日概览</h3>
-                </div>
-                <div className="space-y-2 text-xs opacity-90">
-                  <p>📋 {pendingTasks.length} 项待办事项</p>
-                  <p>✅ {completedTasks.length} 项已完成</p>
-                  <p>📊 {myPlans.length} 个绩效计划进行中</p>
-                  <p>⏳ {pendingWorkflows} 个流程待审核</p>
-                  <p>✉️ {unreadCount} 条未读消息</p>
-                </div>
-              </section>
-            </div>
+              );
+            })}
           </div>
         </div>
       </main>
 
       {/* Task Modal */}
       {isTaskModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
               <h3 className="text-base font-bold flex items-center gap-2">
-                <span className="material-symbols-outlined text-blue-500">add_task</span>
-                新建待办事项
+                <span className="material-symbols-outlined text-blue-500">add_task</span>新建待办事项
               </h3>
-              <button onClick={() => setIsTaskModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-100">
+              <button onClick={() => setIsTaskModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -402,47 +936,45 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">任务标题 *</label>
                 <input required autoFocus type="text" value={newTask.title}
-                  onChange={e => setNewTask({...newTask, title: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400 transition-all"
+                  onChange={e => setNewTask({ ...newTask, title: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400"
                   placeholder="例如：准备项目季度汇报PPT" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">截止日期</label>
                 <input type="date" value={newTask.due_date}
-                  onChange={e => setNewTask({...newTask, due_date: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400 transition-all" />
+                  onChange={e => setNewTask({ ...newTask, due_date: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">描述</label>
                 <textarea rows={3} value={newTask.description}
-                  onChange={e => setNewTask({...newTask, description: e.target.value})}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 transition-all resize-none"
+                  onChange={e => setNewTask({ ...newTask, description: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none"
                   placeholder="补充任务细节..." />
               </div>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                  <input type="radio" name="priority" value="normal"
-                    checked={newTask.priority === 'normal'}
-                    onChange={() => setNewTask({...newTask, priority: 'normal'})}
-                    className="accent-blue-500 w-4 h-4" />
-                  普通
+                  <input type="radio" name="priority" value="normal" checked={newTask.priority === 'normal'}
+                    onChange={() => setNewTask({ ...newTask, priority: 'normal' })} className="accent-blue-500 w-4 h-4" />普通
                 </label>
                 <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                  <input type="radio" name="priority" value="high"
-                    checked={newTask.priority === 'high'}
-                    onChange={() => setNewTask({...newTask, priority: 'high'})}
-                    className="accent-red-500 w-4 h-4" />
+                  <input type="radio" name="priority" value="high" checked={newTask.priority === 'high'}
+                    onChange={() => setNewTask({ ...newTask, priority: 'high' })} className="accent-red-500 w-4 h-4" />
                   <span className="text-red-500 font-bold">紧急</span>
                 </label>
               </div>
               <div className="pt-4 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800 mt-4">
-                <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">取消</button>
-                <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-blue-500 hover:bg-blue-600 active:scale-95 shadow-md rounded-xl transition-all">创建</button>
+                <button type="button" onClick={() => setIsTaskModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl">取消</button>
+                <button type="submit" className="px-6 py-2.5 text-sm font-bold text-white bg-blue-500 hover:bg-blue-600 active:scale-95 shadow-md rounded-xl">创建</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Detail Modal */}
+      <DetailModal type={detailModal} onClose={() => setDetailModal(null)} data={dashData} actions={dashActions} navigate={navigate} />
     </div>
   );
 }

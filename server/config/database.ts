@@ -231,6 +231,31 @@ export function initDatabase(): void {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (user_id, perm_key)
     );
+
+    -- ============ 审批流模板 ============
+    CREATE TABLE IF NOT EXISTS approval_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT 'approval',
+      description TEXT DEFAULT '',
+      category TEXT DEFAULT 'general',
+      enabled INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ============ 审批流节点 ============
+    CREATE TABLE IF NOT EXISTS approval_nodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL REFERENCES approval_templates(id) ON DELETE CASCADE,
+      node_type TEXT NOT NULL DEFAULT 'approver',
+      node_index INTEGER NOT NULL DEFAULT 0,
+      label TEXT DEFAULT '',
+      approve_type TEXT DEFAULT 'serial',
+      config_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   console.log('✅ Database tables initialized');

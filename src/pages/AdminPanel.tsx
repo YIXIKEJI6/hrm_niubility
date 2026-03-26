@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 
-type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | 'admin_mgmt' | null;
+type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | 'admin_mgmt' | 'approval_flows' | null;
 
 function useApiGet(url: string, deps: any[] = []) {
   const [data, setData] = useState<any>(null);
@@ -932,7 +932,401 @@ function SettingsModule({ currentUser }: { currentUser: any }) {
   );
 }
 
+// ─── MODULE: 流程审批设置 ─────────────────────────────────────────────
+const NODE_TYPES: Record<string, { label: string; icon: string; color: string }> = {
+  initiator: { label: '发起人', icon: 'person', color: 'bg-blue-500' },
+  approver: { label: '审批人', icon: 'how_to_reg', color: 'bg-orange-500' },
+  cc: { label: '抄送人', icon: 'forward_to_inbox', color: 'bg-green-500' },
+  condition: { label: '条件分支', icon: 'call_split', color: 'bg-purple-500' },
+};
+
+const APPROVE_TYPES: Record<string, string> = {
+  serial: '依次审批',
+  parallel: '会签（需全部通过）',
+  or_sign: '或签（任一人通过）',
+};
+function ApprovalFlowModule() {
+  const { data: allUsers } = useApiGet('/api/org/users-list');
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<any | null>(null); // currently editing template
+  const [nodes, setNodes] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newIcon, setNewIcon] = useState('approval');
+
+  const loadTemplates = async () => {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    const res = await fetch('/api/approval-flows', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+    if (res.code === 0) setTemplates(res.data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadTemplates(); }, []);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    const res = await apiCall('/api/approval-flows', 'POST', { name: newName.trim(), description: newDesc.trim(), icon: newIcon });
+    if (res.code === 0) {
+      setTemplates(prev => [...prev, res.data]);
+      setShowCreate(false);
+      setNewName(''); setNewDesc(''); setNewIcon('approval');
+      setMsg('✅ 模板已创建');
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('确定删除此审批流模板？')) return;
+    await apiCall(`/api/approval-flows/${id}`, 'DELETE');
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    if (editing?.id === id) { setEditing(null); setNodes([]); }
+    setMsg('已删除');
+  };
+
+  const handleToggle = async (tpl: any) => {
+    await apiCall(`/api/approval-flows/${tpl.id}`, 'PUT', { enabled: !tpl.enabled });
+    setTemplates(prev => prev.map(t => t.id === tpl.id ? { ...t, enabled: !t.enabled } : t));
+  };
+
+  const openEditor = (tpl: any) => {
+    setEditing(tpl);
+    setNodes(tpl.nodes?.length ? tpl.nodes : [
+      { node_type: 'initiator', label: '发起人', approve_type: 'serial', config: {} },
+    ]);
+    setMsg('');
+  };
+
+  const addNode = (type: string) => {
+    const label = NODE_TYPES[type]?.label || type;
+    setNodes(prev => [...prev, { node_type: type, label, approve_type: 'serial', config: { assignees: [] } }]);
+  };
+
+  const removeNode = (idx: number) => {
+    if (nodes[idx].node_type === 'initiator') return;
+    setNodes(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateNode = (idx: number, patch: any) => {
+    setNodes(prev => prev.map((n, i) => i === idx ? { ...n, ...patch } : n));
+  };
+
+  const moveNode = (idx: number, dir: -1 | 1) => {
+    if (idx === 0 && dir === -1) return;
+    if (idx === nodes.length - 1 && dir === 1) return;
+    const next = [...nodes];
+    [next[idx], next[idx + dir]] = [next[idx + dir], next[idx]];
+    setNodes(next);
+  };
+
+  const handleSaveNodes = async () => {
+    if (!editing) return;
+    setSaving(true);
+    const res = await apiCall(`/api/approval-flows/${editing.id}/nodes`, 'PUT', { nodes });
+    setSaving(false);
+    if (res.code === 0) {
+      setMsg('✅ 节点已保存');
+      setTemplates(prev => prev.map(t => t.id === editing.id ? { ...t, nodes: res.data } : t));
+    } else {
+      setMsg(`❌ ${res.message}`);
+    }
+  };
+
+  const ICON_OPTIONS = [
+    { value: 'approval', label: '审批' },
+    { value: 'event_note', label: '请假' },
+    { value: 'receipt_long', label: '报销' },
+    { value: 'business_center', label: '出差' },
+    { value: 'trending_up', label: '绩效' },
+    { value: 'payments', label: '薪酬' },
+    { value: 'badge', label: '入职' },
+    { value: 'exit_to_app', label: '离职' },
+    { value: 'swap_horiz', label: '调岗' },
+    { value: 'handshake', label: '合同' },
+  ];
+
+  // ── Editing View ──
+  if (editing) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <button onClick={() => { setEditing(null); setNodes([]); }}
+              className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <span className="material-symbols-outlined text-[16px] text-slate-600">arrow_back</span>
+            </button>
+            <div>
+              <h4 className="text-base font-bold text-slate-800">{editing.name}</h4>
+              <p className="text-xs text-slate-400">{editing.description || '编辑审批流程节点'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {msg && <span className="text-xs">{msg}</span>}
+            <button onClick={handleSaveNodes} disabled={saving}
+              className="px-4 py-2 bg-[#0060a9] text-white text-sm font-medium rounded-lg hover:bg-[#004d8a] disabled:opacity-60 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[14px]">{saving ? 'hourglass_empty' : 'save'}</span>
+              {saving ? '保存中...' : '保存流程'}
+            </button>
+          </div>
+        </div>
+
+        {/* Visual Flow */}
+        <div className="flex flex-col items-center gap-0 py-4">
+          {nodes.map((node, idx) => (
+            <React.Fragment key={idx}>
+              {/* Connector Line */}
+              {idx > 0 && (
+                <div className="flex flex-col items-center">
+                  <div className="w-0.5 h-6 bg-slate-300" />
+                  <span className="material-symbols-outlined text-[16px] text-slate-300 -my-1">arrow_drop_down</span>
+                </div>
+              )}
+              {/* Node Card */}
+              <div className={`relative w-full max-w-md rounded-xl border-2 p-4 transition-all ${
+                node.node_type === 'initiator' ? 'border-blue-200 bg-blue-50/50' :
+                node.node_type === 'approver' ? 'border-orange-200 bg-orange-50/50' :
+                node.node_type === 'cc' ? 'border-green-200 bg-green-50/50' :
+                'border-purple-200 bg-purple-50/50'
+              }`}>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-lg ${NODE_TYPES[node.node_type]?.color || 'bg-slate-500'} flex items-center justify-center`}>
+                      <span className="material-symbols-outlined text-white text-[16px]">{NODE_TYPES[node.node_type]?.icon || 'help'}</span>
+                    </div>
+                    <div>
+                      <input value={node.label} onChange={e => updateNode(idx, { label: e.target.value })}
+                        className="text-sm font-bold text-slate-800 bg-transparent border-none outline-none w-40" placeholder="节点名称" />
+                      <p className="text-[10px] text-slate-400 mt-0.5">{NODE_TYPES[node.node_type]?.label}</p>
+                    </div>
+                  </div>
+                  {node.node_type !== 'initiator' && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => moveNode(idx, -1)} className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-white">
+                        <span className="material-symbols-outlined text-[14px]">arrow_upward</span>
+                      </button>
+                      <button onClick={() => moveNode(idx, 1)} className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-white">
+                        <span className="material-symbols-outlined text-[14px]">arrow_downward</span>
+                      </button>
+                      <button onClick={() => removeNode(idx)} className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50">
+                        <span className="material-symbols-outlined text-[14px]">delete</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Approver config */}
+                {node.node_type === 'approver' && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-500 shrink-0">审批方式：</span>
+                      <select value={node.approve_type || 'serial'} onChange={e => updateNode(idx, { approve_type: e.target.value })}
+                        className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none">
+                        {Object.entries(APPROVE_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-500 shrink-0">审批人：</span>
+                      <select value={node.config?.assigneeType || 'specified'} onChange={e => updateNode(idx, { config: { ...node.config, assigneeType: e.target.value } })}
+                        className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none">
+                        <option value="specified">指定成员</option>
+                        <option value="superior">发起人直属上级</option>
+                        <option value="dept_head">部门主管</option>
+                        <option value="role_hr">角色: HR</option>
+                        <option value="role_admin">角色: 管理员</option>
+                      </select>
+                    </div>
+                    {/* Person picker for specified members */}
+                    {(node.config?.assigneeType || 'specified') === 'specified' && (() => {
+                      const selectedIds: string[] = node.config?.assignees || [];
+                      const userList: any[] = Array.isArray(allUsers) ? allUsers : [];
+                      return (
+                        <div className="mt-1">
+                          {/* Selected chips */}
+                          {selectedIds.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-1.5">
+                              {selectedIds.map((uid: string) => {
+                                const u = userList.find(u => u.id === uid);
+                                return (
+                                  <span key={uid} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[11px]">
+                                    {u?.name || uid}
+                                    <button onClick={() => updateNode(idx, { config: { ...node.config, assignees: selectedIds.filter(id => id !== uid) } })}
+                                      className="text-blue-400 hover:text-red-500">×</button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {/* Add person dropdown */}
+                          <select value="" onChange={e => {
+                            if (e.target.value && !selectedIds.includes(e.target.value)) {
+                              updateNode(idx, { config: { ...node.config, assignees: [...selectedIds, e.target.value] } });
+                            }
+                            e.target.value = '';
+                          }} className="bg-white border border-dashed border-slate-300 rounded-lg px-2 py-1 text-[11px] text-slate-500 outline-none w-full">
+                            <option value="">+ 添加审批人...</option>
+                            {userList.filter(u => !selectedIds.includes(u.id)).map((u: any) => (
+                              <option key={u.id} value={u.id}>{u.name} ({u.department_name || u.title || ''})</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* CC config */}
+                {node.node_type === 'cc' && (
+                  <div className="mt-3 text-xs text-slate-500">
+                    <span>通知方式：</span>
+                    <select value={node.config?.notifyType || 'system'} onChange={e => updateNode(idx, { config: { ...node.config, notifyType: e.target.value } })}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none ml-1">
+                      <option value="system">系统通知</option>
+                      <option value="wecom">企微消息</option>
+                      <option value="both">系统+企微</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Condition config */}
+                {node.node_type === 'condition' && (
+                  <div className="mt-3 text-xs text-slate-500">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0">条件字段：</span>
+                      <input value={node.config?.field || ''} onChange={e => updateNode(idx, { config: { ...node.config, field: e.target.value } })}
+                        placeholder="例如: amount" className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none w-24" />
+                      <select value={node.config?.operator || 'gt'} onChange={e => updateNode(idx, { config: { ...node.config, operator: e.target.value } })}
+                        className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none">
+                        <option value="gt">&gt;</option>
+                        <option value="gte">&ge;</option>
+                        <option value="lt">&lt;</option>
+                        <option value="lte">&le;</option>
+                        <option value="eq">=</option>
+                      </select>
+                      <input value={node.config?.value || ''} onChange={e => updateNode(idx, { config: { ...node.config, value: e.target.value } })}
+                        placeholder="值" className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none w-20" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </React.Fragment>
+          ))}
+
+          {/* End Node */}
+          <div className="flex flex-col items-center">
+            <div className="w-0.5 h-6 bg-slate-300" />
+            <span className="material-symbols-outlined text-[16px] text-slate-300 -my-1">arrow_drop_down</span>
+          </div>
+          <div className="w-full max-w-md rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-3 text-center">
+            <span className="text-xs font-bold text-slate-400">流程结束</span>
+          </div>
+        </div>
+
+        {/* Add Node Toolbar */}
+        <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-100">
+          <span className="text-xs text-slate-400 mr-2">添加节点：</span>
+          {(['approver', 'cc', 'condition'] as const).map(type => (
+            <button key={type} onClick={() => addNode(type)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-600 hover:border-[#0060a9]/30 hover:text-[#0060a9] transition-all">
+              <span className={`w-5 h-5 rounded ${NODE_TYPES[type].color} flex items-center justify-center`}>
+                <span className="material-symbols-outlined text-white text-[12px]">{NODE_TYPES[type].icon}</span>
+              </span>
+              {NODE_TYPES[type].label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── List View ──
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-slate-500">配置各类审批流程的节点、审批人和条件分支</p>
+        <button onClick={() => setShowCreate(true)}
+          className="px-4 py-2 bg-[#0060a9] text-white text-sm font-medium rounded-lg hover:bg-[#004d8a] flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[14px]">add</span>
+          新建审批流
+        </button>
+      </div>
+
+      {msg && <div className="mb-3 text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{msg}</div>}
+
+      {/* Create Form Popover */}
+      {showCreate && (
+        <div className="mb-4 bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <h5 className="text-sm font-bold text-slate-700 mb-3">新建审批流模板</h5>
+          <div className="grid grid-cols-[1fr_auto] gap-3 mb-3">
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="审批流名称 *"
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-200" autoFocus />
+            <select value={newIcon} onChange={e => setNewIcon(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none">
+              {ICON_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="描述说明（可选）"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none mb-3 focus:ring-2 focus:ring-blue-200" />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setShowCreate(false); setNewName(''); setNewDesc(''); }}
+              className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-50">取消</button>
+            <button onClick={handleCreate} disabled={!newName.trim()}
+              className="px-4 py-1.5 bg-[#0060a9] text-white text-xs font-medium rounded-lg hover:bg-[#004d8a] disabled:opacity-50">创建</button>
+          </div>
+        </div>
+      )}
+
+      {/* Template List */}
+      {loading ? (
+        <div className="text-center py-12 text-sm text-slate-400">加载中...</div>
+      ) : templates.length === 0 ? (
+        <div className="text-center py-16">
+          <span className="material-symbols-outlined text-[48px] text-slate-200 mb-3">account_tree</span>
+          <p className="text-sm text-slate-400">暂无审批流模板</p>
+          <p className="text-xs text-slate-300 mt-1">点击「新建审批流」开始配置</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {templates.map(tpl => (
+            <div key={tpl.id} className="bg-slate-50 rounded-xl p-4 flex items-center justify-between group hover:bg-slate-100 transition-colors">
+              <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => openEditor(tpl)}>
+                <div className="w-10 h-10 rounded-xl bg-[#0060a9] flex items-center justify-center">
+                  <span className="material-symbols-outlined text-white text-lg">{tpl.icon || 'approval'}</span>
+                </div>
+                <div>
+                  <h5 className="text-sm font-bold text-slate-700">{tpl.name}</h5>
+                  <p className="text-xs text-slate-400">{tpl.description || '暂无描述'} · {tpl.nodes?.length || 0} 个节点</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Enable/Disable Toggle */}
+                <div onClick={() => handleToggle(tpl)}
+                  className={`relative w-9 h-5 rounded-full cursor-pointer transition-all duration-200 ${tpl.enabled ? 'bg-[#0060a9]' : 'bg-slate-200'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${tpl.enabled ? 'translate-x-4' : ''}`} />
+                </div>
+                <button onClick={() => openEditor(tpl)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#0060a9] hover:bg-white transition-all opacity-0 group-hover:opacity-100">
+                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                </button>
+                <button onClick={() => handleDelete(tpl.id)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-white transition-all opacity-0 group-hover:opacity-100">
+                  <span className="material-symbols-outlined text-[16px]">delete</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MODULE: 权限管理 ─────────────────────────────────────────────────
+const PRESETS_KEY = 'hrm_perm_presets';
+interface PermPreset { name: string; keys: string[] }
+
 function PermissionsModule() {
   const { data: orgTree, loading: orgLoading } = useApiGet('/api/org/tree');
   const { data: permDefs, loading: permLoading } = useApiGet('/api/permissions/definitions');
@@ -944,6 +1338,28 @@ function PermissionsModule() {
   const [msg, setMsg] = useState('');
   const [expandedDepts, setExpandedDepts] = useState<Set<number>>(new Set());
   const [deptMembers, setDeptMembers] = useState<Record<number, any[]>>({});
+  const [presets, setPresets] = useState<PermPreset[]>(() => {
+    try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch { return []; }
+  });
+  const [showPresetInput, setShowPresetInput] = useState(false);
+  const [presetName, setPresetName] = useState('');
+
+  const handleSavePreset = () => {
+    const trimmed = presetName.trim();
+    if (!trimmed) return;
+    const existing = presets.findIndex(p => p.name === trimmed);
+    const updated = [...presets];
+    if (existing >= 0) {
+      updated[existing] = { name: trimmed, keys: [...grantedKeys] };
+    } else {
+      updated.push({ name: trimmed, keys: [...grantedKeys] });
+    }
+    setPresets(updated);
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(updated));
+    setMsg(`✅ 已保存预设「${trimmed}」`);
+    setPresetName('');
+    setShowPresetInput(false);
+  };
 
   const loading = orgLoading || permLoading;
 
@@ -1108,9 +1524,63 @@ function PermissionsModule() {
               {selectedUsers.size > 6 && <span className="text-xs text-slate-400">+{selectedUsers.size - 6} 人</span>}
             </div>
 
-            <div className="flex items-center justify-between mb-4">
+            <div className="mb-4 space-y-2">
               <p className="text-xs text-slate-500">将权限应用至 <strong className="text-violet-600">{selectedUsers.size}</strong> 人（多人选中时以第一人权限为基准）</p>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Preset Dropdown */}
+                <div className="relative">
+                  <select
+                    value=""
+                    onChange={e => {
+                      const p = presets.find(pr => pr.name === e.target.value);
+                      if (p) { setGrantedKeys(new Set(p.keys)); setMsg(`✅ 已应用预设「${p.name}」`); }
+                    }}
+                    className="appearance-none pl-3 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-600 cursor-pointer hover:border-violet-300 focus:ring-2 focus:ring-violet-200 outline-none min-w-[100px]"
+                  >
+                    <option value="" disabled>选择预设…</option>
+                    {presets.map(p => (
+                      <option key={p.name} value={p.name}>{p.name} ({p.keys.length}项)</option>
+                    ))}
+                    {presets.length === 0 && <option disabled>暂无预设</option>}
+                  </select>
+                  <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[14px] text-slate-400 pointer-events-none">expand_more</span>
+                </div>
+
+                {/* Save Preset Button */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowPresetInput(!showPresetInput); setPresetName(''); }}
+                    disabled={grantedKeys.size === 0}
+                    className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-medium rounded-lg hover:border-violet-300 hover:text-violet-600 disabled:opacity-50 flex items-center gap-1 transition-all"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">bookmark_add</span>
+                    保存预设
+                  </button>
+                  {/* Custom Preset Name Popover */}
+                  {showPresetInput && (
+                    <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-4 w-72 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <p className="text-xs font-bold text-slate-700 mb-2">保存为预设模板</p>
+                      <input
+                        autoFocus
+                        value={presetName}
+                        onChange={e => setPresetName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleSavePreset(); if (e.key === 'Escape') setShowPresetInput(false); }}
+                        placeholder="输入预设名称…"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-violet-200 focus:border-violet-400 outline-none transition-all mb-3"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => setShowPresetInput(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">取消</button>
+                        <button onClick={handleSavePreset} disabled={!presetName.trim()} className="px-4 py-1.5 bg-violet-600 text-white text-xs font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-all flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[12px]">check</span>确定
+                        </button>
+                      </div>
+                      {presets.some(p => p.name === presetName.trim()) && presetName.trim() && (
+                        <p className="text-[10px] text-amber-600 mt-2 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">warning</span>该名称已存在，保存将覆盖原预设</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {msg && <span className="text-xs">{msg}</span>}
                 {loadingPerms && <span className="text-xs text-violet-500 flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">sync</span>加载权限...</span>}
                 <button onClick={handleSave} disabled={saving || loadingPerms}
@@ -1120,6 +1590,36 @@ function PermissionsModule() {
                 </button>
               </div>
             </div>
+
+            {/* Preset Management Bar (show when presets exist) */}
+            {presets.length > 0 && (
+              <div className="flex items-center gap-2 mb-4 p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="material-symbols-outlined text-[14px] text-slate-400">bookmark</span>
+                <span className="text-[10px] text-slate-400 font-bold mr-1">预设:</span>
+                {presets.map(p => (
+                  <div key={p.name} className="flex items-center gap-0.5 group">
+                    <button
+                      onClick={() => { setGrantedKeys(new Set(p.keys)); setMsg(`✅ 已应用预设「${p.name}」`); }}
+                      className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-600 hover:border-violet-300 hover:text-violet-600 transition-all"
+                    >
+                      {p.name}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!confirm(`确定删除预设「${p.name}」？`)) return;
+                        const updated = presets.filter(x => x.name !== p.name);
+                        setPresets(updated);
+                        localStorage.setItem(PRESETS_KEY, JSON.stringify(updated));
+                        setMsg(`已删除预设「${p.name}」`);
+                      }}
+                      className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">close</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="max-h-[380px] overflow-y-auto space-y-4 pr-1">
               {permModules.map(mod => (
@@ -1289,6 +1789,7 @@ const MODULES = [
   { key: 'pool', label: '绩效池管理', desc: '创建与调配绩效池任务、设置奖金额度', icon: 'pool', color: 'rose', hoverColor: 'hover:border-rose-400/30', iconBg: 'bg-rose-50', iconColor: 'text-rose-600', stats: ['任务创建', '奖金配额'] },
   { key: 'settings', label: '系统设置', desc: '企微配置、AI分析设置、数据备份与恢复', icon: 'settings', color: 'slate', hoverColor: 'hover:border-slate-400/30', iconBg: 'bg-slate-100', iconColor: 'text-slate-600', stats: ['企微配置', '数据备份'] },
   { key: 'permissions', label: '权限管理', desc: '按角色管控功能、操作及字段访问权限', icon: 'admin_panel_settings', color: 'violet', hoverColor: 'hover:border-violet-400/30', iconBg: 'bg-violet-50', iconColor: 'text-violet-600', stats: ['功能权限', '字段权限'] },
+  { key: 'approval_flows', label: '流程审批设置', desc: '配置审批流模板、审批节点与条件分支', icon: 'account_tree', color: 'teal', hoverColor: 'hover:border-teal-400/30', iconBg: 'bg-teal-50', iconColor: 'text-teal-600', stats: ['流程模板', '节点配置'] },
 ];
 
 export default function AdminPanel({ navigate }: { navigate: (view: string) => void }) {
@@ -1339,29 +1840,36 @@ export default function AdminPanel({ navigate }: { navigate: (view: string) => v
             )}
           </div>
 
-          {/* Active Module Panel */}
+          {/* Active Module Modal — only closes via X button */}
           {activeModule && (
-            <div className="mb-8 bg-white border border-slate-200/60 rounded-2xl p-6 shadow-sm animate-in fade-in slide-in-from-top-3 duration-200">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[20px] text-[#0060a9]">
-                    {MODULES.find(m => m.key === activeModule)?.icon}
-                  </span>
-                  {getModuleLabel()}
-                </h3>
-                <button onClick={() => setActiveModule(null)}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
-                  <span className="material-symbols-outlined text-[18px]">close</span>
-                </button>
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[85vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                {/* Modal Header */}
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center flex-shrink-0">
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[20px] text-[#0060a9]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {MODULES.find(m => m.key === activeModule)?.icon}
+                    </span>
+                    {getModuleLabel()}
+                  </h3>
+                  <button onClick={() => setActiveModule(null)}
+                    className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <span className="material-symbols-outlined text-[20px]">close</span>
+                  </button>
+                </div>
+                {/* Modal Content — scrollable */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {activeModule === 'org' && <OrgModule />}
+                  {activeModule === 'perf' && <PerfModule />}
+                  {activeModule === 'salary' && <SalaryModule />}
+                  {activeModule === 'msg' && <MsgModule />}
+                  {activeModule === 'pool' && <PoolModule />}
+                  {activeModule === 'settings' && <SettingsModule currentUser={currentUser} />}
+                  {activeModule === 'permissions' && <PermissionsModule />}
+                  {activeModule === 'admin_mgmt' && <AdminMgmtModule />}
+                  {activeModule === 'approval_flows' && <ApprovalFlowModule />}
+                </div>
               </div>
-              {activeModule === 'org' && <OrgModule />}
-              {activeModule === 'perf' && <PerfModule />}
-              {activeModule === 'salary' && <SalaryModule />}
-              {activeModule === 'msg' && <MsgModule />}
-              {activeModule === 'pool' && <PoolModule />}
-              {activeModule === 'settings' && <SettingsModule currentUser={currentUser} />}
-              {activeModule === 'permissions' && <PermissionsModule />}
-              {activeModule === 'admin_mgmt' && <AdminMgmtModule />}
             </div>
           )}
 
@@ -1369,7 +1877,7 @@ export default function AdminPanel({ navigate }: { navigate: (view: string) => v
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {MODULES.filter(mod => !(mod as any).superAdminOnly || currentUser?.is_super_admin).map(mod => (
               <div key={mod.key}
-                onClick={() => setActiveModule(activeModule === mod.key ? null : mod.key as Module)}
+                onClick={() => setActiveModule(mod.key as Module)}
                 className={`bg-white dark:bg-slate-900 rounded-2xl p-6 border transition-all cursor-pointer group ${
                   activeModule === mod.key
                     ? 'border-[#0060a9]/50 shadow-lg shadow-[#0060a9]/5 ring-2 ring-[#0060a9]/10'
@@ -1394,31 +1902,6 @@ export default function AdminPanel({ navigate }: { navigate: (view: string) => v
             ))}
           </div>
 
-          {/* Quick Actions */}
-          <div className="mt-8 bg-gradient-to-r from-[#0060a9]/5 to-[#409eff]/5 rounded-2xl p-6 border border-[#0060a9]/10">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#0060a9]">bolt</span>
-              快捷操作
-            </h3>
-            {actionMsg && (
-              <div className="mb-4 text-sm bg-white/80 border border-slate-200 rounded-xl px-4 py-2.5">{actionMsg}</div>
-            )}
-            <div className="flex flex-wrap gap-3">
-              {[
-                { action: 'sync', icon: 'sync', label: '同步企微通讯录', color: 'hover:border-[#0060a9]/30 hover:text-[#0060a9]' },
-                { action: 'batch_perf', icon: 'add_task', label: '绩效计划审批', color: 'hover:border-emerald-400/30 hover:text-emerald-600' },
-                { action: 'generate', icon: 'summarize', label: '生成本月工资表', color: 'hover:border-amber-400/30 hover:text-amber-600' },
-                { action: 'broadcast', icon: 'campaign', label: '群发消息通知', color: 'hover:border-purple-400/30 hover:text-purple-600' },
-                { action: 'ai', icon: 'analytics', label: 'AI 绩效分析', color: 'hover:border-rose-400/30 hover:text-rose-600' },
-              ].map(btn => (
-                <button key={btn.action} onClick={() => handleQuickAction(btn.action)}
-                  className={`px-4 py-2 bg-white dark:bg-slate-900 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/60 transition-all flex items-center gap-2 ${btn.color}`}>
-                  <span className="material-symbols-outlined text-sm">{btn.icon}</span>
-                  {btn.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </main>
     </div>

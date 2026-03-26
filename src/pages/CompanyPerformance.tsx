@@ -239,11 +239,11 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               <h1 className="text-3xl font-black text-on-background tracking-tight">公司绩效池</h1>
               <p className="text-on-surface-variant text-sm mt-1">发现新机遇，挑战高难度任务，赢取丰厚奖金。</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {canDeleteTask && (
                 <button onClick={() => setShowTrash(true)}
-                  className="relative flex items-center gap-2 px-4 py-2.5 bg-surface-container-low rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10">
-                  <span className="material-symbols-outlined text-lg">delete_sweep</span>
+                  className="relative flex items-center gap-1.5 px-3 py-2 bg-surface-container-low rounded-xl text-xs font-medium text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10">
+                  <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
                   回收站
                   {deletedTasks.length > 0 && (
                     <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{deletedTasks.length}</span>
@@ -252,10 +252,25 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               )}
               {canManagePool && (
                 <button onClick={() => alert('发布任务功能开发中')}
-                  className="flex items-center gap-2 px-5 py-2.5 primary-gradient rounded-xl text-sm font-bold text-white shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all">
-                  <span className="material-symbols-outlined text-lg">add</span>发布任务
+                  className="flex items-center gap-1.5 px-3 py-2 bg-surface-container-low rounded-xl text-xs font-medium text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10">
+                  <span className="material-symbols-outlined text-[16px]">publish</span>
+                  发布任务
                 </button>
               )}
+              <button onClick={() => setShowPropose(true)} title="发现公司改进点，有机会获得奖励"
+                className="relative flex items-center gap-1.5 px-3 py-2 bg-amber-50 rounded-xl text-xs font-bold text-amber-700 hover:bg-amber-100 transition-all border border-amber-200/60 shadow-sm shadow-amber-100/50">
+                <span className="material-symbols-outlined text-[16px]">add_task</span>
+                申请提案
+                <span className="absolute -top-2 -right-2 px-1.5 py-0.5 bg-gradient-to-r from-amber-400 to-orange-400 text-white text-[9px] font-black rounded-full shadow-sm">有奖</span>
+              </button>
+              <button onClick={() => setShowMyProposals(!showMyProposals)}
+                className="relative flex items-center gap-1.5 px-3 py-2 bg-surface-container-low rounded-xl text-xs font-medium text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10">
+                <span className="material-symbols-outlined text-[16px]">pending_actions</span>
+                我的提案
+                {myProposals.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-violet-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">{myProposals.length}</span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -348,24 +363,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                 );
               })}
 
-              {/* Propose new task */}
-              <div onClick={() => setShowPropose(true)} className="group border-2 border-dashed border-outline-variant/40 rounded-2xl p-5 flex flex-col items-center justify-center text-center hover:border-primary/40 transition-all cursor-pointer">
-                <div className="w-10 h-10 bg-surface-container rounded-full flex items-center justify-center mb-3 group-hover:bg-primary-container/20 transition-all">
-                  <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary">add_task</span>
-                </div>
-                <h4 className="font-bold text-sm text-on-surface">提议新任务</h4>
-                <p className="text-[11px] text-on-surface-variant mt-1.5 leading-relaxed">发现公司改进点？<br/>提交申请并获取奖励。</p>
-              </div>
-              {/* My proposals badge */}
-              {myProposals.length > 0 && (
-                <div onClick={() => setShowMyProposals(!showMyProposals)} className="group border-2 border-dashed border-violet-300/40 rounded-2xl p-5 flex flex-col items-center justify-center text-center hover:border-violet-500/40 transition-all cursor-pointer">
-                  <div className="w-10 h-10 bg-violet-50 rounded-full flex items-center justify-center mb-3">
-                    <span className="material-symbols-outlined text-violet-600">pending_actions</span>
-                  </div>
-                  <h4 className="font-bold text-sm text-on-surface">我的提案</h4>
-                  <p className="text-[11px] text-violet-600 font-bold mt-1">{myProposals.length} 个待审核</p>
-                </div>
-              )}
+
             </div>
           )}
         </div>
@@ -400,6 +398,21 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   <div className="flex items-center gap-3 text-white/80 text-[10px] mt-0.5">
                     {selectedTask.department && <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">business</span>{selectedTask.department}</span>}
                     <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">signal_cellular_alt</span>难度: {DIFFICULTY_MAP[selectedTask.difficulty] || selectedTask.difficulty}</span>
+                  </div>
+                  {/* Person role tags */}
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg px-2 py-0.5 text-[10px] text-white/90">
+                      <span className="material-symbols-outlined text-[12px]">person</span>
+                      提报人员: {selectedTask.creator_name || '—'}
+                    </span>
+                    <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg px-2 py-0.5 text-[10px] text-white/90">
+                      <span className="material-symbols-outlined text-[12px]">groups</span>
+                      挑战人员: {selectedTask.participant_names?.length > 0 ? selectedTask.participant_names.join('、') : '待报名'}
+                    </span>
+                    <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg px-2 py-0.5 text-[10px] text-white/90">
+                      <span className="material-symbols-outlined text-[12px]">verified</span>
+                      验收人员: 评审委员会
+                    </span>
                   </div>
                 </div>
 

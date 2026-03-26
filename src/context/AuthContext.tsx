@@ -80,11 +80,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.removeItem('token');
           setCurrentUser(null);
         }
-      } else if (isWecom) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        
+      }
+      
+      // Check for OAuth callback code (both WeCom in-app and QR scan)
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      
+      if (!token || !currentUser) {
         if (code) {
+          // Got auth code from either WeCom OAuth or QR scan callback
           try {
             const res = await fetch('/api/auth/login', {
               method: 'POST',
@@ -99,11 +103,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               window.history.replaceState({}, document.title, window.location.pathname);
             }
           } catch (err) {
-            console.error('企微认证请求错误:', err);
+            console.error('认证请求错误:', err);
           }
-        } else {
-          window.location.href = '/api/auth/wecom-url';
-          return;
+        } else if (!token) {
+          // No token and no code — need to login
+          if (isWecom) {
+            // Inside WeCom client → silent OAuth
+            window.location.href = '/api/auth/wecom-url';
+            return;
+          } else {
+            // External browser → redirect to QR scan page
+            window.location.href = '/api/auth/wecom-qr-url';
+            return;
+          }
         }
       }
       

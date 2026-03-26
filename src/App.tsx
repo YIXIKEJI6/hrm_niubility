@@ -31,8 +31,29 @@ export default function App() {
     );
   }
 
-  // 若无用户身份，则渲染骨架屏并提示（通常只会出现在本地开发还没点击测试登录的时候）
+  // 若无用户身份：外部浏览器自动跳转扫码登录，开发模式显示测试账号切换器
   if (!currentUser) {
+    const isWecom = navigator.userAgent.toLowerCase().includes('wxwork');
+    const isDev = import.meta.env?.DEV;
+
+    // 生产模式下直接跳转扫码登录（不显示阻断提示）
+    if (!isDev && !isWecom) {
+      // 给 AuthContext 一点时间发起跳转，如果还没跳就这里兜底
+      setTimeout(() => {
+        if (!localStorage.getItem('token')) {
+          window.location.href = '/api/auth/wecom-qr-url';
+        }
+      }, 1500);
+      return (
+        <div className="flex h-screen items-center justify-center bg-surface">
+          <div className="flex flex-col items-center">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-on-surface-variant font-bold mt-4">正在跳转企业微信扫码登录...</p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-screen items-center justify-center bg-surface text-on-surface flex-col">
         <div className="w-16 h-16 bg-surface-container rounded-full mb-4 flex items-center justify-center">
