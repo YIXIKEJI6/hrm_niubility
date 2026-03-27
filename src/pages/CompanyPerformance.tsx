@@ -245,7 +245,6 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       confirmLabel: '确认删除',
       confirmClass: 'bg-red-600 hover:bg-red-700 text-white',
       onConfirm: async () => {
-        closeDialog();
         try {
           const token = localStorage.getItem('token');
           const res = await fetch(`/api/pool/tasks/${task.id}`, {
@@ -254,12 +253,15 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
           });
           const json = await res.json();
           if (json.code === 0) {
+            closeDialog();
             setTasks(prev => prev.filter(t => t.id !== task.id));
           } else {
+            closeDialog();
             alert(json.message || '删除失败');
           }
         } catch {
-          alert('网络异常');
+          closeDialog();
+          alert('网络异常，请重试');
         }
       },
     });
