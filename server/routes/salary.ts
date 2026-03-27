@@ -188,6 +188,70 @@ const getDocConfig = () => ({
   sheetId: wecomConfig.salarySheetId,
 });
 
+// 初始化: 通过API创建新智能表格并获取正确的docid
+router.post('/smartsheet/init', authMiddleware, requireRole('admin'), async (req: AuthRequest, res) => {
+  try {
+    const docName = req.body.doc_name || '工资表管理';
+    console.log(`[SmartSheet Init] Creating smartsheet: ${docName}`);
+    
+    // 1. 创建智能表格 (doc_type=4)
+    const { docid, url } = await SmartSheet.createDoc(docName, 4, [req.userId!]);
+    console.log(`[SmartSheet Init] Created! docid=${docid}, url=${url}`);
+
+    // 2. 查询子表获取 sheet_id
+    let sheetId = '';
+    try {
+      const sheets = await SmartSheet.getSheets(docid);
+      if (sheets.length > 0) {
+        sheetId = sheets[0].sheet_id || sheets[0].id || '';
+      }
+    } catch (err: any) {
+      console.warn('[SmartSheet Init] get_sheet failed, will need manual sheet_id:', err.message);
+    }
+
+    // 3. 更新内存中的配置
+    (wecomConfig as any).salaryDocId = docid;
+    if (sheetId) (wecomConfig as any).salarySheetId = sheetId;
+
+    // 4. 写入 .env 文件
+    const fs = await import('fs');
+    const path = await import('path');
+    const envPath = path.resolve(process.cwd(), '.env');
+    let envContent = '';
+    try { envContent = fs.readFileSync(envPath, 'utf-8'); } catch { envContent = ''; }
+    
+    // 替换或追加 WECOM_SALARY_DOC_ID
+    if (envContent.includes('WECOM_SALARY_DOC_ID=')) {
+      envContent = envContent.replace(/WECOM_SALARY_DOC_ID=.*/, `WECOM_SALARY_DOC_ID=${docid}`);
+    } else {
+      envContent += `\nWECOM_SALARY_DOC_ID=${docid}`;
+    }
+    // 替换或追加 WECOM_SALARY_SHEET_ID
+    if (sheetId) {
+      if (envContent.includes('WECOM_SALARY_SHEET_ID=')) {
+        envContent = envContent.replace(/WECOM_SALARY_SHEET_ID=.*/, `WECOM_SALARY_SHEET_ID=${sheetId}`);
+      } else {
+        envContent += `\nWECOM_SALARY_SHEET_ID=${sheetId}`;
+      }
+    }
+    fs.writeFileSync(envPath, envContent, 'utf-8');
+    console.log(`[SmartSheet Init] .env updated with docid=${docid}, sheetId=${sheetId}`);
+
+    return res.json({
+      code: 0,
+      message: '智能表格创建成功！docid 已自动写入 .env',
+      data: { docid, sheetId, url },
+    });
+  } catch (err: any) {
+    console.error('[SmartSheet Init] Error:', err.message);
+    return res.status(500).json({
+      code: 500,
+      message: `创建失败: ${err.message}`,
+      hint: '请确保已在企微管理后台「协作→文档→API」中配置了可调用接口的应用',
+    });
+  }
+});
+
 // 检查配置状态
 router.get('/smartsheet/status', authMiddleware, requireRole('admin', 'hr'), (_req, res) => {
   const { docid, sheetId } = getDocConfig();

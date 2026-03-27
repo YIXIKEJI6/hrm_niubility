@@ -4,6 +4,43 @@ import { getAccessToken } from './wecom';
 
 const API = wecomConfig.apiBase;
 
+// ── 创建新文档/智能表格 ─────────────────────────────────────────
+export async function createDoc(docName: string, docType: number = 4, adminUsers?: string[]) {
+  const token = await getAccessToken();
+  const body: any = { doc_type: docType, doc_name: docName };
+  if (adminUsers?.length) body.admin_users = adminUsers;
+  
+  const res = await axios.post(`${API}/wedoc/create_doc?access_token=${token}`, body);
+  if (res.data.errcode !== 0) {
+    throw new Error(`创建文档失败: ${res.data.errmsg} (${res.data.errcode})`);
+  }
+  return { docid: res.data.docid, url: res.data.url };
+}
+
+// ── 查询智能表格子表列表 ─────────────────────────────────────────
+export async function getSheets(docid: string) {
+  const token = await getAccessToken();
+  const res = await axios.post(`${API}/wedoc/smartsheet/get_sheet?access_token=${token}`, { docid });
+  if (res.data.errcode !== 0) {
+    throw new Error(`查询子表失败: ${res.data.errmsg} (${res.data.errcode})`);
+  }
+  return res.data.sheet_list || [];
+}
+
+// ── 添加字段 ──────────────────────────────────────────────────
+export async function addFields(docid: string, sheetId: string, fields: any[]) {
+  const token = await getAccessToken();
+  const res = await axios.post(`${API}/wedoc/smartsheet/add_fields?access_token=${token}`, {
+    docid,
+    sheet_id: sheetId,
+    fields,
+  });
+  if (res.data.errcode !== 0) {
+    throw new Error(`添加字段失败: ${res.data.errmsg} (${res.data.errcode})`);
+  }
+  return res.data.fields || [];
+}
+
 // ── 获取智能表格字段列表 ────────────────────────────────────────
 export async function getSheetFields(docid: string, sheetId: string) {
   const token = await getAccessToken();

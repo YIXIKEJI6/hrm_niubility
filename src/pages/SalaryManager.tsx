@@ -142,29 +142,68 @@ export default function SalaryManager({ navigate }: { navigate: (v: string) => v
           {error && (
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
               <span className="material-symbols-outlined text-red-500 text-[18px] mt-0.5">error</span>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-bold text-red-700">连接失败</p>
                 <p className="text-xs text-red-600 mt-1">{error}</p>
-                <p className="text-[10px] text-red-400 mt-2">请检查：1. 管理后台「协作→文档→API」已配置应用  2. .env 中的 WECOM_SALARY_DOC_ID 和 WECOM_SALARY_SHEET_ID 正确</p>
+                <p className="text-[10px] text-red-400 mt-2">请确保已在企微管理后台「协作→文档→API」中添加了可调用接口的应用</p>
+                <button
+                  onClick={async () => {
+                    setError('');
+                    setLoading(true);
+                    try {
+                      const res = await fetch('/api/salary/smartsheet/init', { method: 'POST', headers, body: JSON.stringify({ doc_name: '工资表管理' }) });
+                      const data = await res.json();
+                      if (data.code === 0) {
+                        setConfigStatus({ configured: true, docid: data.data.docid?.slice(0, 12) + '...', sheetId: data.data.sheetId });
+                        loadData();
+                      } else {
+                        setError(data.message || '初始化失败');
+                        setLoading(false);
+                      }
+                    } catch { setError('网络异常'); setLoading(false); }
+                  }}
+                  className="mt-3 flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
+                  一键创建新的智能表格
+                </button>
               </div>
             </div>
           )}
 
           {/* Not Configured State */}
-          {!loading && configStatus && !configStatus.configured && (
+          {!loading && configStatus && !configStatus.configured && !error && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-20 h-20 bg-amber-50 rounded-2xl flex items-center justify-center mb-6">
                 <span className="material-symbols-outlined text-amber-500 text-4xl">settings_suggest</span>
               </div>
-              <h3 className="text-xl font-black text-slate-800 mb-2">请先配置企微智能表格</h3>
+              <h3 className="text-xl font-black text-slate-800 mb-2">智能表格未初始化</h3>
               <p className="text-sm text-slate-500 max-w-md text-center mb-6">
-                工资表模块需要连接企业微信智能表格。请在 <code className="px-1.5 py-0.5 bg-slate-100 rounded text-xs font-mono">.env</code> 文件中配置以下环境变量：
+                工资表模块需要连接企业微信智能表格。点击下方按钮通过 API 创建新的智能表格并自动配置。
               </p>
-              <div className="bg-slate-900 rounded-xl p-5 text-left font-mono text-xs text-emerald-400 max-w-lg w-full">
-                <p className="text-slate-500"># 从智能表格URL中提取</p>
-                <p>WECOM_SALARY_DOC_ID=<span className="text-amber-400">your_doc_id</span></p>
-                <p>WECOM_SALARY_SHEET_ID=<span className="text-amber-400">your_sheet_id</span></p>
-              </div>
+              <p className="text-[10px] text-slate-400 mb-4 max-w-md text-center">
+                前提：请先在企微管理后台 → 协作 → 文档 → API → 配置「可调用接口的应用」中添加本应用
+              </p>
+              <button
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    const res = await fetch('/api/salary/smartsheet/init', { method: 'POST', headers, body: JSON.stringify({ doc_name: '工资表管理' }) });
+                    const data = await res.json();
+                    if (data.code === 0) {
+                      setConfigStatus({ configured: true, docid: data.data.docid?.slice(0, 12) + '...', sheetId: data.data.sheetId });
+                      loadData();
+                    } else {
+                      setError(data.message || '初始化失败');
+                      setLoading(false);
+                    }
+                  } catch { setError('网络异常'); setLoading(false); }
+                }}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-xl transition-all shadow-lg shadow-amber-500/30 active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                一键初始化智能表格
+              </button>
             </div>
           )}
 
