@@ -401,9 +401,10 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         // Proposals: synthesize two-step approval nodes (HR → Admin)
         const syntheticLogs: any[] = [];
         const d = initialData as any;
-        const creator = d.creator_name || d.creator_id || d.proposer_name || '发起人';
-        const hrReviewer = d.hr_reviewer_name || (d.hr_reviewer_id ? `审批人(${d.hr_reviewer_id})` : '人事审核');
-        const adminReviewer = d.admin_reviewer_name || (d.admin_reviewer_id ? `审批人(${d.admin_reviewer_id})` : '总经理复核');
+        const lookupName = (id: string) => users.find(u => u.id === id)?.name || id;
+        const creator = d.creator_name || (d.creator_id ? lookupName(d.creator_id) : d.proposer_name || '发起人');
+        const hrReviewer = d.hr_reviewer_name || (d.hr_reviewer_id ? lookupName(d.hr_reviewer_id) : '');
+        const adminReviewer = d.admin_reviewer_name || (d.admin_reviewer_id ? lookupName(d.admin_reviewer_id) : '');
         const st = d.status || d.proposal_status;
         
         // Node 1: creator submitted
@@ -1227,7 +1228,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                       <>
                         <span className="material-symbols-outlined text-[16px] text-slate-300">arrow_right_alt</span>
                         <div className="flex flex-col rounded-lg px-3 py-1.5 border border-dashed border-amber-300 bg-amber-50 text-amber-600">
-                          <span className="font-bold">{initialData.approver_name || '审批人'}</span>
+                          <span className="font-bold">{initialData.approver_name || ((initialData as any).approver_id ? (users.find(u => u.id === (initialData as any).approver_id)?.name || (initialData as any).approver_id) : '待指定')}</span>
                           <span className="text-[10px] opacity-80">
                             {initialData.status === 'pending_review' ? '待审核' : 
                              initialData.status === 'in_progress' ? '进行中' :
