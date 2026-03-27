@@ -127,6 +127,31 @@ router.post('/tasks/propose', authMiddleware, async (req: AuthRequest, res) => {
   return res.json({ code: 0, message: is_draft ? '草稿已保存' : '提案已提交，等待人事审核', data: { id: result.lastInsertRowid } });
 });
 
+// 更新草稿提案
+router.put('/tasks/:id', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const { id } = req.params;
+  const task = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(id) as any;
+  if (!task) return res.status(404).json({ code: 404, message: '提案不存在' });
+  if (task.created_by !== req.userId) return res.status(403).json({ code: 403, message: '无权编辑' });
+  
+  const { title, description, department, difficulty, reward_type, bonus, proposal_status } = req.body;
+  const sets: string[] = [];
+  const vals: any[] = [];
+  if (title !== undefined) { sets.push('title = ?'); vals.push(title); }
+  if (description !== undefined) { sets.push('description = ?'); vals.push(description); }
+  if (department !== undefined) { sets.push('department = ?'); vals.push(department); }
+  if (difficulty !== undefined) { sets.push('difficulty = ?'); vals.push(difficulty); }
+  if (reward_type !== undefined) { sets.push('reward_type = ?'); vals.push(reward_type); }
+  if (bonus !== undefined) { sets.push('bonus = ?'); vals.push(bonus); }
+  if (proposal_status !== undefined) { sets.push('proposal_status = ?'); vals.push(proposal_status); }
+  
+  if (sets.length === 0) return res.json({ code: 0, message: '无更新' });
+  vals.push(id);
+  db.prepare(`UPDATE pool_tasks SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  return res.json({ code: 0, message: proposal_status === 'pending_hr' ? '提案已提交审核' : '草稿已更新' });
+});
+
 // 授权用户直接发布任务
 router.post('/tasks/publish', authMiddleware, (req: AuthRequest, res) => {
   const { title, description, department, difficulty, reward_type, bonus, max_participants } = req.body;

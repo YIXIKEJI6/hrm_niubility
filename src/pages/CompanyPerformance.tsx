@@ -77,6 +77,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [proposeMsg, setProposeMsg] = useState('');
   const [myProposals, setMyProposals] = useState<any[]>([]);
   const [showMyProposals, setShowMyProposals] = useState(false);
+  const [viewingProposal, setViewingProposal] = useState<any>(null);
 
   // New features state
   const [activeTab, setActiveTab] = useState<'task' | 'personnel'>('task');
@@ -979,7 +980,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               ) : myProposals.map((p: any) => {
                 const [statusLabel, statusCls] = PROPOSAL_STATUS[p.proposal_status] || [p.proposal_status, 'bg-slate-100 text-slate-500'];
                 return (
-                  <div key={p.id} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+                  <div key={p.id} onClick={() => { setShowMyProposals(false); setViewingProposal(p); }} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate">{p.title}</span>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusCls}`}>{statusLabel}</span>
@@ -1001,6 +1002,68 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Viewing/Editing a Proposal ─────────────────────────────── */}
+      {viewingProposal && (
+        <SmartTaskModal
+          isOpen={!!viewingProposal}
+          onClose={() => setViewingProposal(null)}
+          onSubmit={async (data) => {
+            // For drafts: submit as proposal
+            try {
+              const token = localStorage.getItem('token');
+              const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}`;
+              await fetch(`/api/pool/tasks/${viewingProposal.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  title: data.summary || viewingProposal.title,
+                  description: smartDescription,
+                  department: data.taskType || viewingProposal.department,
+                  difficulty: viewingProposal.difficulty || '中',
+                  reward_type: data.rewardType || viewingProposal.reward_type,
+                  bonus: Number(data.bonus) || viewingProposal.bonus || 0,
+                  proposal_status: 'pending_hr',
+                }),
+              });
+              setViewingProposal(null);
+              fetchMyProposals();
+            } catch { alert('提交失败'); }
+          }}
+          title={viewingProposal.proposal_status === 'draft' ? '编辑草稿提案' : '提案详情'}
+          type="pool_propose"
+          users={users}
+          submitting={false}
+          readonly={viewingProposal.proposal_status !== 'draft'}
+          initialData={(() => {
+            const p = viewingProposal;
+            const desc = p.description || '';
+            const extract = (label: string) => {
+              const m = desc.match(new RegExp(`【${label}】([\\s\\S]*?)(?=【|$)`));
+              return m ? m[1].trim() : '';
+            };
+            return {
+              id: p.id,
+              status: p.proposal_status,
+              flow_type: 'proposal',
+              summary: p.title,
+              s: extract('目标 S'),
+              m: extract('指标 M'),
+              a_smart: extract('方案 A'),
+              r_smart: extract('相关 R'),
+              t: extract('时限 T'),
+              taskType: p.department || '',
+              bonus: String(p.bonus || 0),
+              rewardType: p.reward_type || 'money',
+              hr_reviewer_name: p.hr_reviewer_name,
+              hr_reviewer_id: p.hr_reviewer_id,
+              admin_reviewer_name: p.admin_reviewer_name,
+              admin_reviewer_id: p.admin_reviewer_id,
+              creator_name: p.creator_name || currentUser?.name,
+            };
+          })()}
+        />
       )}
 
       {/* ── Custom Confirm Dialog ─────────────────────────────────────────────── */}
