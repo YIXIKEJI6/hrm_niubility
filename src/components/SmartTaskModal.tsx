@@ -38,35 +38,35 @@ const SearchableUserDropdown = ({
   const selectedUser = users.find(u => u.id === value);
 
   return (
-    <div className={`flex items-center bg-white/10 rounded-md px-3 py-1.5 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 cursor-pointer'} transition-colors relative`} ref={dropdownRef} onClick={() => !readonly && setIsOpen(!isOpen)}>
-      <span className="text-sm font-bold text-white/90 mr-2">{label}</span>
+    <div className={`flex items-center bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-2 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 hover:border-white/30 cursor-pointer'} transition-all duration-200 relative`} ref={dropdownRef} onClick={() => !readonly && setIsOpen(!isOpen)}>
+      <span className="text-[11px] font-black text-white/70 mr-2 tracking-wider uppercase">{label}</span>
       <div className="flex items-center gap-1 select-none">
-        <span className={`text-sm tracking-wide font-medium ${selectedUser ? 'text-white' : 'text-white/80'}`}>
+        <span className={`text-sm tracking-wide font-semibold ${selectedUser ? 'text-white' : 'text-white/50'}`}>
           {selectedUser ? selectedUser.name : placeholder.replace('选择', '')}
         </span>
-        {!readonly && <ChevronDown size={14} className="text-white/70" />}
+        {!readonly && <ChevronDown size={13} className={`text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
       </div>
 
       <AnimatePresence>
         {isOpen && (
           <motion.div 
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 5 }}
-            transition={{ duration: 0.15 }}
+            initial={{ opacity: 0, y: 5, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 5, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-full left-0 mt-2 w-48 bg-[#2a324b] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50 flex flex-col"
+            className="absolute top-full left-0 mt-2 w-52 bg-[#1e2640]/95 backdrop-blur-xl rounded-xl shadow-2xl shadow-black/30 border border-white/10 overflow-hidden z-50 flex flex-col"
           >
             {/* Search Input */}
-            <div className="p-2 border-b border-white/10">
+            <div className="p-2.5 border-b border-white/5">
               <div className="relative flex items-center">
-                <span className="material-symbols-outlined absolute left-2 text-slate-400 text-[14px]">search</span>
+                <span className="material-symbols-outlined absolute left-2.5 text-slate-400 text-[14px]">search</span>
                 <input 
                   type="text" 
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="搜索人员..."
-                  className="w-full bg-[#1e2436] text-white text-xs py-1.5 pl-7 pr-2 rounded-md outline-none border border-transparent focus:border-[#1677ff]/50 transition-colors placeholder:text-slate-500"
+                  className="w-full bg-white/5 text-white text-xs py-2 pl-8 pr-3 rounded-lg outline-none border border-white/5 focus:border-blue-400/40 focus:bg-white/8 transition-all placeholder:text-slate-500"
                   autoFocus
                 />
               </div>
@@ -75,22 +75,151 @@ const SearchableUserDropdown = ({
             {/* User List */}
             <div className="max-h-56 overflow-y-auto py-1">
               <button
-                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between hover:bg-white/5 transition-colors ${!value ? 'text-blue-400 font-bold' : 'text-slate-300'}`}
+                className={`w-full text-left px-4 py-2 text-xs flex items-center justify-between hover:bg-white/5 transition-colors ${!value ? 'text-blue-400 font-bold' : 'text-slate-400'}`}
                 onClick={() => { onChange(''); setIsOpen(false); setSearch(''); }}
               >
                 <span>{placeholder}</span>
-                {!value && <Check size={14} className="text-blue-400" />}
+                {!value && <Check size={13} className="text-blue-400" />}
               </button>
               {filteredUsers.map(u => {
                 const isSelected = u.id === value;
                 return (
                   <button
                     key={u.id}
-                    className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between hover:bg-white/5 transition-colors ${isSelected ? 'text-blue-400 font-bold' : 'text-slate-300'}`}
+                    className={`w-full text-left px-4 py-2 text-xs flex items-center justify-between hover:bg-white/5 transition-colors ${isSelected ? 'text-blue-400 font-bold bg-blue-500/5' : 'text-slate-300'}`}
                     onClick={() => { onChange(u.id); setIsOpen(false); setSearch(''); }}
                   >
                     <span>{u.name}</span>
-                    {isSelected && <Check size={14} className="text-blue-400" />}
+                    {isSelected && <Check size={13} className="text-blue-400" />}
+                  </button>
+                )
+              })}
+              {filteredUsers.length === 0 && (
+                <div className="px-4 py-3 text-xs text-slate-500 text-center">无匹配人员</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+/* ── 多选人员下拉 ── */
+const MultiSelectUserDropdown = ({ 
+  label, 
+  value, 
+  onChange, 
+  users, 
+  placeholder,
+  readonly 
+}: { 
+  label: string, 
+  value: string, // comma-separated IDs
+  onChange: (v: string) => void, 
+  users: {id: string, name: string}[], 
+  placeholder: string,
+  readonly?: boolean 
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  const selectedIds = value ? value.split(',').filter(Boolean) : [];
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
+  const selectedNames = selectedIds.map(id => users.find(u => u.id === id)?.name).filter(Boolean);
+
+  const toggleUser = (id: string) => {
+    const newIds = selectedIds.includes(id)
+      ? selectedIds.filter(x => x !== id)
+      : [...selectedIds, id];
+    onChange(newIds.join(','));
+  };
+
+  const displayText = selectedNames.length === 0
+    ? placeholder.replace('选择', '')
+    : selectedNames.length <= 2
+      ? selectedNames.join('、')
+      : `${selectedNames[0]} 等${selectedNames.length}人`;
+
+  return (
+    <div className={`flex items-center bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-2 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 hover:border-white/30 cursor-pointer'} transition-all duration-200 relative`} ref={dropdownRef} onClick={() => !readonly && setIsOpen(!isOpen)}>
+      <span className="text-[11px] font-black text-white/70 mr-2 tracking-wider uppercase">{label}</span>
+      <div className="flex items-center gap-1 select-none">
+        <span className={`text-sm tracking-wide font-semibold ${selectedNames.length > 0 ? 'text-white' : 'text-white/50'}`}>
+          {displayText}
+        </span>
+        {selectedNames.length > 0 && (
+          <span className="ml-1 text-[10px] font-bold bg-white/20 text-white/80 rounded-full w-4 h-4 flex items-center justify-center">{selectedNames.length}</span>
+        )}
+        {!readonly && <ChevronDown size={13} className={`text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
+      </div>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ opacity: 0, y: 5, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 5, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-full left-0 mt-2 w-56 bg-[#1e2640]/95 backdrop-blur-xl rounded-xl shadow-2xl shadow-black/30 border border-white/10 overflow-hidden z-50 flex flex-col"
+          >
+            {/* Selected Tags */}
+            {selectedNames.length > 0 && (
+              <div className="px-3 pt-2.5 pb-1 flex flex-wrap gap-1.5 border-b border-white/5">
+                {selectedIds.map(id => {
+                  const name = users.find(u => u.id === id)?.name;
+                  if (!name) return null;
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 bg-blue-500/20 text-blue-300 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                      {name}
+                      {!readonly && <X size={10} className="cursor-pointer hover:text-white transition-colors" onClick={(e) => { e.stopPropagation(); toggleUser(id); }} />}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {/* Search Input */}
+            <div className="p-2.5 border-b border-white/5">
+              <div className="relative flex items-center">
+                <span className="material-symbols-outlined absolute left-2.5 text-slate-400 text-[14px]">search</span>
+                <input 
+                  type="text" 
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="搜索人员..."
+                  className="w-full bg-white/5 text-white text-xs py-2 pl-8 pr-3 rounded-lg outline-none border border-white/5 focus:border-blue-400/40 focus:bg-white/8 transition-all placeholder:text-slate-500"
+                  autoFocus
+                />
+              </div>
+            </div>
+            
+            {/* User List */}
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filteredUsers.map(u => {
+                const isSelected = selectedIds.includes(u.id);
+                return (
+                  <button
+                    key={u.id}
+                    className={`w-full text-left px-4 py-2 text-xs flex items-center justify-between hover:bg-white/5 transition-colors ${isSelected ? 'text-blue-400 font-bold bg-blue-500/5' : 'text-slate-300'}`}
+                    onClick={(e) => { e.stopPropagation(); toggleUser(u.id); }}
+                  >
+                    <span>{u.name}</span>
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-500'}`}>
+                      {isSelected && <Check size={10} className="text-white" />}
+                    </div>
                   </button>
                 )
               })}
@@ -468,7 +597,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                   placeholder="选择负责人"
                   readonly={readonly}
                 />
-                <SearchableUserDropdown 
+                <MultiSelectUserDropdown 
                   label="A" 
                   value={headerSelections.a} 
                   onChange={v => setHeaderSelections({...headerSelections, a: v})} 
@@ -476,7 +605,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                   placeholder="选择执行人"
                   readonly={readonly}
                 />
-                <SearchableUserDropdown 
+                <MultiSelectUserDropdown 
                   label="C" 
                   value={headerSelections.c} 
                   onChange={v => setHeaderSelections({...headerSelections, c: v})} 
@@ -484,7 +613,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                   placeholder="选择咨询人"
                   readonly={readonly}
                 />
-                <SearchableUserDropdown 
+                <MultiSelectUserDropdown 
                   label="验收人" 
                   value={headerSelections.e} 
                   onChange={v => setHeaderSelections({...headerSelections, e: v})} 
