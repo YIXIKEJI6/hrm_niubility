@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
-import SmartFormInputs, { SmartData, encodeSmartDescription } from '../components/SmartFormInputs';
+import SmartFormInputs, { SmartData, encodeSmartDescription, decodeSmartDescription } from '../components/SmartFormInputs';
 import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
+import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
 
 interface PerfPlan {
   id: number;
@@ -39,7 +40,6 @@ interface Subordinate {
 
 export default function TeamPerformance({ navigate }: { navigate: (view: string) => void }) {
   const { currentUser } = useAuth();
-  const [approvals, setApprovals] = useState<PerfPlan[]>([]);
   const [subordinates, setSubordinates] = useState<Subordinate[]>([]);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<any>(null);
@@ -66,23 +66,9 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
 
   useEffect(() => {
     if (currentUser?.id) {
-      fetchApprovals();
       fetchTeamStatus();
     }
   }, [currentUser]);
-
-  const fetchApprovals = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/perf/my-approvals`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.code === 0) setApprovals(data.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const fetchTeamStatus = async () => {
     try {
@@ -97,45 +83,25 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
     }
   };
 
-  const handleApprove = async (id: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      await fetch(`/api/perf/plans/${id}/approve`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      fetchApprovals();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleReject = async (id: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      await fetch(`/api/perf/plans/${id}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ reason: '主管审阅驳回' })
-      });
-      fetchApprovals();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleAssignPlan = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAssignPlanSmart = async (data: SmartTaskData) => {
     setSubmitting(true);
     try {
       const token = localStorage.getItem('token');
-      // 1. 创建草稿
+      const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
+      
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ 
-          ...newPlan, 
-          description: encodeSmartDescription(newPlan.resource, newPlan.relevance),
+          title: data.summary || '新任务',
+          description: encodeSmartDescription(data.a_smart, data.r_smart, {
+            plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
+          }),
+          category: data.taskType || '临时指派',
+          target_value: targetValue,
+          deadline: data.t,
+          collaborators: data.c,
+          assignee_id: data.a || subordinates[0]?.id || '', // 从下拉框获取，未选则默认第一个下属
           quarter: '2024 Q2', 
           creator_id: currentUser?.id,
           approver_id: currentUser?.id // 主管自己做审批人
@@ -150,7 +116,6 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         await fetch(`/api/perf/plans/${planId}/approve`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
         
         setIsAssignModalOpen(false);
-        setNewPlan({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', assignee_id: '' });
         fetchTeamStatus(); // Refresh subordinates' tasks after assigning
       }
     } catch (err) {
@@ -169,81 +134,26 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           <section className="mb-8 flex justify-between items-end">
           <div>
             <h2 className="text-3xl font-black text-on-surface font-headline tracking-tight">团队绩效与任务追踪</h2>
-            <p className="text-on-surface-variant font-label mt-1">作为主管 {currentUser?.name}，管理团队目标申请与向下派发</p>
-          </div>
-          <div className="flex space-x-3">
-            <button onClick={() => alert("功能开发中")} className="flex items-center px-4 py-2 bg-surface-container-highest text-on-surface rounded-xl font-bold text-sm hover:bg-surface-variant transition-all">
-              <span className="material-symbols-outlined text-sm mr-2">filter_list</span>
-              高级筛选
-            </button>
+            <p className="text-on-surface-variant font-label mt-1">
+              {currentUser?.role === 'employee' ? `查看部门整体进度与同事任务执行概况` : `作为主管 ${currentUser?.name}，管理团队目标申请与向下派发`}
+            </p>
           </div>
         </section>
 
         {/* Quick Action Cards Section */}
-        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <div className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-default group flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center group-hover:bg-secondary transition-colors">
-                <span className="material-symbols-outlined text-secondary group-hover:text-white">assignment_turned_in</span>
+        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {currentUser?.role !== 'employee' && (
+            <div onClick={() => { setIsAssignModalOpen(true); setNewPlan(p => ({ ...p, assignee_id: subordinates[0]?.id || '' })); }} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors">
+                <span className="material-symbols-outlined text-primary group-hover:text-white">add_task</span>
               </div>
               <div>
-                <h4 className="font-bold text-on-surface">待办审核 ({approvals.length})</h4>
-                <p className="text-xs text-on-surface-variant mt-0.5">请重点关注下方的审批看板</p>
+                <h4 className="font-bold text-on-surface tracking-tight">向下发起任务</h4>
+                <p className="text-xs text-on-surface-variant mt-0.5">给团队成员强势派发新指标</p>
               </div>
             </div>
-            {approvals.length > 0 && <span className="bg-error text-white text-[10px] font-black px-2 py-0.5 rounded-full min-w-[20px] text-center animate-pulse">{approvals.length}</span>}
-          </div>
-          
-          <div onClick={() => { setIsAssignModalOpen(true); setNewPlan(p => ({ ...p, assignee_id: subordinates[0]?.id || '' })); }} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors">
-              <span className="material-symbols-outlined text-primary group-hover:text-white">add_task</span>
-            </div>
-            <div>
-              <h4 className="font-bold text-on-surface tracking-tight">向下发起任务</h4>
-              <p className="text-xs text-on-surface-variant mt-0.5">给团队成员强势派发新指标</p>
-            </div>
-          </div>
+          )}
         </section>
-
-        {/* Dynamic Approvals Board */}
-        {approvals.length > 0 && (
-          <section className="mb-10 animate-in fade-in slide-in-from-bottom-4">
-            <h3 className="text-xl font-black font-headline text-on-surface mb-4 flex items-center">
-              <span className="material-symbols-outlined text-amber-500 mr-2">pending_actions</span>
-              待您审批的绩效申请
-            </h3>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {approvals.map(plan => (
-                <div key={plan.id} 
-                  onClick={() => setSelectedTask(plan)}
-                  className="bg-amber-50/50 border border-amber-200 dark:bg-amber-900/10 dark:border-amber-900/30 p-5 rounded-2xl flex flex-col sm:flex-row justify-between gap-4 group hover:shadow-md transition-all relative overflow-hidden cursor-pointer"
-                >
-                  <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400"></div>
-                  <div className="pl-2">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-200/50 text-amber-700 rounded-lg">来自: {plan.assignee_id}</span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200/50 text-slate-700 rounded-lg">{plan.category}</span>
-                    </div>
-                    <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100">{plan.title}</h4>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 line-clamp-2">{plan.description}</p>
-                    <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
-                      <span>🎯 目标: {plan.target_value}</span>
-                      <span>📅 截止: {plan.deadline}</span>
-                    </div>
-                  </div>
-                  <div className="flex sm:flex-col items-center justify-end gap-2 shrink-0">
-                    <button onClick={(e) => { e.stopPropagation(); handleApprove(plan.id); }} className="w-full sm:w-28 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95">
-                      <span className="material-symbols-outlined text-[16px]">check_circle</span> 通过
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); handleReject(plan.id); }} className="w-full sm:w-28 px-4 py-2 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 font-bold rounded-xl text-sm transition-all flex items-center justify-center gap-1 active:scale-95">
-                       <span className="material-symbols-outlined text-[16px]">cancel</span> 驳回
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* Team Overview Section (Bento Grid) */}
         <section className="mb-10 bg-white border border-surface-container rounded-2xl p-6 shadow-sm">
@@ -281,7 +191,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           {subordinates.length === 0 ? (
             <div className="flex-none w-full py-16 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
               <span className="material-symbols-outlined text-5xl mb-3 block">group_off</span>
-              <p className="text-sm font-bold">暂无下属成员数据</p>
+              <p className="text-sm font-bold">{currentUser?.role === 'employee' ? '暂无部门同事数据' : '暂无下属成员数据'}</p>
             </div>
           ) : (
             subordinates.map(sub => (
@@ -357,86 +267,59 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       </main>
 
       {/* Top-Down Assignment Modal */}
-      {isAssignModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAssignModalOpen(false)}></div>
-          <div className="relative bg-surface-container-lowest w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-300">
-            <div className="px-6 py-5 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/50">
-              <h3 className="text-lg font-black text-on-surface">向下发起绩效目标</h3>
-              <button onClick={() => setIsAssignModalOpen(false)} className="text-outline hover:bg-surface-container-highest p-1 rounded-full transition-colors">
-                 <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <form onSubmit={handleAssignPlan} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1 uppercase tracking-wider">指派给谁</label>
-                <select required value={newPlan.assignee_id} onChange={e => setNewPlan({...newPlan, assignee_id: e.target.value})} className="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  {subordinates.length === 0 ? (
-                  <option disabled value="">（无下属成员）</option>
-                ) : (
-                  subordinates.map(sub => (
-                    <option key={sub.id} value={sub.id}>{sub.name} ({sub.title || sub.role})</option>
-                  ))
-                )}
-                </select>
-              </div>
-              <SmartFormInputs
-                data={newPlan}
-                onChange={(data) => setNewPlan({ ...newPlan, ...data })}
-                hideCategory={false}
-              />
-              <div className="pt-4 flex justify-end gap-3 border-t border-outline-variant/20">
-                <button type="button" onClick={() => setIsAssignModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container-highest transition-colors">取消</button>
-                <button type="submit" disabled={submitting} className="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold hover:shadow-lg disabled:opacity-70 transition-all flex items-center gap-2">
-                   {submitting ? <span className="material-symbols-outlined animate-spin" style={{fontVariationSettings:"'wght' 300"}}>progress_activity</span> : <span className="material-symbols-outlined text-[18px]">electric_bolt</span>}
-                   立即强制派发
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <SmartTaskModal
+        isOpen={isAssignModalOpen}
+        onClose={() => setIsAssignModalOpen(false)}
+        onSubmit={handleAssignPlanSmart}
+        title="向下发起绩效目标"
+        type="team"
+        users={subordinates.map(s => ({ id: s.id, name: s.name }))}
+        submitting={submitting}
+        initialData={{
+          a: subordinates[0]?.id || '', // 默认执行人
+          r: currentUser?.id, // 默认负责人为主管自己
+          summary: '团队季度核心目标下达',
+          s: '完成分配的核心业务指标或技术重构任务',
+          m: '达成率 100%，无重大事故',
+          a_smart: '基于团队现有资源及工时排期执行',
+          r_smart: '支撑部门季度 OKR',
+          t: '2024-06-30',
+          taskType: '重点项目'
+        }}
+      />
 
-      {/* Task Detail Modal */}
-      {selectedTask && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedTask(null)} />
-          <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 fade-in duration-200">
-            {/* Header */}
-            <div className="shrink-0 px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center shadow-inner">
-                  <span className="material-symbols-outlined">description</span>
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-800 dark:text-slate-100 text-lg leading-tight">任务详情</h3>
-                  <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">SMART Goal Details</p>
-                </div>
-              </div>
-              <button onClick={() => setSelectedTask(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">close</span>
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <SmartGoalDisplayFromPlan
-                title={selectedTask.title}
-                target_value={selectedTask.target_value}
-                description={selectedTask.description}
-                deadline={selectedTask.deadline}
-                category={selectedTask.category}
-                collaborators={selectedTask.collaborators}
-              />
-            </div>
-            
-            {/* Footer Actions (Only for Team Manager to close) */}
-            <div className="shrink-0 p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30 flex justify-end">
-               <button onClick={() => setSelectedTask(null)} className="px-6 py-2.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-bold rounded-xl transition-colors min-w-[100px]">关闭</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Task Detail Modal (Readonly SmartTaskModal) */}
+      <SmartTaskModal
+        isOpen={!!selectedTask}
+        onClose={() => setSelectedTask(null)}
+        onSubmit={() => {}}
+        title="任务详情"
+        type="team"
+        users={subordinates.map(s => ({ id: s.id, name: s.name }))}
+        readonly={true}
+        initialData={(() => {
+          if (!selectedTask) return {};
+          const decoded = decodeSmartDescription(selectedTask.description || '');
+          return {
+            id: selectedTask.id,
+            status: selectedTask.status,
+            flow_type: 'perf_plan',
+            summary: selectedTask.title,
+            s: selectedTask.target_value ? selectedTask.target_value.split('\n')[0]?.replace('S: ', '') : '',
+            m: selectedTask.target_value ? selectedTask.target_value.split('\n')[1]?.replace('M: ', '') : '',
+            t: selectedTask.deadline || selectedTask.target_value?.split('\n')[2]?.replace('T: ', '') || '',
+            a_smart: decoded.resource,
+            r_smart: decoded.relevance,
+            taskType: selectedTask.category,
+            c: selectedTask.collaborators || '',
+            r: currentUser?.id,
+            planTime: decoded.planTime,
+            doTime: decoded.doTime,
+            checkTime: decoded.checkTime,
+            actTime: decoded.actTime
+          };
+        })()}
+      />
 
     </div>
   );

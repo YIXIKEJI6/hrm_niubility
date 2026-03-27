@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
+import PersonalGoalsPanel from '../components/PersonalGoalsPanel';
 
 /* ─── Types ─────────────────────────────────────────────────── */
 interface Task { id: number; title: string; description: string; due_date: string; priority: string; status: string; }
@@ -9,6 +10,7 @@ interface ModuleProps { navigate: (v: string) => void; data: DashData; actions: 
 interface DashData {
   pendingWorkflows: number; unreadCount: number; myPlans: any[]; recentNotifs: any[];
   myProposals: any[]; tasks: Task[]; pendingTasks: Task[]; completedTasks: Task[];
+  totalPlansCount: number;
 }
 interface DashActions {
   toggleTask: (t: Task) => void;
@@ -80,7 +82,8 @@ function ModHeader({ icon, color, title, badge, action }: {
 
 /* ─── 模块: 我的流程 ──────────────────────────────────────── */
 function WorkflowsModule({ navigate }: ModuleProps) {
-  const [tab, setTab] = useState<'initiated' | 'pending' | 'reviewed' | 'cc'>('pending');
+  const { currentUser } = useAuth();
+  const [tab, setTab] = useState<'initiated' | 'pending' | 'reviewed' | 'cc'>(currentUser?.role === 'employee' ? 'initiated' : 'pending');
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const token = localStorage.getItem('token');
@@ -98,7 +101,8 @@ function WorkflowsModule({ navigate }: ModuleProps) {
       const c: Record<string, number> = {};
       tabs.forEach((t, i) => { c[t] = results[i]?.data?.length || 0; });
       setCounts(c);
-      setItems(results[1]?.data?.slice(0, 5) || []);
+      const defaultTabIdx = currentUser?.role === 'employee' ? 0 : 1;
+      setItems(results[defaultTabIdx]?.data?.slice(0, 5) || []);
     } catch {}
   };
 
@@ -196,13 +200,13 @@ function PerfPlanModule({ navigate, data }: ModuleProps) {
   return (
     <>
       <ModHeader icon="trending_up" color="text-emerald-500" title="我的绩效计划"
-        action={<button onClick={() => navigate('personal')} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>} />
+        action={<button onClick={() => { document.getElementById('personal-goals-section')?.scrollIntoView({ behavior: 'smooth' }); }} className="text-[10px] font-bold text-blue-500 hover:text-blue-700">查看全部 →</button>} />
       {myPlans.length === 0 ? <div className="text-center py-6 text-slate-400 text-xs">暂无进行中的绩效计划</div> :
         <div className="space-y-3">
           {myPlans.map((plan: any) => {
             const s = STATUS_MAP[plan.status] || { label: plan.status, color: 'text-slate-500', bg: 'bg-slate-100' };
             return (
-              <div key={plan.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all cursor-pointer" onClick={() => navigate('personal')}>
+              <div key={plan.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all cursor-pointer" onClick={() => { document.getElementById('personal-goals-section')?.scrollIntoView({ behavior: 'smooth' }); }}>
                 <div className="relative w-10 h-10 flex-shrink-0">
                   <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
                     <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="3" />
@@ -340,7 +344,6 @@ function SummaryModule({ data }: ModuleProps) {
 type DetailModalType = 'workflows' | 'perf' | 'tasks' | 'notifications' | null;
 
 const MODAL_CONFIG: Record<string, { title: string; icon: string; color: string }> = {
-  workflows: { title: '流程审核', icon: 'pending_actions', color: 'text-blue-500' },
   perf: { title: '进行中绩效计划', icon: 'trending_up', color: 'text-emerald-500' },
   tasks: { title: '待办事项', icon: 'checklist', color: 'text-amber-500' },
   notifications: { title: '消息中心', icon: 'inbox', color: 'text-purple-500' },
@@ -367,7 +370,6 @@ function DetailModal({ type, onClose, data, actions, navigate }: {
         </div>
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {type === 'workflows' && <WorkflowsDetail navigate={navigate} />}
           {type === 'perf' && <PerfDetail data={data} navigate={navigate} />}
           {type === 'tasks' && <TasksDetail data={data} actions={actions} />}
           {type === 'notifications' && <NotificationsDetail data={data} />}
@@ -376,82 +378,6 @@ function DetailModal({ type, onClose, data, actions, navigate }: {
     </div>
   );
 }
-
-/* ─── 弹窗内容: 流程审核 ─── */
-function WorkflowsDetail({ navigate }: { navigate: (v: string) => void }) {
-  const [tab, setTab] = useState<'initiated' | 'pending' | 'reviewed' | 'cc'>('pending');
-  const [items, setItems] = useState<any[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const token = localStorage.getItem('token');
-  const hdr = { Authorization: `Bearer ${token}` };
-
-  useEffect(() => {
-    const tabs = ['initiated', 'pending', 'reviewed', 'cc'] as const;
-    Promise.all(tabs.map(t => fetch(`/api/workflows/${t}`, { headers: hdr }).then(r => r.json()).catch(() => ({ data: [] }))))
-      .then(results => {
-        const c: Record<string, number> = {};
-        tabs.forEach((t, i) => { c[t] = results[i]?.data?.length || 0; });
-        setCounts(c);
-        setItems(results[1]?.data || []);
-      });
-  }, []);
-
-  useEffect(() => {
-    fetch(`/api/workflows/${tab}`, { headers: hdr }).then(r => r.json())
-      .then(j => setItems(j?.data || [])).catch(() => {});
-  }, [tab]);
-
-  const TABS = [
-    { key: 'initiated' as const, label: '我发起的', icon: 'send' },
-    { key: 'pending' as const, label: '待我审核', icon: 'pending_actions' },
-    { key: 'reviewed' as const, label: '我已审核', icon: 'task_alt' },
-    { key: 'cc' as const, label: '抄送我的', icon: 'forward_to_inbox' },
-  ];
-
-  return (
-    <>
-      <div className="flex gap-1 mb-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-1">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
-              tab === t.key ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-            }`}>
-            <span className="material-symbols-outlined text-[14px]">{t.icon}</span>
-            {t.label}
-            {(counts[t.key] || 0) > 0 && <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${
-              tab === t.key ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'
-            }`}>{counts[t.key]}</span>}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-2">
-        {items.length === 0 ? <div className="text-center py-10 text-slate-400 text-sm">暂无流程</div> :
-          items.map((w: any) => {
-            const s = STATUS_MAP[w.status] || STATUS_MAP[w.proposal_status] || { label: w.status, color: 'text-slate-500', bg: 'bg-slate-100' };
-            return (
-              <div key={`${w.type}-${w.id}`} onClick={() => navigate('workflows')}
-                className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-all border border-slate-100 dark:border-slate-800">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${w.type === 'proposal' ? 'bg-purple-50' : 'bg-blue-50'}`}>
-                  <span className={`material-symbols-outlined text-[18px] ${w.type === 'proposal' ? 'text-purple-500' : 'text-blue-500'}`}>
-                    {w.type === 'proposal' ? 'lightbulb' : 'trending_up'}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 dark:text-white truncate">{w.title}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.color} ${s.bg}`}>{s.label}</span>
-                    {w.applicant_name && <span className="text-[10px] text-slate-400">申请人: {w.applicant_name}</span>}
-                    {w.created_at && <span className="text-[10px] text-slate-400">{fmtDate(w.created_at)}</span>}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-      </div>
-    </>
-  );
-}
-
 /* ─── 弹窗内容: 绩效计划 ─── */
 function PerfDetail({ data, navigate }: { data: DashData; navigate: (v: string) => void }) {
   return (
@@ -562,15 +488,7 @@ function NotificationsDetail({ data }: { data: DashData }) {
 /* ================================================================
    模块注册表 — label + icon 用于自定义面板
    ================================================================ */
-const MODULE_REGISTRY: { id: string; label: string; icon: string; component: React.FC<ModuleProps> }[] = [
-  { id: 'todo',          label: '待办事项',     icon: 'checklist',        component: TodoModule },
-  { id: 'workflows',     label: '我的流程',     icon: 'assignment',       component: WorkflowsModule },
-  { id: 'notifications', label: '最新消息',     icon: 'inbox',            component: NotificationsModule },
-  { id: 'perfPlan',      label: '我的绩效计划', icon: 'trending_up',      component: PerfPlanModule },
-  { id: 'quickLinks',    label: '快速入口',     icon: 'bolt',             component: QuickLinksModule },
-  { id: 'proposals',     label: '我的提案',     icon: 'lightbulb',        component: ProposalsModule },
-  { id: 'summary',       label: '今日概览',     icon: 'summarize',        component: SummaryModule },
-];
+const MODULE_REGISTRY: { id: string; label: string; icon: string; component: React.FC<ModuleProps> }[] = [];
 
 const STORAGE_KEY = 'hrm_dashboard_layout_v2';
 const NUM_COLS = 3;
@@ -623,6 +541,7 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
   const [myPlans, setMyPlans] = useState<any[]>([]);
   const [recentNotifs, setRecentNotifs] = useState<any[]>([]);
   const [myProposals, setMyProposals] = useState<any[]>([]);
+  const [totalPlansCount, setTotalPlansCount] = useState(0);
 
   // Layout state: 3-column grid
   const [columns, setColumns] = useState<string[][]>(() => loadLayout().columns);
@@ -663,7 +582,11 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
       setRecentNotifs(notifRes?.data || []);
       const ucRes = await fetch('/api/notifications/unread-count', { headers }).then(r => r.json()).catch(() => ({ data: { count: 0 } }));
       setUnreadCount(ucRes?.data?.count || 0);
-      setMyPlans((plansRes?.data || []).filter((p: any) => !['completed', 'cancelled'].includes(p.status)).slice(0, 4));
+
+      const ongoingPlans = (plansRes?.data || []).filter((p: any) => !['completed', 'cancelled'].includes(p.status));
+      setTotalPlansCount(ongoingPlans.length);
+      setMyPlans(ongoingPlans.slice(0, 4));
+
       setMyProposals((proposalsRes?.data || []).slice(0, 3));
     } catch {}
   };
@@ -767,7 +690,7 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
   const pendingTasks = tasks.filter(t => t.status !== 'completed');
   const completedTasks = tasks.filter(t => t.status === 'completed');
 
-  const dashData: DashData = { pendingWorkflows, unreadCount, myPlans, recentNotifs, myProposals, tasks, pendingTasks, completedTasks };
+  const dashData: DashData = { pendingWorkflows, unreadCount, myPlans, recentNotifs, myProposals, tasks, pendingTasks, completedTasks, totalPlansCount };
   const dashActions: DashActions = { toggleTask: handleToggleTaskStatus, openTaskModal: () => setIsTaskModalOpen(true) };
 
   const hiddenModuleList = MODULE_REGISTRY.filter(m => hiddenModules.has(m.id));
@@ -779,32 +702,42 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
 
       <main className="flex-1 h-[calc(100vh-4rem)] mt-16 overflow-y-auto relative">
         <div className="max-w-6xl mx-auto p-6 space-y-6">
-          {/* Welcome + Edit Button */}
+          {/* Welcome section without Customization button attached directly next to greeting */}
           <div className="flex items-end justify-between">
             <div>
               <h2 className="text-3xl font-black text-on-surface tracking-tight mb-1">{greeting}, {currentUser?.name || '同事'} 👋</h2>
               <p className="text-sm text-on-surface-variant">{dateStr} — 以下是与您相关的事项概览</p>
             </div>
-            <button onClick={() => { setIsEditing(!isEditing); setShowAddPanel(false); }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                isEditing
-                  ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-600'
-                  : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 border border-slate-200 dark:border-slate-700 hover:shadow-md'
-              }`}>
-              <span className="material-symbols-outlined text-[16px]">{isEditing ? 'check' : 'dashboard_customize'}</span>
-              {isEditing ? '完成编辑' : '自定义'}
-            </button>
+            
+            <div className="flex flex-col items-end gap-2">
+              <button onClick={() => { setIsEditing(!isEditing); setShowAddPanel(false); }}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  isEditing
+                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-600'
+                    : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 border border-slate-200 dark:border-slate-700 hover:shadow-md'
+                }`}>
+                <span className="material-symbols-outlined text-[16px]">{isEditing ? 'check' : 'dashboard_customize'}</span>
+                {isEditing ? '完成编辑' : '自定义'}
+              </button>
+            </div>
           </div>
 
           {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: '待审核流程', value: pendingWorkflows, icon: 'pending_actions', from: 'from-blue-50', to: 'to-indigo-50', text: 'text-blue-700', sub: 'text-blue-600/70', border: 'border-blue-100/60', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', modal: 'workflows' as DetailModalType, badge: pendingWorkflows },
-              { label: '进行中绩效', value: myPlans.length, icon: 'trending_up', from: 'from-emerald-50', to: 'to-teal-50', text: 'text-emerald-700', sub: 'text-emerald-600/70', border: 'border-emerald-100/60', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', modal: 'perf' as DetailModalType },
+              { label: '待我审批', value: pendingWorkflows, icon: 'pending_actions', from: 'from-blue-50', to: 'to-indigo-50', text: 'text-blue-700', sub: 'text-blue-600/70', border: 'border-blue-100/60', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', modal: 'workflows' as DetailModalType, badge: pendingWorkflows },
+              { label: '进行中绩效', value: totalPlansCount, icon: 'trending_up', from: 'from-emerald-50', to: 'to-teal-50', text: 'text-emerald-700', sub: 'text-emerald-600/70', border: 'border-emerald-100/60', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', modal: 'perf' as DetailModalType },
               { label: '待办事项', value: pendingTasks.length, icon: 'checklist', from: 'from-amber-50', to: 'to-orange-50', text: 'text-amber-700', sub: 'text-amber-600/70', border: 'border-amber-100/60', iconBg: 'bg-amber-100', iconColor: 'text-amber-600', modal: 'tasks' as DetailModalType, badge: pendingTasks.length },
               { label: '未读消息', value: unreadCount, icon: 'mail', from: 'from-purple-50', to: 'to-violet-50', text: 'text-purple-700', sub: 'text-purple-600/70', border: 'border-purple-100/60', iconBg: 'bg-purple-100', iconColor: 'text-purple-600', modal: 'notifications' as DetailModalType, badge: unreadCount },
             ].map(c => (
-              <button key={c.label} onClick={() => c.modal && setDetailModal(c.modal)}
+              <button key={c.label} 
+                onClick={() => {
+                  if (c.modal === 'workflows') navigate('workflows');
+                  else if (c.modal === 'perf') {
+                    document.getElementById('personal-goals-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }
+                  else if (c.modal) setDetailModal(c.modal);
+                }}
                 className={`bg-gradient-to-br ${c.from} ${c.to} rounded-2xl p-4 text-left hover:shadow-md transition-all border ${c.border}`}>
                 <div className="flex items-center justify-between mb-2">
                   <div className={`w-9 h-9 ${c.iconBg} rounded-xl flex items-center justify-center`}>
@@ -818,6 +751,59 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
             ))}
           </div>
 
+          {/* ── 嵌入: 个人目标管理（原个人管理模块） ── */}
+          <div id="personal-goals-section" className="mt-10 relative z-10 border-t border-slate-200/60 dark:border-slate-800 pt-8 scroll-mt-20">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-5 flex items-center gap-2">
+              <span className="material-symbols-outlined text-blue-500">person</span>
+              个人目标与追踪
+            </h3>
+            <PersonalGoalsPanel />
+          </div>
+
+          {/* 管理专属入口 (绩效管理 & 工资表管理) */}
+          {(currentUser?.role === 'admin' || currentUser?.role === 'hr') && (
+            <div className="mt-10 relative z-10 border-t border-slate-200/60 dark:border-slate-800 pt-8">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-5 flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-500">category</span>
+                管理专属
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {/* 绩效管理 */}
+              <div onClick={() => navigate('perf-analytics')} className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all cursor-pointer group flex flex-col h-full hover:-translate-y-1 hover:border-emerald-200 dark:hover:border-emerald-800/50">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center mb-5 group-hover:bg-emerald-100 transition-colors">
+                  <span className="material-symbols-outlined text-[24px] text-emerald-600 font-bold" style={{ fontVariationSettings: "'wght' 600" }}>trending_up</span>
+                </div>
+                <h4 className="text-xl font-black text-slate-800 dark:text-slate-100 mb-3 tracking-tight">绩效管理</h4>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 font-medium">绩效计划审批、考核评分与奖金发放</p>
+                <div className="flex gap-3 text-[12px] font-bold text-slate-400 mt-auto">
+                  <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 group-hover:bg-emerald-300"></div>审批流程</span>
+                  <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 group-hover:bg-emerald-300"></div>评分管理</span>
+                </div>
+              </div>
+
+              {/* 工资表管理 */}
+              <div onClick={() => navigate('salary')} className="bg-[#fffdf8] dark:bg-slate-900/80 rounded-3xl p-6 border border-amber-100 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all cursor-pointer group flex flex-col h-full hover:-translate-y-1 hover:border-amber-200 dark:hover:border-amber-800/50 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-amber-50 rounded-bl-full -z-0 opacity-50 dark:hidden"></div>
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center mb-5 group-hover:bg-amber-100 transition-colors relative z-10">
+                  <span className="material-symbols-outlined text-[24px] text-amber-600 font-bold" style={{ fontVariationSettings: "'wght' 600" }}>payments</span>
+                </div>
+                <h4 className="text-xl font-black text-[#1e293b] dark:text-slate-100 mb-3 tracking-tight relative z-10">工资表管理</h4>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 font-medium relative z-10 leading-relaxed">制作月度工资表、审批发放、推送工资条</p>
+                <div className="flex gap-3 text-[12px] font-bold text-slate-400 mt-auto relative z-10">
+                  <span className="flex items-center gap-1.5 rounded-full px-2 py-1 bg-amber-50 text-amber-600 dark:bg-slate-800 dark:text-slate-300"><div className="w-1.5 h-1.5 rounded-full bg-amber-300"></div>薪资模板</span>
+                  <span className="flex items-center gap-1.5 rounded-full px-2 py-1 bg-amber-50 text-amber-600 dark:bg-slate-800 dark:text-slate-300"><div className="w-1.5 h-1.5 rounded-full bg-amber-300"></div>自动计算</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          )}
+
+          {/* ── 自由拖拽布局区（自定义模块） ── */}
+          <div className="mt-10 border-t border-slate-200/60 dark:border-slate-800 pt-8">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-5 flex items-center gap-2">
+              <span className="material-symbols-outlined text-purple-500">dashboard_customize</span>
+              自定义仪表盘
+            </h3>
           {/* Editing Toolbar */}
           {isEditing && (
             <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-200/60 dark:border-blue-800/30">
@@ -916,6 +902,8 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
                 </div>
               );
             })}
+          </div>
+
           </div>
         </div>
       </main>

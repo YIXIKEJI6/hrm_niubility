@@ -6,7 +6,7 @@ export default function DevRoleSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
 
   // 生产环境隐藏测试账号切换器
-  const isDev = import.meta.env.DEV;
+  const isDev = (import.meta as any).env?.DEV;
   if (!isDev) return null;
 
   const roles = [

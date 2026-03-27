@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import SmartFormInputs, { SmartData, encodeSmartDescription, decodeSmartDescription } from '../components/SmartFormInputs';
 import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
@@ -28,7 +27,7 @@ const statusMap: Record<string, { label: string, color: string, bg: string }> = 
 };
 
 
-export default function PersonalGoals({ navigate }: { navigate: (view: string) => void }) {
+export default function PersonalGoalsPanel() {
 
   const { currentUser } = useAuth();
   const [plans, setPlans] = useState<PerfPlan[]>([]);
@@ -191,31 +190,10 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
   const overallProgress = plans.length > 0 ? (plans.reduce((acc, p) => acc + (p.progress || 0), 0) / plans.length).toFixed(1) : 0;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface text-on-surface antialiased">
-      <Sidebar currentView="personal" navigate={navigate} />
-
+    <div className="w-full text-on-surface antialiased">
       {/* Main Content Area */}
-      <main className="flex-1 h-[calc(100vh-4rem)] mt-16 overflow-y-auto">
-        <div className="p-8">
-          {/* Header Section */}
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
-            <div>
-              <nav className="flex text-xs font-label text-outline mb-2 space-x-2">
-                <span>主页</span>
-                <span>/</span>
-                <span className="text-primary font-medium">目标管理</span>
-              </nav>
-              <h1 className="text-4xl font-extrabold tracking-tight text-on-surface">个人目标管理 ({currentUser?.name})</h1>
-              <p className="text-on-surface-variant mt-2 max-w-2xl">追踪您的关键结果，向上级发起绩效申请。本季度您已达标 {overallProgress}%。</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setIsModalOpen(true)} className="primary-gradient text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/30 active:scale-95 transition-all">
-                <span className="material-symbols-outlined">add</span>
-                <span>申请新目标</span>
-              </button>
-            </div>
-          </div>
-
+      <div>
+        
           {/* Three Category Progress Bars */}
           {(() => {
             // 分类：季度 / 月度 / 专项
@@ -402,7 +380,6 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             })}
           </div>
         </div>
-      </main>
 
 
       {/* Slide-in Modal for Application */}

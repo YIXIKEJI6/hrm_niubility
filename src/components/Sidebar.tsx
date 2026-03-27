@@ -27,9 +27,8 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
   // permKey → 对应 /api/permissions/definitions 中的功能模块 key
   const navItems = [
     { id: 'dashboard', icon: 'home', label: '我的主页', permKey: 'view_dashboard' },
-    { id: 'personal', icon: 'person', label: '个人管理', permKey: 'view_personal' },
-    { id: 'team', icon: 'groups', label: '团队管理', permKey: 'view_team_perf' },
-    { id: 'company', icon: 'analytics', label: '公司绩效池', permKey: 'view_company_pool' },
+    { id: 'team', icon: 'groups', label: '我的团队', permKey: 'view_team_perf' },
+    { id: 'company', icon: 'local_fire_department', label: '赏金榜', permKey: 'view_company_pool', special: true },
     { id: 'hrmap', icon: 'map', label: '人力地图', permKey: 'view_hr_map' },
     { id: 'panorama', icon: 'view_quilt', label: '全景仪表盘', permKey: 'view_panorama' },
     { id: 'org', icon: 'account_tree', label: '组织关系', permKey: 'view_org_chart' },
@@ -138,49 +137,48 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
   return (
     <>
     <header className="h-16 w-full fixed top-0 left-0 right-0 flex items-center justify-between px-6 border-b border-slate-200/60 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 font-['Inter'] z-50 transition-all duration-200">
-      <div className="flex items-center gap-8">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#0060a9] to-[#409eff] flex items-center justify-center text-white shadow-md shadow-primary/20">
-            <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>corporate_fare</span>
-          </div>
-          <div>
-            <h1 className="text-sm font-black text-[#0060a9] dark:text-[#409eff] tracking-tight leading-tight">You！Niubility！</h1>
-            <p className="text-[8px] text-slate-500 uppercase tracking-widest font-bold">HRM System</p>
-          </div>
-        </div>
-
-        <nav className="flex items-center gap-2">
-          {navItems.map((item) => {
-            const isActive = currentView === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => navigate(item.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 group ${
-                  isActive
-                    ? 'bg-white dark:bg-slate-900 text-[#0060a9] dark:text-[#409eff] font-bold shadow-sm border border-slate-200/50 dark:border-slate-800/50'
-                    : 'text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-100 font-medium'
-                }`}
-              >
-                <span 
-                  className={`material-symbols-outlined text-sm ${isActive ? '' : 'group-hover:scale-110 transition-transform'}`} 
-                  style={isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
-                >
-                  {item.icon}
-                </span>
-                <span className="text-xs tracking-wide">{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+      {/* Left Logo */}
+      <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => navigate('dashboard')}>
+        <h1 className="text-[17px] font-black bg-gradient-to-br from-[#0060a9] to-[#409eff] text-transparent bg-clip-text tracking-tighter">You!Niubility!</h1>
+        <span className="text-[9px] bg-[#0060a9]/10 text-[#0060a9] px-1.5 py-0.5 rounded font-bold uppercase tracking-widest mt-0.5 border border-[#0060a9]/20">HRM</span>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative group hidden md:block">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-          <input className="w-56 lg:w-72 pl-9 pr-4 py-1.5 bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-lg focus:ring-2 focus:ring-[#0060a9]/20 text-xs placeholder:text-slate-400 outline-none transition-all focus:w-80" placeholder="搜索功能、员工或文档..." type="text" />
-        </div>
-        <div className="h-6 w-px bg-slate-200/60 dark:bg-slate-800/60 mx-1"></div>
+      {/* Center Navigation */}
+      <nav className="absolute left-1/2 -translate-x-1/2 hidden lg:flex items-center gap-2">
+        {navItems.map((item) => {
+          const isActive = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => navigate(item.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all duration-200 group ${
+                item.special 
+                  ? isActive 
+                    ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold shadow-md shadow-orange-500/30'
+                    : 'bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/40 font-bold border border-orange-200 dark:border-orange-800/50'
+                  : isActive
+                  ? 'bg-white dark:bg-slate-900 text-[#0060a9] dark:text-[#409eff] font-bold shadow-sm border border-slate-200/50 dark:border-slate-800/50'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-100 font-medium'
+              }`}
+            >
+              <span 
+                className={`material-symbols-outlined text-sm ${isActive ? '' : 'group-hover:scale-110 transition-transform'}`} 
+                style={isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
+              >
+                {item.icon}
+              </span>
+              <span className="text-xs tracking-wide">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Right Controls */}
+      <div className="flex items-center gap-1">
+        {/* 精简版搜索 */}
+        <button className="p-2 mr-1 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hidden md:block" title="搜索">
+          <span className="material-symbols-outlined text-[20px]">search</span>
+        </button>
 
         {/* 消息盒 Bell Icon */}
         <div ref={inboxRef} className="relative">
@@ -216,10 +214,17 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
                   <div key={msg.id}
                     onClick={() => {
                       markRead(msg.id);
-                      navigate('dashboard');
+                      if (msg.link) {
+                        const view = msg.link.replace(/^\//, '').split('?')[0];
+                        navigate(view || 'dashboard');
+                      } else {
+                        navigate('dashboard');
+                      }
                       setIsInboxOpen(false);
+                      setInboxMessages(prev => prev.filter(m => m.id !== msg.id));
+                      setUnreadCount(prev => Math.max(0, prev - 1));
                     }}
-                    className={`px-4 py-3 border-b border-slate-50 dark:border-slate-800/50 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${!msg.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                    className={`px-4 py-3 border-b border-slate-50 dark:border-slate-800/50 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors bg-blue-50/50 dark:bg-blue-900/10`}>
                     <div className="flex gap-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!msg.is_read ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-slate-100 dark:bg-slate-800'}`}>
                         <span className={`material-symbols-outlined text-[16px] ${!msg.is_read ? 'text-blue-600' : 'text-slate-400'}`}>
@@ -243,15 +248,14 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
         </div>
         <div className="h-6 w-px bg-slate-200/60 dark:bg-slate-800/60 mx-1"></div>
         {/* Avatar Dropdown */}
-        <div ref={avatarRef} className="relative">
+        <div ref={avatarRef} className="relative ml-2">
           <div onClick={() => setIsAvatarMenuOpen(p => !p)}
-            className="flex items-center gap-2 cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-            <img alt="User avatar" className="w-8 h-8 rounded-full object-cover ring-2 ring-[#0060a9]/10" src={currentUser?.avatar_url || "https://lh3.googleusercontent.com/aida-public/AB6AXuDdrdTGDJYeBHfJTlatMpLqwsbtQ4gp5ZxDGcUSG1-JpEjvrW0oKbdaeF6RuWTWGt00FKgwLrZ8Nj2CxCxAFq3HGnlh1u_fIRvsrO5LlFbgpesyz0lGQFmHe_y4fVLCQBZA7qNoCR1qgHF6xlJIvVO1neRBE_gOglQFWToIPklhlTGSvOlJQrn3wmLzWS9y7Kuk5lIGSFLyjZHyXPnZxT7ESoReBjIp4QKWL5k3HAKXQeT03MJ17TReEVrjk22ijU6baqjCr2fFgE0"} />
-            <div className="hidden lg:block text-right">
-              <p className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-tight">{currentUser?.name || "未知用户"}</p>
-              <p className="text-[10px] text-slate-500 font-medium">{currentUser?.title || "员工"}</p>
+            className="flex items-center gap-2 cursor-pointer p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            {/* 首字母头像 */}
+            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-[#0060a9] to-[#3085d6] text-white font-bold text-[13px] shadow-sm ring-2 ring-white dark:ring-slate-900">
+              {(currentUser?.name || "U").charAt(0).toUpperCase()}
             </div>
-            <span className="material-symbols-outlined text-slate-400 text-[14px]">expand_more</span>
+            <span className="material-symbols-outlined text-slate-400 text-[16px] hidden md:block">expand_more</span>
           </div>
 
           {isAvatarMenuOpen && (

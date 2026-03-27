@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
+import PerfModuleV2 from '../components/PerfModuleV2';
 import { useAuth } from '../context/AuthContext';
 
 type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | 'admin_mgmt' | 'approval_flows' | null;
@@ -230,124 +231,7 @@ function OrgModule() {
 
 // ─── MODULE: 绩效管理 ─────────────────────────────────────────────────
 function PerfModule() {
-  const { data: allPlans, loading, refetch } = useApiGet('/api/perf/plans');
-  const [tab, setTab] = useState<'pending' | 'active' | 'assess' | 'done'>('pending');
-  const [actionMsg, setActionMsg] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectingId, setRejectingId] = useState<number | null>(null);
-  const [scoreInputs, setScoreInputs] = useState<Record<number, string>>({});
-  const [bonusInputs, setBonusInputs] = useState<Record<number, string>>({});
-  const [working, setWorking] = useState(false);
-
-  const pending = allPlans?.filter((p: any) => p.status === 'pending_review') || [];
-  const active = allPlans?.filter((p: any) => ['in_progress', 'approved'].includes(p.status)) || [];
-  const assess = allPlans?.filter((p: any) => ['in_progress', 'assessed'].includes(p.status)) || [];
-  const done = allPlans?.filter((p: any) => p.status === 'completed') || [];
-
-  const doAction = async (id: number, action: string, extra?: any) => {
-    setWorking(true);
-    const res = await apiCall(`/api/perf/plans/${id}/review`, 'POST', { action, ...extra });
-    setWorking(false);
-    setActionMsg(res.code === 0 ? `✅ ${res.message}` : `❌ ${res.message}`);
-    refetch();
-  };
-
-  const TABS = [
-    { key: 'pending', label: '待审批', count: pending.length, color: 'amber' },
-    { key: 'active', label: '进行中', count: active.length, color: 'blue' },
-    { key: 'assess', label: '评分/奖金', count: assess.length, color: 'violet' },
-    { key: 'done', label: '已完成', count: done.length, color: 'emerald' },
-  ];
-
-  const displayList = tab === 'pending' ? pending : tab === 'active' ? active : tab === 'assess' ? assess : done;
-
-  return (
-    <div>
-      {actionMsg && <div className="mb-3 text-sm bg-slate-50 rounded-lg px-3 py-2">{actionMsg}</div>}
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key as any)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === t.key ? `bg-${t.color}-600 text-white` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-            {t.label} ({t.count})
-          </button>
-        ))}
-      </div>
-      {loading ? <div className="text-center py-8 text-slate-400">加载中...</div> : (
-        <div className="space-y-3">
-          {displayList?.length ? displayList.map((plan: any) => (
-            <div key={plan.id} className="bg-slate-50 rounded-xl p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm text-slate-800 truncate">{plan.title}</span>
-                    <StatusBadge status={plan.status} />
-                    {plan.score != null && <span className="text-xs font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">{plan.score}分</span>}
-                    {plan.bonus != null && <span className="text-xs font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">¥{plan.bonus}</span>}
-                  </div>
-                  <p className="text-xs text-slate-400">发起人: {plan.creator_id} · 负责人: {plan.assignee_id} · 截止: {plan.deadline || '—'}</p>
-                  {plan.progress != null && plan.status !== 'completed' && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${plan.progress}%` }} />
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-500">{plan.progress}%</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* 审批操作 */}
-                {tab === 'pending' && plan.status === 'pending_review' && (
-                  <div className="flex gap-2 shrink-0">
-                    <button onClick={() => doAction(plan.id, 'approve')} disabled={working}
-                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-60">通过</button>
-                    <button onClick={() => setRejectingId(plan.id)}
-                      className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100">驳回</button>
-                  </div>
-                )}
-
-                {/* 评分操作 */}
-                {tab === 'assess' && plan.status === 'in_progress' && (
-                  <div className="flex gap-2 shrink-0 items-center">
-                    <input type="number" min="0" max="100" placeholder="分数"
-                      value={scoreInputs[plan.id] || ''} onChange={e => setScoreInputs({ ...scoreInputs, [plan.id]: e.target.value })}
-                      className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                    <button onClick={() => doAction(plan.id, 'assess', { score: Number(scoreInputs[plan.id]) })}
-                      disabled={working || !scoreInputs[plan.id]}
-                      className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-60">评分</button>
-                  </div>
-                )}
-
-                {/* 发放奖金操作 */}
-                {tab === 'assess' && plan.status === 'assessed' && (
-                  <div className="flex gap-2 shrink-0 items-center">
-                    <span className="text-xs text-violet-600 font-bold">{plan.score}分</span>
-                    <input type="number" min="0" placeholder="奖金 ¥"
-                      value={bonusInputs[plan.id] || ''} onChange={e => setBonusInputs({ ...bonusInputs, [plan.id]: e.target.value })}
-                      className="w-20 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-amber-300" />
-                    <button onClick={() => doAction(plan.id, 'reward', { bonus: Number(bonusInputs[plan.id]) })}
-                      disabled={working || !bonusInputs[plan.id]}
-                      className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-60">发放</button>
-                  </div>
-                )}
-              </div>
-              {rejectingId === plan.id && (
-                <div className="mt-3 flex gap-2">
-                  <input className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-300"
-                    placeholder="驳回原因（必填）" value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
-                  <button onClick={() => { doAction(plan.id, 'reject', { reason: rejectReason }); setRejectingId(null); setRejectReason(''); }}
-                    disabled={!rejectReason.trim() || working}
-                    className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-60">确认驳回</button>
-                  <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="px-2 py-1.5 text-slate-400 hover:text-slate-600">
-                    <span className="material-symbols-outlined text-[16px]">close</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )) : <p className="text-sm text-slate-400 text-center py-8">暂无数据</p>}
-        </div>
-      )}
-    </div>
-  );
+  return <PerfModuleV2 />;
 }
 
 // ─── MODULE: 工资表管理 ─────────────────────────────────────────────
@@ -970,6 +854,90 @@ const BUSINESS_TYPES: { value: string; label: string; icon: string }[] = [
   { value: 'offboarding', label: '离职审批', icon: 'exit_to_app' },
 ];
 
+function SearchableUserSelect({ userList, selectedIds, onSelect }: { userList: any[], selectedIds: string[], onSelect: (id: string) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const unselectedUsers = userList.filter(u => !selectedIds.includes(u.id));
+  const filteredUsers = unselectedUsers.filter(u => 
+    u.name.toLowerCase().includes(search.toLowerCase()) || 
+    (u.department_name && u.department_name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <button 
+        type="button"
+        className="w-full flex items-center justify-between bg-white dark:bg-slate-700 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span>+ 添加成员...</span>
+        <span className="material-symbols-outlined text-[14px]">expand_more</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.3)]">
+          <div className="p-2 border-b border-slate-700 bg-slate-800/95 sticky top-0">
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">search</span>
+              <input 
+                type="text" 
+                autoFocus
+                placeholder="搜索名字或部门..." 
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-7 pr-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {filteredUsers.length > 0 ? (
+              <ul className="py-1">
+                {filteredUsers.map(u => (
+                  <li key={u.id}>
+                    <button 
+                      type="button"
+                      className="w-full text-left px-3 py-2 hover:bg-slate-700 text-xs text-slate-300 transition-colors flex items-center gap-2"
+                      onClick={() => {
+                        onSelect(u.id);
+                        setSearch('');
+                        setIsOpen(false);
+                      }}
+                    >
+                      <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center shrink-0">
+                        <span className="material-symbols-outlined text-[14px] text-slate-400">person</span>
+                      </div>
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="text-slate-200 truncate">{u.name}</span>
+                        <span className="text-[10px] text-slate-500 truncate">{u.department_name || u.title || '未知部门'}</span>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="p-4 text-center text-xs text-slate-500">
+                无匹配成员
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApprovalFlowModule() {
   const { data: allUsers } = useApiGet('/api/org/users-list');
   const [templates, setTemplates] = useState<any[]>([]);
@@ -1352,17 +1320,11 @@ function ApprovalFlowModule() {
                                 })}
                               </div>
                             )}
-                            <select value="" onChange={e => {
-                              if (e.target.value && !selectedIds.includes(e.target.value)) {
-                                updateNode(selectedNodeIdx!, { config: { ...selectedNode.config, assignees: [...selectedIds, e.target.value] } });
-                              }
-                              e.target.value = '';
-                            }} className="w-full bg-white dark:bg-slate-700 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none">
-                              <option value="">+ 添加成员...</option>
-                              {userList.filter(u => !selectedIds.includes(u.id)).map((u: any) => (
-                                <option key={u.id} value={u.id}>{u.name} ({u.department_name || u.title || ''})</option>
-                              ))}
-                            </select>
+                            <SearchableUserSelect 
+                              userList={userList} 
+                              selectedIds={selectedIds} 
+                              onSelect={(id) => updateNode(selectedNodeIdx!, { config: { ...selectedNode.config, assignees: [...selectedIds, id] } })}
+                            />
                           </div>
                         );
                       })()}
@@ -1504,7 +1466,7 @@ function ApprovalFlowModule() {
                       <div>
                         <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">抄送人类型</label>
                         <div className="space-y-2">
-                          {[{ v: 'specified', l: '指定成员' }, { v: 'self_select', l: '申请人自选' }].map(t => (
+                          {[{ v: 'specified', l: '指定成员' }, { v: 'self_select', l: '申请人自选' }, { v: 'related_roles', l: '对应任务卡相关人员' }].map(t => (
                             <label key={t.v} className="flex items-center gap-1.5 cursor-pointer">
                               <input type="radio" name={`cc_type_${selectedNodeIdx}`}
                                 checked={(selectedNode.config?.assigneeType || 'specified') === t.v}
@@ -1515,6 +1477,32 @@ function ApprovalFlowModule() {
                           ))}
                         </div>
                       </div>
+                      
+                      {(selectedNode.config?.assigneeType) === 'related_roles' && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 mt-4">选择相关角色</label>
+                          <div className="space-y-2">
+                            {[
+                              { k: 'creator', l: '提报者/创建人' },
+                              { k: 'assignee', l: '责任人/接收人' },
+                              { k: 'manager', l: '直属主管' },
+                              { k: 'collaborators', l: '协作者(RACI成员)' }
+                            ].map(role => (
+                              <label key={role.k} className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox"
+                                  checked={(selectedNode.config?.relatedRoles || []).includes(role.k)}
+                                  onChange={e => {
+                                    const cur = selectedNode.config?.relatedRoles || [];
+                                    const next = e.target.checked ? [...cur, role.k] : cur.filter((x: string) => x !== role.k);
+                                    updateNode(selectedNodeIdx!, { config: { ...selectedNode.config, relatedRoles: next } });
+                                  }}
+                                  className="w-3.5 h-3.5 rounded text-[#0060a9]" />
+                                <span className="text-xs text-slate-600 dark:text-slate-300">{role.l}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {(selectedNode.config?.assigneeType || 'specified') === 'specified' && (() => {
                         const selectedIds: string[] = selectedNode.config?.assignees || [];
                         return (
@@ -2161,7 +2149,6 @@ function AdminMgmtModule() {
 const MODULES = [
   { key: 'org', label: '组织架构管理', desc: '同步企业微信通讯录，管理部门与人员信息', icon: 'account_tree', color: 'blue', hoverColor: 'hover:border-blue-400/30', iconBg: 'bg-blue-50', iconColor: 'text-[#0060a9]', stats: ['6 个部门', '8 名员工'] },
   { key: 'admin_mgmt', label: '管理员分配', desc: '最高管理员可指定系统管理员，授予或撤销管理权限', icon: 'shield_person', color: 'cyan', hoverColor: 'hover:border-cyan-400/30', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600', stats: ['角色分配', '权限管控'], superAdminOnly: true },
-  { key: 'perf', label: '绩效管理', desc: '绩效计划审批、考核评分与奖金发放', icon: 'trending_up', color: 'emerald', hoverColor: 'hover:border-emerald-400/30', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600', stats: ['审批流程', '评分管理'] },
   { key: 'salary', label: '工资表管理', desc: '制作月度工资表、审批发放、推送工资条', icon: 'payments', color: 'amber', hoverColor: 'hover:border-amber-400/30', iconBg: 'bg-amber-50', iconColor: 'text-amber-600', stats: ['薪资模板', '自动计算'] },
   { key: 'msg', label: '消息推送', desc: '企业微信消息推送、审批卡片与推送记录', icon: 'send', color: 'purple', hoverColor: 'hover:border-purple-400/30', iconBg: 'bg-purple-50', iconColor: 'text-purple-600', stats: ['卡片交互', '推送记录'] },
   { key: 'pool', label: '绩效池管理', desc: '创建与调配绩效池任务、设置奖金额度', icon: 'pool', color: 'rose', hoverColor: 'hover:border-rose-400/30', iconBg: 'bg-rose-50', iconColor: 'text-rose-600', stats: ['任务创建', '奖金配额'] },
@@ -2238,7 +2225,6 @@ export default function AdminPanel({ navigate }: { navigate: (view: string) => v
                 {/* Modal Content — scrollable */}
                 <div className="flex-1 overflow-y-auto p-6">
                   {activeModule === 'org' && <OrgModule />}
-                  {activeModule === 'perf' && <PerfModule />}
                   {activeModule === 'salary' && <SalaryModule />}
                   {activeModule === 'msg' && <MsgModule />}
                   {activeModule === 'pool' && <PoolModule />}

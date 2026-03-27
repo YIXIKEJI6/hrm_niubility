@@ -145,6 +145,14 @@ router.get('/users/:id', authMiddleware, (req, res) => {
   return res.json({ code: 0, data: user });
 });
 
+// 获取基础用户列表 (供全员选人组件使用)
+router.get('/users', authMiddleware, (_req, res) => {
+  const db = getDb();
+  // 只返回 id 和 name 给普通的下拉选择组件
+  const users = db.prepare('SELECT id, name FROM users WHERE status = ? ORDER BY name').all('active');
+  return res.json({ code: 0, data: users });
+});
+
 // 更新用户信息 (HR / Admin)
 router.put('/users/:id', authMiddleware, requireRole('admin', 'hr'), (req: AuthRequest, res) => {
   const { name, title, mobile, email, role, status } = req.body;

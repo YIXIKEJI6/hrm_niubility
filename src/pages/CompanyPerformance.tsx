@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import SmartGoalDisplay from '../components/SmartGoalDisplay';
+import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
+import { decodeSmartDescription } from '../components/SmartFormInputs';
 
 interface PoolTask {
   id: number;
@@ -9,11 +11,15 @@ interface PoolTask {
   title: string;
   department: string;
   difficulty: string;
+  reward_type?: 'money' | 'score';
   bonus: number;
   max_participants: number;
   current_participants: number;
   description?: string;
   deadline?: string;
+  created_at?: string;
+  creator_name?: string;
+  participant_names?: string[];
 }
 
 type StatusFilter = 'all' | 'open' | 'in_progress';
@@ -61,6 +67,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [bonusFilter, setBonusFilter] = useState<BonusFilter>('all');
   const [deptFilter, setDeptFilter] = useState('全部部门');
   const [sortByBonus, setSortByBonus] = useState(false);
+  const [users, setUsers] = useState<{id: string, name: string}[]>([]);
 
   // Proposal state
   const [showPropose, setShowPropose] = useState(false);
@@ -69,6 +76,17 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [proposeMsg, setProposeMsg] = useState('');
   const [myProposals, setMyProposals] = useState<any[]>([]);
   const [showMyProposals, setShowMyProposals] = useState(false);
+
+  // New features state
+  const [activeTab, setActiveTab] = useState<'task' | 'personnel'>('task');
+  const [searchKey, setSearchKey] = useState('');
+  const [personnelSearchKey, setPersonnelSearchKey] = useState('');
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
+
+  // Publish Task state
+  const [showPublish, setShowPublish] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   const { hasPermission, currentUser } = useAuth();
   const canManagePool = hasPermission('manage_perf_pool');
@@ -93,28 +111,104 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
     } catch {}
   };
 
-  useEffect(() => { fetchTasks(); fetchMyProposals(); }, []);
-
-  const handlePropose = async () => {
-    if (!proposeForm.title.trim()) return;
-    setProposing(true);
-    setProposeMsg('');
+  const fetchLeaderboard = async () => {
     try {
       const token = localStorage.getItem('token');
+      const res = await fetch('/api/pool/leaderboard', { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      if (json.code === 0) setLeaderboard(json.data);
+    } catch {}
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/org/users', { headers: { 'Authorization': `Bearer ${token}` } });
+      const json = await res.json();
+      if (json.code === 0) setUsers(json.data.map((u: any) => ({ id: u.id, name: u.name })));
+    } catch {}
+  };
+
+  useEffect(() => { fetchTasks(); fetchMyProposals(); fetchLeaderboard(); fetchUsers(); }, []);
+
+  const handleProposeSmart = async (data: SmartTaskData) => {
+    if (!data.summary.trim()) return;
+    setProposing(true);
+    try {
+      const token = localStorage.getItem('token');
+      const pdcaStr = [
+        data.planTime ? `Plan: ${data.planTime}` : '',
+        data.doTime ? `Do: ${data.doTime}` : '',
+        data.checkTime ? `Check: ${data.checkTime}` : '',
+        data.actTime ? `Act: ${data.actTime}` : ''
+      ].filter(Boolean).join(' | ');
+      
+      const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}${pdcaStr ? `\n【PDCA】\n${pdcaStr}` : ''}`;
+      
       const res = await fetch('/api/pool/tasks/propose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...proposeForm, bonus: Number(proposeForm.bonus) || 0, max_participants: Number(proposeForm.max_participants) || 5 }),
+        body: JSON.stringify({
+          title: data.summary || '新提案',
+          description: smartDescription,
+          department: data.taskType || '全部部门',
+          difficulty: '中',
+          reward_type: data.rewardType,
+          bonus: Number(data.bonus) || 0,
+          max_participants: 5
+        }),
       });
       const json = await res.json();
-      setProposeMsg(json.code === 0 ? '✅ 提案已提交，等待人事审核' : `❌ ${json.message}`);
       if (json.code === 0) {
-        setProposeForm({ title: '', description: '', department: '', difficulty: '中', bonus: '', max_participants: '5' });
         fetchMyProposals();
         setTimeout(() => setShowPropose(false), 1500);
+      } else {
+        alert(json.message);
       }
-    } catch { setProposeMsg('❌ 网络错误'); }
+    } catch { 
+      alert('网络错误');
+    }
     setProposing(false);
+  };
+
+  const handlePublishTask = async (data: SmartTaskData) => {
+    if (!data.summary.trim()) return;
+    setPublishing(true);
+    try {
+      const token = localStorage.getItem('token');
+      const pdcaStr = [
+        data.planTime ? `Plan: ${data.planTime}` : '',
+        data.doTime ? `Do: ${data.doTime}` : '',
+        data.checkTime ? `Check: ${data.checkTime}` : '',
+        data.actTime ? `Act: ${data.actTime}` : ''
+      ].filter(Boolean).join(' | ');
+      
+      const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}${pdcaStr ? `\n【PDCA】\n${pdcaStr}` : ''}`;
+      
+      const res = await fetch('/api/pool/tasks/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title: data.summary || '新任务',
+          description: smartDescription,
+          department: data.taskType || '全部部门',
+          difficulty: '中',
+          reward_type: data.rewardType,
+          bonus: Number(data.bonus) || 0,
+          max_participants: 5
+        }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        fetchTasks();
+        setTimeout(() => setShowPublish(false), 1500);
+      } else {
+        alert(json.message);
+      }
+    } catch { 
+      alert('网络错误');
+    }
+    setPublishing(false);
   };
 
   const PROPOSAL_STATUS: Record<string, [string, string]> = {
@@ -126,6 +220,10 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
   // ── Filtering ──────────────────────────────────────────────────────────────
   let displayed = tasks.filter(t => {
+    if (searchKey) {
+      const kw = searchKey.toLowerCase();
+      if (!t.title.toLowerCase().includes(kw) && !(t.description && t.description.toLowerCase().includes(kw))) return false;
+    }
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (deptFilter !== '全部部门' && t.department !== deptFilter) return false;
     if (bonusFilter === 'low' && t.bonus > 5000) return false;
@@ -233,12 +331,8 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       <main className="flex-1 mt-16 min-h-[calc(100vh-4rem)] overflow-y-auto">
         <div className="px-8 pt-6 pb-10 max-w-screen-2xl mx-auto">
 
-          {/* Title Row */}
-          <div className="flex items-end justify-between mb-5">
-            <div>
-              <h1 className="text-3xl font-black text-on-background tracking-tight">公司绩效池</h1>
-              <p className="text-on-surface-variant text-sm mt-1">发现新机遇，挑战高难度任务，赢取丰厚奖金。</p>
-            </div>
+          {/* Title Row (Action Buttons only) */}
+          <div className="flex justify-end mb-4">
             <div className="flex items-center gap-2">
               {canDeleteTask && (
                 <button onClick={() => setShowTrash(true)}
@@ -251,7 +345,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                 </button>
               )}
               {canManagePool && (
-                <button onClick={() => alert('发布任务功能开发中')}
+                <button onClick={() => setShowPublish(true)}
                   className="flex items-center gap-1.5 px-3 py-2 bg-surface-container-low rounded-xl text-xs font-medium text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10">
                   <span className="material-symbols-outlined text-[16px]">publish</span>
                   发布任务
@@ -274,49 +368,76 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             </div>
           </div>
 
-          {/* Filter Bar */}
-          <div className="flex flex-wrap items-center gap-3 mb-6 p-4 bg-surface-container-low rounded-2xl border border-outline-variant/10">
-            <div className="flex items-center gap-1 bg-surface-container rounded-xl p-1">
-              {statusBtns.map(b => (
-                <button key={b.key} onClick={() => setStatusFilter(b.key)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${statusFilter === b.key ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 bg-surface-container rounded-xl p-1">
-              {bonusBtns.map(b => (
-                <button key={b.key} onClick={() => setBonusFilter(b.key)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${bonusFilter === b.key ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
-              className="bg-surface-container border-none ring-1 ring-outline-variant/30 rounded-xl text-xs px-3 py-2 focus:ring-2 focus:ring-primary outline-none text-on-surface font-medium">
-              {DEPTS.map(d => <option key={d}>{d}</option>)}
-            </select>
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-xs text-on-surface-variant">奖金排序</span>
-              <button onClick={() => setSortByBonus(p => !p)}
-                className={`relative w-9 h-5 rounded-full transition-colors ${sortByBonus ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}>
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${sortByBonus ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+          {/* Filter / Search Bar with View Toggles */}
+          <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-surface-container-low rounded-2xl border border-outline-variant/10">
+            <div className="flex bg-surface-container p-1 rounded-xl border border-outline-variant/10 w-fit shrink-0">
+              <button onClick={() => setActiveTab('task')}
+                className={`px-5 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'task' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}>
+                任务视图
               </button>
-              <span className="text-xs text-on-surface-variant font-bold">{displayed.length} 个任务</span>
+              <button onClick={() => setActiveTab('personnel')}
+                className={`px-5 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'personnel' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}>
+                人员视图
+              </button>
             </div>
+
+            {activeTab === 'task' ? (
+              <>
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                  <input type="text" placeholder="搜索任务标题或描述..." value={searchKey} onChange={e => setSearchKey(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-surface-container border border-outline-variant/30 rounded-xl text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all" />
+                </div>
+                <div className="flex items-center gap-1 bg-surface-container rounded-xl p-1">
+                  {statusBtns.map(b => (
+                    <button key={b.key} onClick={() => setStatusFilter(b.key)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${statusFilter === b.key ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}>
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1 bg-surface-container rounded-xl p-1">
+                  {bonusBtns.map(b => (
+                    <button key={b.key} onClick={() => setBonusFilter(b.key)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${bonusFilter === b.key ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}>
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+                <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
+                  className="bg-surface-container border-none ring-1 ring-outline-variant/30 rounded-xl text-xs px-3 py-2 focus:ring-2 focus:ring-primary outline-none text-on-surface font-medium">
+                  {DEPTS.map(d => <option key={d}>{d}</option>)}
+                </select>
+                <div className="ml-auto flex items-center gap-2">
+                  <span className="text-xs text-on-surface-variant">奖金排序</span>
+                  <button onClick={() => setSortByBonus(p => !p)}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${sortByBonus ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${sortByBonus ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                  </button>
+                  <span className="text-xs text-on-surface-variant font-bold">{displayed.length} 个任务</span>
+                </div>
+              </>
+            ) : (
+              <div className="relative w-full max-w-md">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input type="text" placeholder="搜素人员姓名、部门..." value={personnelSearchKey} onChange={e => setPersonnelSearchKey(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-surface-container border border-outline-variant/30 rounded-xl text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all" />
+              </div>
+            )}
           </div>
 
-          {/* Card Grid */}
+          {/* Card Grid / Leaderboard */}
           {loading ? (
             <div className="flex items-center justify-center h-64 text-on-surface-variant">
               <span className="material-symbols-outlined animate-spin mr-2">progress_activity</span>加载中…
             </div>
-          ) : (
+          ) : activeTab === 'task' ? (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
               {displayed.map(task => {
                 const badge = getBadge(task);
                 const full = isFull(task);
                 const pct = Math.round((task.current_participants / task.max_participants) * 100);
+                const isScore = task.reward_type === 'score';
                 return (
                   <div key={task.id}
                     className="group bg-surface-container-low rounded-2xl p-5 border border-outline-variant/10 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 flex flex-col cursor-pointer"
@@ -325,7 +446,11 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                     <div className="flex justify-between items-start mb-3">
                       <span className={`${badge.cls} text-[10px] font-bold px-2.5 py-1 rounded-full uppercase label-font`}>{badge.label}</span>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-primary font-black text-lg tracking-tight">¥{task.bonus.toLocaleString()}</span>
+                        {isScore ? (
+                          <span className="text-orange-500 font-black text-lg tracking-tight">{task.bonus.toLocaleString()}分</span>
+                        ) : (
+                          <span className="text-primary font-black text-lg tracking-tight">¥{task.bonus.toLocaleString()}</span>
+                        )}
                         {canDeleteTask && (
                           <button onClick={(e) => { e.stopPropagation(); handleDelete(task); }}
                             title="移入回收站"
@@ -362,88 +487,178 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   </div>
                 );
               })}
+            </div>
+          ) : (
+            <div className="flex h-[calc(100vh-16rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              {/* Left Pane: Master List */}
+              <div className="w-[35%] flex flex-col border-r-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+                <div className="grid grid-cols-5 gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 text-center sticky top-0 z-10">
+                  <div className="col-span-1 text-left">名字</div>
+                  <div className="col-span-1">进行</div>
+                  <div className="col-span-1">完成</div>
+                  <div className="col-span-1">累计积分</div>
+                  <div className="col-span-1">累计奖金</div>
+                </div>
+                <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 custom-scrollbar">
+                  {leaderboard.filter(u => !personnelSearchKey || u.name.toLowerCase().includes(personnelSearchKey.toLowerCase()) || (u.department_name && u.department_name.toLowerCase().includes(personnelSearchKey.toLowerCase()))).map((user, idx) => {
+                     const userTasks = tasks.filter(t => t.participant_names?.includes(user.name));
+                     const ongoingCount = userTasks.filter(t => t.status === 'in_progress').length;
+                     const closedCount = userTasks.filter(t => t.status === 'closed').length;
+                     const isSelected = expandedUserId === user.id;
 
+                     return (
+                       <div key={user.id} onClick={() => setExpandedUserId(user.id)} 
+                            className={`grid grid-cols-5 gap-2 px-4 py-3 items-center cursor-pointer transition-colors ${isSelected ? 'bg-red-50 dark:bg-red-900/20 shadow-inner' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+                         <div className="col-span-1 flex items-center gap-2">
+                           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#0060a9] to-[#409eff] text-white flex items-center justify-center text-[11px] font-bold shrink-0">{user.name.charAt(0)}</div>
+                           <span className={`text-xs font-bold truncate ${isSelected ? 'text-red-700 dark:text-red-400' : 'text-slate-800 dark:text-slate-200'}`}>{user.name}</span>
+                         </div>
+                         <div className="col-span-1 text-center text-xs font-black text-amber-500">{ongoingCount > 0 ? ongoingCount : '-'}</div>
+                         <div className="col-span-1 text-center text-xs font-black text-emerald-500">{closedCount > 0 ? closedCount : '-'}</div>
+                         <div className="col-span-1 text-center text-xs font-black text-orange-500">{user.total_score > 0 ? user.total_score : '-'}</div>
+                         <div className="col-span-1 text-center text-xs font-black text-blue-600 dark:text-blue-400">{(user.total_money && user.total_money > 0) ? `¥${user.total_money.toLocaleString()}` : '-'}</div>
+                       </div>
+                     );
+                  })}
+                  {leaderboard.length === 0 && !loading && (
+                    <div className="p-6 text-center text-slate-400 text-sm">暂无人员数据</div>
+                  )}
+                </div>
+              </div>
 
+              {/* Right Pane: Tasks Detail */}
+              <div className="w-[65%] flex flex-col bg-slate-50/50 dark:bg-slate-950/50 overflow-y-auto custom-scrollbar p-6 relative">
+                {!expandedUserId ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 dark:text-slate-600">
+                    <span className="material-symbols-outlined text-6xl mb-4 opacity-50">person_search</span>
+                    <p className="text-sm font-bold">请在左侧点击员工姓名查看其负责的任务卡</p>
+                  </div>
+                ) : (
+                  (() => {
+                    const selectedUser = leaderboard.find(u => u.id === expandedUserId);
+                    if (!selectedUser) return null;
+                    const userTasks = tasks.filter(t => t.participant_names?.includes(selectedUser.name));
+                    
+                    const openT = userTasks.filter(t => t.status === 'open');
+                    const inProgressT = userTasks.filter(t => t.status === 'in_progress');
+                    const closedT = userTasks.filter(t => t.status === 'closed');
+                    
+                    const renderGroup = (title: string, icon: string, color: string, list: PoolTask[]) => {
+                      if (list.length === 0) return null;
+                      return (
+                        <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <h4 className={`text-sm font-black mb-4 flex items-center gap-2 ${color}`}>
+                            <span className="material-symbols-outlined text-[18px]">{icon}</span>
+                            {title} ({list.length})
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                            {list.map(t => (
+                              <div key={t.id} onClick={() => openTaskDetail(t)}
+                                className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col h-full group">
+                                <span className="font-bold text-sm text-slate-800 dark:text-slate-100 mb-2 group-hover:text-blue-600 transition-colors line-clamp-2 leading-snug">{t.title}</span>
+                                <div className="flex flex-wrap gap-1 mb-3 mt-auto">
+                                  {t.department && <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 text-[9px] rounded font-medium">{t.department}</span>}
+                                  <span className={`px-1.5 py-0.5 text-[9px] rounded font-medium ${DIFFICULTY_COLOR[t.difficulty] || 'bg-slate-100 text-slate-600'}`}>
+                                    {DIFFICULTY_MAP[t.difficulty] || t.difficulty}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-700/60 mt-auto">
+                                  <span className="text-[10px] text-slate-400 font-medium">{new Date(t.created_at || '').toLocaleDateString()}</span>
+                                  {t.reward_type === 'score' ? (
+                                    <span className="text-sm font-black text-orange-500">{t.bonus.toLocaleString()}分</span>
+                                  ) : (
+                                    <span className="text-sm font-black text-primary">¥{t.bonus.toLocaleString()}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <div>
+                        <div className="mb-6 flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#0060a9] to-[#409eff] text-white flex items-center justify-center text-lg font-black shadow-md">{selectedUser.name.charAt(0)}</div>
+                          <div>
+                            <h3 className="text-lg font-black text-slate-800 dark:text-slate-100">{selectedUser.name} <span className="text-xs font-medium text-slate-500 ml-2">{selectedUser.department_name || '未知部门'} · {selectedUser.title || '员工'}</span></h3>
+                            <p className="text-xs text-slate-500 mt-0.5">共参与 {userTasks.length} 个任务，累计奖赏: <strong className="text-primary">{selectedUser.total_money ? `¥${selectedUser.total_money.toLocaleString()}` : ''} {selectedUser.total_score ? `${selectedUser.total_score}分` : ''}</strong></p>
+                          </div>
+                        </div>
+                        {userTasks.length === 0 ? (
+                          <div className="text-center py-10 bg-white dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 text-sm font-medium">
+                            该员工暂无参与任何任务
+                          </div>
+                        ) : (
+                          <>
+                            {renderGroup('开放中', 'lock_open', 'text-slate-600 dark:text-slate-300', openT)}
+                            {renderGroup('进行中', 'directions_run', 'text-amber-600', inProgressT)}
+                            {renderGroup('已完结', 'task_alt', 'text-emerald-600', closedT)}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
             </div>
           )}
         </div>
       </main>
 
-      {/* ── Task Detail / Apply Modal ─────────────────────────────────────────── */}
-      {selectedTask && (
+      {/* ── Task Detail Modal (Readonly SmartTaskModal) ───────────────────────── */}
+      <SmartTaskModal
+        isOpen={!!selectedTask && modalStep === 'detail'}
+        onClose={() => setSelectedTask(null)}
+        onSubmit={() => {}}
+        title="任务详情"
+        type="pool_publish"
+        users={users}
+        readonly={true}
+        initialData={(() => {
+          if (!selectedTask) return {};
+          const decoded = decodeSmartDescription(selectedTask.description || '');
+          return {
+            id: selectedTask.id,
+            status: selectedTask.status || (selectedTask as any).proposal_status,
+            flow_type: 'proposal',
+            creator_name: selectedTask.creator_name,
+            summary: selectedTask.title,
+            s: selectedTask.title,
+            m: '',
+            a_smart: decoded.resource,
+            r_smart: decoded.relevance,
+            t: selectedTask.deadline || '',
+            planTime: decoded.planTime,
+            doTime: decoded.doTime,
+            checkTime: decoded.checkTime,
+            actTime: decoded.actTime,
+            taskType: selectedTask.department,
+            bonus: String(selectedTask.bonus),
+            rewardType: selectedTask.reward_type
+          };
+        })()}
+        customFooter={
+          <div className="flex gap-3 w-full">
+            <button onClick={() => setSelectedTask(null)}
+              className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+              暂不参与
+            </button>
+            <button onClick={() => setModalStep('apply')}
+              className="flex-1 py-3 rounded-xl text-sm font-bold text-white primary-gradient shadow-md hover:opacity-90 transition-opacity">
+              发起加入申请
+            </button>
+          </div>
+        }
+      />
+
+      {/* ── Task Apply / Success Modal ─────────────────────────────────────────── */}
+      {selectedTask && modalStep !== 'detail' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setSelectedTask(null)} />
-          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 fade-in duration-200">
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 fade-in duration-200">
 
-            {/* Step: detail */}
-            {modalStep === 'detail' && (
-              <>
-                {/* Header — compact */}
-                <div className="relative bg-gradient-to-br from-[#0060a9] to-[#409eff] px-5 py-3 text-white">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-bold px-2 py-0.5 bg-white/20 rounded-full uppercase tracking-wider">
-                        {getBadge(selectedTask).label}
-                      </span>
-                      <span className="inline-flex items-center gap-1 bg-white/20 rounded-lg px-2.5 py-0.5 text-xs">
-                        <span className="material-symbols-outlined text-[13px]">payments</span>
-                        <span className="font-black text-sm">¥{selectedTask.bonus.toLocaleString()}</span>
-                      </span>
-                    </div>
-                    <button onClick={() => setSelectedTask(null)} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
-                      <span className="material-symbols-outlined text-[18px]">close</span>
-                    </button>
-                  </div>
-                  <h2 className="text-lg font-black leading-snug">{selectedTask.title}</h2>
-                  <div className="flex items-center gap-3 text-white/80 text-[10px] mt-0.5">
-                    {selectedTask.department && <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">business</span>{selectedTask.department}</span>}
-                    <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">signal_cellular_alt</span>难度: {DIFFICULTY_MAP[selectedTask.difficulty] || selectedTask.difficulty}</span>
-                  </div>
-                  {/* Person role tags */}
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg px-2 py-0.5 text-[10px] text-white/90">
-                      <span className="material-symbols-outlined text-[12px]">person</span>
-                      提报人员: {selectedTask.creator_name || '—'}
-                    </span>
-                    <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg px-2 py-0.5 text-[10px] text-white/90">
-                      <span className="material-symbols-outlined text-[12px]">groups</span>
-                      挑战人员: {selectedTask.participant_names?.length > 0 ? selectedTask.participant_names.join('、') : '待报名'}
-                    </span>
-                    <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-sm rounded-lg px-2 py-0.5 text-[10px] text-white/90">
-                      <span className="material-symbols-outlined text-[12px]">verified</span>
-                      验收人员: 评审委员会
-                    </span>
-                  </div>
-                </div>
-
-                {/* Body */}
-                <div className="px-5 py-4 space-y-4 max-h-[50vh] overflow-y-auto">
-                  <SmartGoalDisplay
-                    data={{
-                      title: selectedTask.title,
-                      target_value: `【交付成果】\n${detail.deliverables}\n\n【参与要求】\n名额上限: ${selectedTask.max_participants} 人 (当前: ${selectedTask.current_participants} 人)`,
-                      resource: `【任务说明】\n${selectedTask.description || detail.description}\n\n【能力要求】\n${detail.skills.join('、')}`,
-                      relevance: `【归属部门】\n${selectedTask.department || '全公司可见'}\n\n【挑战等级】\n难度系数 ${DIFFICULTY_MAP[selectedTask.difficulty] || selectedTask.difficulty}`,
-                      deadline: selectedTask.deadline || '长期有效（随时报名）',
-                      category: '公司公坚',
-                      collaborators: '',
-                    }}
-                  />
-                </div>
-
-                {/* Footer */}
-                <div className="flex gap-3 px-6 pb-6">
-                  <button onClick={() => setSelectedTask(null)}
-                    className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                    暂不参与
-                  </button>
-                  <button onClick={() => setModalStep('apply')}
-                    className="flex-1 py-3 rounded-xl text-sm font-bold text-white primary-gradient shadow-md hover:opacity-90 transition-opacity">
-                    发起加入申请
-                  </button>
-                </div>
-              </>
-            )}
 
             {/* Step: apply form */}
             {modalStep === 'apply' && (
@@ -592,76 +807,50 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       )}
 
       {/* ── Propose Task Modal ─────────────────────────────────────────────── */}
-      {showPropose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => { setShowPropose(false); setProposeMsg(''); }} />
-          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="bg-gradient-to-br from-[#0060a9] to-[#409eff] px-6 py-4 text-white">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-lg">提议新任务</h3>
-                <button onClick={() => { setShowPropose(false); setProposeMsg(''); }} className="text-white/60 hover:text-white">
-                  <span className="material-symbols-outlined">close</span>
-                </button>
-              </div>
-              <div className="flex items-center gap-2 mt-2 text-[10px] text-white/70">
-                <span className="bg-white/20 px-2 py-0.5 rounded-full">① 提交</span>
-                <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
-                <span className="bg-white/20 px-2 py-0.5 rounded-full">② 人事审核</span>
-                <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
-                <span className="bg-white/20 px-2 py-0.5 rounded-full">③ 总经理复核</span>
-              </div>
-            </div>
-            <div className="p-6 space-y-4">
-              {proposeMsg && <div className="text-sm bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">{proposeMsg}</div>}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">任务标题 *</label>
-                <input className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
-                  placeholder="例：优化客户反馈响应流程"
-                  value={proposeForm.title} onChange={e => setProposeForm({ ...proposeForm, title: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">任务描述</label>
-                <textarea className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800 resize-none"
-                  rows={3} placeholder="详细描述任务目标、预期成果和实施思路..."
-                  value={proposeForm.description} onChange={e => setProposeForm({ ...proposeForm, description: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">所属部门</label>
-                  <select className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
-                    value={proposeForm.department} onChange={e => setProposeForm({ ...proposeForm, department: e.target.value })}>
-                    <option value="">不限</option>
-                    {['研发部', '市场部', '产品部', '人事部', '技术部'].map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">难度</label>
-                  <select className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
-                    value={proposeForm.difficulty} onChange={e => setProposeForm({ ...proposeForm, difficulty: e.target.value })}>
-                    {[['低', '低'], ['中', '中'], ['高', '高'], ['专家', '专家']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">建议奖金 (¥)</label>
-                  <input type="number" className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
-                    placeholder="0" value={proposeForm.bonus} onChange={e => setProposeForm({ ...proposeForm, bonus: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">最大参与人数</label>
-                  <input type="number" className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800"
-                    placeholder="5" value={proposeForm.max_participants} onChange={e => setProposeForm({ ...proposeForm, max_participants: e.target.value })} />
-                </div>
-              </div>
-              <button onClick={handlePropose} disabled={proposing || !proposeForm.title.trim()}
-                className="w-full py-3 bg-gradient-to-r from-[#0060a9] to-[#409eff] text-white rounded-xl font-bold text-sm hover:shadow-lg disabled:opacity-60 transition-all">
-                {proposing ? '提交中...' : '提交提案'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SmartTaskModal
+        isOpen={showPropose}
+        onClose={() => setShowPropose(false)}
+        onSubmit={handleProposeSmart}
+        title="申请绩效池提案"
+        type="pool_propose"
+        users={users}
+        submitting={proposing}
+        initialData={{
+          summary: '提出公司级或跨部门的新项目提案，经审批后入池',
+          s: '预期达成什么样的关键结果？',
+          m: '如何衡量成果的好坏（交付标准）？',
+          a_smart: '初步的执行思路和需要的资源支持有哪些？',
+          r_smart: '该提案能为公司带来什么价值或解决什么痛点？',
+          t: '期望完成的合适时间周期是？',
+          taskType: '重点项目',
+          bonus: '0',
+          rewardType: 'money',
+          r: currentUser?.id
+        }}
+      />
+
+      {/* ── Publish Task Modal ─────────────────────────────────────────────── */}
+      <SmartTaskModal
+        isOpen={showPublish}
+        onClose={() => setShowPublish(false)}
+        onSubmit={handlePublishTask}
+        title="发布公司级任务"
+        type="pool_publish"
+        users={users}
+        submitting={publishing}
+        initialData={{
+          summary: '发布直接生效的公司级核心任务',
+          s: '预期达成什么样的关键结果？',
+          m: '如何衡量成果的好坏（交付标准）？',
+          a_smart: '初步的执行思路和需要的资源支持有哪些？',
+          r_smart: '该任务能为公司带来什么核心价值？',
+          t: '期望完成的合适时间周期是？',
+          taskType: '重点项目',
+          bonus: '0',
+          rewardType: 'money',
+          r: currentUser?.id
+        }}
+      />
 
       {/* ── My Proposals Panel ─────────────────────────────────────────────── */}
       {showMyProposals && (

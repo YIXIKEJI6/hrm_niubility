@@ -97,17 +97,18 @@ export function initDatabase(): void {
       title TEXT NOT NULL,
       description TEXT,
       department TEXT,
-      difficulty TEXT,
+      difficulty TEXT DEFAULT 'normal',
+      reward_type TEXT DEFAULT 'money',
       bonus REAL,
-      status TEXT DEFAULT 'open',
-      proposal_status TEXT DEFAULT 'approved',
+      max_participants INTEGER DEFAULT 5,
+      created_by TEXT,
       hr_reviewer_id TEXT,
       admin_reviewer_id TEXT,
       reject_reason TEXT,
-      max_participants INTEGER,
-      progress INTEGER DEFAULT 0,
-      created_by TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      status TEXT DEFAULT 'open',
+      proposal_status TEXT DEFAULT 'approved',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS pool_participants (
@@ -257,6 +258,15 @@ export function initDatabase(): void {
       label TEXT DEFAULT '',
       approve_type TEXT DEFAULT 'serial',
       config_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    -- ============ 绩效预算 ============
+    CREATE TABLE IF NOT EXISTS perf_budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quarter TEXT NOT NULL,
+      department_id INTEGER,
+      budget_amount REAL NOT NULL,
+      created_by TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);

@@ -12,7 +12,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
   const limit = Number(req.query.limit) || 50;
   const notifications = db.prepare(
-    'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+    'SELECT * FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT ?'
   ).all(req.userId, limit);
   return res.json({ code: 0, data: notifications });
 });

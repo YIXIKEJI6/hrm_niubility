@@ -29,23 +29,45 @@ router.get('/tasks', authMiddleware, (req, res) => {
   return res.json({ code: 0, data: result });
 });
 
+// 人员榜单 (统计每个人参与的已完结任务，分为金额和积分)
+router.get('/leaderboard', authMiddleware, (req, res) => {
+  const db = getDb();
+  const sql = `
+    SELECT 
+      u.id, u.name, d.name as department_name, u.title,
+      COUNT(DISTINCT pp.pool_task_id) as total_tasks,
+      SUM(CASE WHEN pt.reward_type = 'money' AND pt.status = 'closed' THEN pt.bonus ELSE 0 END) as total_money,
+      SUM(CASE WHEN pt.reward_type = 'score' AND pt.status = 'closed' THEN pt.bonus ELSE 0 END) as total_score
+    FROM users u
+    LEFT JOIN departments d ON u.department_id = d.id
+    LEFT JOIN pool_participants pp ON u.id = pp.user_id
+    LEFT JOIN pool_tasks pt ON pp.pool_task_id = pt.id
+    WHERE u.status = 'active'
+    GROUP BY u.id
+    ORDER BY total_money DESC, total_score DESC, total_tasks DESC
+  `;
+  const leaderboard = db.prepare(sql).all();
+  return res.json({ code: 0, data: leaderboard });
+});
+
 // 员工提议新任务 (任何人都可以提)
 router.post('/tasks/propose', authMiddleware, (req: AuthRequest, res) => {
-  const { title, description, department, difficulty, bonus, max_participants } = req.body;
+  const { title, description, department, difficulty, reward_type, bonus, max_participants } = req.body;
   if (!title) return res.status(400).json({ code: 400, message: '任务标题不能为空' });
   const db = getDb();
 
-  // 新增列兼容：如果旧表没有 description 列，尝试 ALTER TABLE
+  // 新增列兼容：如果旧表没有新增列，尝试 ALTER TABLE
   try { db.exec("ALTER TABLE pool_tasks ADD COLUMN description TEXT"); } catch(e) {}
   try { db.exec("ALTER TABLE pool_tasks ADD COLUMN proposal_status TEXT DEFAULT 'approved'"); } catch(e) {}
   try { db.exec("ALTER TABLE pool_tasks ADD COLUMN hr_reviewer_id TEXT"); } catch(e) {}
   try { db.exec("ALTER TABLE pool_tasks ADD COLUMN admin_reviewer_id TEXT"); } catch(e) {}
   try { db.exec("ALTER TABLE pool_tasks ADD COLUMN reject_reason TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN reward_type TEXT DEFAULT 'money'"); } catch(e) {}
 
   const result = db.prepare(
-    `INSERT INTO pool_tasks (title, description, department, difficulty, bonus, max_participants, created_by, status, proposal_status) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 'pending_hr')`
-  ).run(title, description || null, department || null, difficulty || '中', bonus || 0, max_participants || 5, req.userId);
+    `INSERT INTO pool_tasks (title, description, department, difficulty, reward_type, bonus, max_participants, created_by, status, proposal_status) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'pending_hr')`
+  ).run(title, description || null, department || null, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId);
 
   // 站内通知 HR + Admin
   const hrAdmins = db.prepare("SELECT id FROM users WHERE role IN ('hr', 'admin')").all() as any[];
@@ -58,6 +80,41 @@ router.post('/tasks/propose', authMiddleware, (req: AuthRequest, res) => {
   }
 
   return res.json({ code: 0, message: '提案已提交，等待人事审核', data: { id: result.lastInsertRowid } });
+});
+
+// 授权用户直接发布任务
+router.post('/tasks/publish', authMiddleware, (req: AuthRequest, res) => {
+  const { title, description, department, difficulty, reward_type, bonus, max_participants } = req.body;
+  if (!title) return res.status(400).json({ code: 400, message: '任务标题不能为空' });
+  const db = getDb();
+
+  // 校验权限
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
+  if (!user || !['admin', 'hr', 'supervisor'].includes(user.role)) {
+    return res.status(403).json({ code: 403, message: '权限不足，无法直接发布任务' });
+  }
+
+  // 新增列兼容
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN description TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN proposal_status TEXT DEFAULT 'approved'"); } catch(e) {}
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN hr_reviewer_id TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN admin_reviewer_id TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN reject_reason TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE pool_tasks ADD COLUMN reward_type TEXT DEFAULT 'money'"); } catch(e) {}
+
+  const result = db.prepare(
+    `INSERT INTO pool_tasks (title, description, department, difficulty, reward_type, bonus, max_participants, created_by, status, proposal_status) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', 'approved')`
+  ).run(title, description || null, department || null, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId);
+
+  // 全员通知新任务
+  const allUserIds = (db.prepare("SELECT id FROM users").all() as any[]).map(u => u.id);
+  if (allUserIds.length) {
+    createNotification(allUserIds, 'pool_task', '📢 新公司级任务', `绩效池已发布新任务「${title}」，快来认领吧！`, '/company');
+    try { sendCardMessage(allUserIds, '📢 新公司级任务', `绩效池已发布新任务「${title}」\n快来认领吧！`, `${process.env.APP_URL || 'http://localhost:3000'}/company`); } catch(e) {}
+  }
+
+  return res.json({ code: 0, message: '任务已直接发布到绩效池', data: { id: result.lastInsertRowid } });
 });
 
 // 提案列表 (HR/Admin 查看)
@@ -77,6 +134,64 @@ router.get('/my-proposals', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
   const proposals = db.prepare("SELECT * FROM pool_tasks WHERE created_by = ? ORDER BY created_at DESC").all(req.userId);
   return res.json({ code: 0, data: proposals });
+});
+
+// 撤回提案：在 HR 未审核前，发起人可以撤回
+router.post('/proposals/:id/withdraw', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const proposal = db.prepare('SELECT * FROM pool_tasks WHERE id = ? AND created_by = ?').get(req.params.id, req.userId) as any;
+  if (!proposal) return res.status(404).json({ code: 404, message: '提案不存在' });
+  if (!['pending_hr', 'pending_admin'].includes(proposal.proposal_status)) {
+    return res.json({ code: 400, message: '当前状态不可撤回，仅待审核状态可撤回' });
+  }
+
+  db.prepare("UPDATE pool_tasks SET proposal_status = 'draft' WHERE id = ?").run(req.params.id);
+  return res.json({ code: 0, message: '提案已撤回，可重新编辑后提交' });
+});
+
+// 修改提案 (草稿 or 被驳回均可编辑)
+router.post('/proposals/:id/resubmit', authMiddleware, (req: AuthRequest, res) => {
+  const { title, description, reward_type, bonus } = req.body;
+  const db = getDb();
+
+  const proposal = db.prepare('SELECT * FROM pool_tasks WHERE id = ? AND created_by = ?').get(req.params.id, req.userId) as any;
+  if (!proposal) return res.status(404).json({ code: 404, message: '提案不存在' });
+  if (!['draft', 'rejected'].includes(proposal.proposal_status)) {
+    return res.status(400).json({ code: 400, message: '只能重新提交草稿或被驳回的提案' });
+  }
+
+  // Edit and set status back to pending_hr
+  db.prepare(
+    `UPDATE pool_tasks SET title=?, description=?, reward_type=?, bonus=?, proposal_status='pending_hr', reject_reason=NULL WHERE id = ?`
+  ).run(title || proposal.title, description || proposal.description, reward_type || proposal.reward_type, bonus || proposal.bonus, proposal.id);
+
+  // Notify HR
+  const hrAdmins = db.prepare("SELECT id FROM users WHERE role IN ('hr', 'admin')").all() as any[];
+  const hrAdminIds = hrAdmins.map((u: any) => u.id);
+  const proposerName = (db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId) as any)?.name || req.userId;
+  if (hrAdminIds.length) {
+    createNotification(hrAdminIds, 'proposal', '📋 提案重新提交', `${proposerName} 借修后重新提交了提案「${title || proposal.title}」`, '/admin?module=pool');
+  }
+
+  return res.json({ code: 0, message: '提案已重新提交' });
+});
+
+// 仅保存修改 (不流转状态)
+router.put('/proposals/:id', authMiddleware, (req: AuthRequest, res) => {
+  const { title, description, reward_type, bonus } = req.body;
+  const db = getDb();
+
+  const proposal = db.prepare('SELECT * FROM pool_tasks WHERE id = ? AND created_by = ?').get(req.params.id, req.userId) as any;
+  if (!proposal) return res.status(404).json({ code: 404, message: '提案不存在' });
+  if (!['draft', 'rejected'].includes(proposal.proposal_status)) {
+    return res.status(400).json({ code: 400, message: '只能修改草稿或被驳回的提案' });
+  }
+
+  db.prepare(
+    `UPDATE pool_tasks SET title=?, description=?, reward_type=?, bonus=? WHERE id = ?`
+  ).run(title || proposal.title, description || proposal.description, reward_type || proposal.reward_type, bonus || proposal.bonus, proposal.id);
+
+  return res.json({ code: 0, message: '提案已保存' });
 });
 
 // 审批提案 (两级: HR审核 → Admin复核)

@@ -1,7 +1,7 @@
 {
   "name": "hrm-niubility",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -20,6 +20,7 @@
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@uiw/react-md-editor": "^4.0.11",
     "@vitejs/plugin-react": "^5.0.4",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",

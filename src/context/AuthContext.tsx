@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 
 export interface User {
   id: string;
@@ -107,6 +107,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else if (!token) {
           // No token and no code — need to login
+          const isDev = (import.meta as any).env?.DEV;
+          if (isDev) {
+            setIsAuthenticating(false);
+            return;
+          }
+
           if (isWecom) {
             // Inside WeCom client → silent OAuth
             window.location.href = '/api/auth/wecom-url';
@@ -124,6 +130,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initializeAuth();
   }, []);
+
+  // ── 外部浏览器 30 分钟无操作自动登出 ──────────────────────────────
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    inactivityTimerRef.current = setTimeout(() => {
+      // 30 分钟无操作 → 清除登录状态并跳转扫码
+      localStorage.removeItem('token');
+      localStorage.setItem('hrm_session_expired', '1');
+      setCurrentUser(null);
+      window.location.href = '/api/auth/wecom-qr-url';
+    }, INACTIVITY_TIMEOUT);
+  }, [INACTIVITY_TIMEOUT]);
+
+  useEffect(() => {
+    const isWecom = navigator.userAgent.toLowerCase().includes('wxwork');
+    // 仅对外部浏览器启用超时检测（企微内部浏览器免密，无需超时）
+    if (isWecom || !currentUser) return;
+
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach(ev => window.addEventListener(ev, resetInactivityTimer, { passive: true }));
+    resetInactivityTimer(); // 初始启动计时器
+
+    return () => {
+      events.forEach(ev => window.removeEventListener(ev, resetInactivityTimer));
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    };
+  }, [currentUser, resetInactivityTimer]);
 
   const loginWithMock = async (userId: string) => {
     setIsAuthenticating(true);

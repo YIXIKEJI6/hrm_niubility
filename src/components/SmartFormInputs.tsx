@@ -10,17 +10,46 @@ export interface SmartData {
   collaborators: string;  // 跨部门协同人员
 }
 
-export function encodeSmartDescription(resource: string, relevance: string) {
-  return `【所需资源】\n${resource.trim()}\n\n【岗位关联】\n${relevance.trim()}`;
+export function encodeSmartDescription(resource: string, relevance: string, pdca?: { plan?: string, do?: string, check?: string, act?: string }) {
+  let res = `【所需资源】\n${resource.trim()}\n\n【岗位关联】\n${relevance.trim()}`;
+  if (pdca && (pdca.plan || pdca.do || pdca.check || pdca.act)) {
+     const pStr = [
+       pdca.plan ? `Plan: ${pdca.plan}` : '',
+       pdca.do ? `Do: ${pdca.do}` : '',
+       pdca.check ? `Check: ${pdca.check}` : '',
+       pdca.act ? `Act: ${pdca.act}` : ''
+     ].filter(Boolean).join(' | ');
+     res += `\n\n【PDCA】\n${pStr}`;
+  }
+  return res;
 }
 
 export function decodeSmartDescription(description: string) {
-  const resourceMatch = description.match(/【所需资源】\n([\s\S]*?)(?:\n\n【岗位关联】|$)/);
-  const relevanceMatch = description.match(/【岗位关联】\n([\s\S]*)$/);
+  const desc = description || '';
   
+  // Try new manual format: `【方案 A】...\n【相关 R】...\n...`
+  const aMatch = desc.match(/【方案 A】([^【]*)/);
+  const rMatch = desc.match(/【相关 R】([^【]*)/);
+  
+  // Try old format: `【所需资源】...\n\n【岗位关联】...`
+  const resourceMatch = desc.match(/【所需资源】\n([\s\S]*?)(?:\n\n【岗位关联】|\n\n【PDCA】|$)/);
+  const relevanceMatch = desc.match(/【岗位关联】\n([\s\S]*?)(?:\n\n【PDCA】|$)/);
+  
+  const pdcaMatch = desc.match(/【PDCA】\n?([^【]*)/);
+  const pdcaStr = pdcaMatch ? pdcaMatch[1].trim() : '';
+
+  const planMatch = pdcaStr.match(/(?:Plan|计划):\s*([^|]+)/);
+  const doMatch = pdcaStr.match(/(?:Do|执行):\s*([^|]+)/);
+  const checkMatch = pdcaStr.match(/(?:Check|检查):\s*([^|]+)/);
+  const actMatch = pdcaStr.match(/(?:Act|处理):\s*([^|]+)/);
+
   return {
-    resource: resourceMatch ? resourceMatch[1].trim() : description,
-    relevance: relevanceMatch ? relevanceMatch[1].trim() : ''
+    resource: aMatch ? aMatch[1].trim() : (resourceMatch ? resourceMatch[1].trim() : (desc.includes('【') ? '' : desc)),
+    relevance: rMatch ? rMatch[1].trim() : (relevanceMatch ? relevanceMatch[1].trim() : ''),
+    planTime: planMatch ? planMatch[1].trim() : '',
+    doTime: doMatch ? doMatch[1].trim() : '',
+    checkTime: checkMatch ? checkMatch[1].trim() : '',
+    actTime: actMatch ? actMatch[1].trim() : '',
   };
 }
 

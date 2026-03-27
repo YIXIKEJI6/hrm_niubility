@@ -9,14 +9,27 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
   const userId = req.userId;
 
+  // Helper fn for attaching logs
+  const attachLogs = (items: any[], type: string) => {
+    if (items.length === 0) return items;
+    const ids = items.map(i => i.id).join(',');
+    if (type === 'perf_plan') {
+      const logs = db.prepare(`SELECT * FROM perf_logs WHERE plan_id IN (${ids}) ORDER BY created_at ASC`).all();
+      items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
+    }
+    // pool_tasks log structure can be added here if implemented elsewhere
+    return items;
+  };
+
   // 1. 我发起的绩效计划
-  const perfPlans = db.prepare(
+  let perfPlans = db.prepare(
     `SELECT pp.*, u.name as approver_name, 'perf_plan' as flow_type
      FROM perf_plans pp
      LEFT JOIN users u ON pp.approver_id = u.id
      WHERE pp.creator_id = ?
      ORDER BY pp.created_at DESC`
   ).all(userId);
+  perfPlans = attachLogs(perfPlans, 'perf_plan');
 
   // 2. 我提交的提案
   const proposals = db.prepare(
@@ -45,14 +58,26 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
 
   const items: any[] = [];
 
+  // Helper fn for attaching logs
+  const attachLogs = (items: any[], type: string) => {
+    if (items.length === 0) return items;
+    const ids = items.map(i => i.id).join(',');
+    if (type === 'perf_plan') {
+      const logs = db.prepare(`SELECT * FROM perf_logs WHERE plan_id IN (${ids}) ORDER BY created_at ASC`).all();
+      items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
+    }
+    return items;
+  };
+
   // 1. 待我审批的绩效计划
-  const perfPending = db.prepare(
+  let perfPending = db.prepare(
     `SELECT pp.*, u.name as creator_name, 'perf_plan' as flow_type
      FROM perf_plans pp
      LEFT JOIN users u ON pp.creator_id = u.id
-     WHERE pp.approver_id = ? AND pp.status = 'submitted'
+     WHERE pp.approver_id = ? AND pp.status = 'pending_review'
      ORDER BY pp.created_at DESC`
   ).all(userId);
+  perfPending = attachLogs(perfPending, 'perf_plan');
   items.push(...perfPending);
 
   // 2. 待我审核的提案 (HR可审 pending_hr, Admin可审 pending_admin)
@@ -86,14 +111,26 @@ router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
   const userId = req.userId;
 
+  // Helper fn for attaching logs
+  const attachLogs = (items: any[], type: string) => {
+    if (items.length === 0) return items;
+    const ids = items.map(i => i.id).join(',');
+    if (type === 'perf_plan') {
+      const logs = db.prepare(`SELECT * FROM perf_logs WHERE plan_id IN (${ids}) ORDER BY created_at ASC`).all();
+      items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
+    }
+    return items;
+  };
+
   // 1. 我审批过的绩效计划
-  const perfReviewed = db.prepare(
+  let perfReviewed = db.prepare(
     `SELECT pp.*, u.name as creator_name, 'perf_plan' as flow_type
      FROM perf_plans pp
      LEFT JOIN users u ON pp.creator_id = u.id
-     WHERE pp.approver_id = ? AND pp.status IN ('approved', 'rejected', 'assessed')
+     WHERE pp.approver_id = ? AND pp.status IN ('approved', 'rejected', 'assessed', 'in_progress', 'completed', 'pending_reward', 'pending_assessment')
      ORDER BY pp.updated_at DESC`
   ).all(userId);
+  perfReviewed = attachLogs(perfReviewed, 'perf_plan');
 
   // 2. 我审核过的提案
   const proposalReviewed = db.prepare(

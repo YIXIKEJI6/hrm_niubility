@@ -1,0 +1,185 @@
+import { Router } from 'express';
+import { getDb } from '../config/database';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
+
+const router = Router();
+
+// ─── 财务核算汇总 ─────────────────────────────────────────────────
+router.get('/summary', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const { quarter } = req.query;
+
+  // 当前季度
+  const now = new Date();
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  const currentQuarter = (quarter as string) || `${now.getFullYear()} Q${q}`;
+
+  // 查询预算
+  const budget = db.prepare(
+    "SELECT SUM(budget_amount) as total FROM perf_budgets WHERE quarter = ?"
+  ).get(currentQuarter) as any;
+  const totalBudget = budget?.total || 0;
+
+  // 已支出 (该季度内 bonus 已发放的计划)
+  const spent = (db.prepare(
+    "SELECT SUM(bonus) as total FROM perf_plans WHERE bonus IS NOT NULL AND quarter = ? AND status = 'completed'"
+  ).get(currentQuarter) as any)?.total || 0;
+
+  // 已评分待发放
+  const pendingPayout = (db.prepare(
+    "SELECT SUM(bonus) as total FROM perf_plans WHERE bonus IS NOT NULL AND quarter = ? AND status IN ('assessed', 'pending_reward')"
+  ).get(currentQuarter) as any)?.total || 0;
+
+  // 按部门汇总
+  const byDepartment = db.prepare(`
+    SELECT d.name as dept,
+           COUNT(DISTINCT pp.id) as plan_count,
+           COUNT(DISTINCT pp.assignee_id) as headcount,
+           SUM(CASE WHEN pp.bonus IS NOT NULL THEN pp.bonus ELSE 0 END) as spent,
+           ROUND(AVG(pp.score), 1) as avg_score
+    FROM perf_plans pp
+    LEFT JOIN users u ON pp.assignee_id = u.id
+    LEFT JOIN departments d ON u.department_id = d.id
+    WHERE pp.quarter = ? AND d.name IS NOT NULL
+    GROUP BY d.name
+    ORDER BY spent DESC
+  `).all(currentQuarter);
+
+  // 按人员汇总
+  const byPerson = db.prepare(`
+    SELECT pp.assignee_id, u.name, d.name as dept,
+           COUNT(*) as plans_completed,
+           SUM(CASE WHEN pp.bonus IS NOT NULL THEN pp.bonus ELSE 0 END) as total_bonus,
+           ROUND(AVG(pp.score), 1) as avg_score
+    FROM perf_plans pp
+    LEFT JOIN users u ON pp.assignee_id = u.id
+    LEFT JOIN departments d ON u.department_id = d.id
+    WHERE pp.quarter = ? AND pp.assignee_id IS NOT NULL
+    GROUP BY pp.assignee_id
+    ORDER BY total_bonus DESC
+  `).all(currentQuarter);
+
+  // 季度对比
+  const quarterComparison = db.prepare(`
+    SELECT quarter,
+           SUM(CASE WHEN bonus IS NOT NULL THEN bonus ELSE 0 END) as spent,
+           COUNT(*) as plan_count,
+           COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_count
+    FROM perf_plans
+    WHERE quarter IS NOT NULL AND quarter != ''
+    GROUP BY quarter
+    ORDER BY quarter
+  `).all();
+
+  // 可用季度
+  const availableQuarters = db.prepare(
+    "SELECT DISTINCT quarter FROM perf_plans WHERE quarter IS NOT NULL AND quarter != '' ORDER BY quarter"
+  ).all();
+
+  return res.json({
+    code: 0,
+    data: {
+      currentQuarter,
+      budget: totalBudget,
+      spent,
+      pendingPayout,
+      utilization: totalBudget > 0 ? Math.round(spent / totalBudget * 100) / 100 : 0,
+      byDepartment,
+      byPerson,
+      quarterComparison,
+      availableQuarters: availableQuarters.map((q: any) => q.quarter),
+    }
+  });
+});
+
+// ─── 预算管理 ─────────────────────────────────────────────────────
+router.get('/budgets', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const budgets = db.prepare(`
+    SELECT pb.*, u.name as creator_name, d.name as department_name
+    FROM perf_budgets pb
+    LEFT JOIN users u ON pb.created_by = u.id
+    LEFT JOIN departments d ON pb.department_id = d.id
+    ORDER BY pb.quarter DESC, pb.created_at DESC
+  `).all();
+  return res.json({ code: 0, data: budgets });
+});
+
+router.post('/budgets', authMiddleware, (req: AuthRequest, res) => {
+  const { quarter, department_id, budget_amount } = req.body;
+  if (!quarter || !budget_amount) {
+    return res.json({ code: 400, message: '季度和预算金额必填' });
+  }
+  const db = getDb();
+  
+  // 检查是否已存在
+  const existing = db.prepare(
+    'SELECT id FROM perf_budgets WHERE quarter = ? AND (department_id = ? OR (department_id IS NULL AND ? IS NULL))'
+  ).get(quarter, department_id || null, department_id || null);
+  
+  if (existing) {
+    db.prepare('UPDATE perf_budgets SET budget_amount = ? WHERE id = ?').run(budget_amount, (existing as any).id);
+    return res.json({ code: 0, message: '预算已更新' });
+  }
+
+  db.prepare(
+    'INSERT INTO perf_budgets (quarter, department_id, budget_amount, created_by) VALUES (?, ?, ?, ?)'
+  ).run(quarter, department_id || null, budget_amount, req.userId);
+  return res.json({ code: 0, message: '预算已设定' });
+});
+
+// ─── CSV 导出 ──────────────────────────────────────────────────────
+router.get('/export', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const { quarter } = req.query;
+
+  let query = `
+    SELECT pp.id, pp.title, pp.category, pp.status, pp.quarter,
+           pp.progress, pp.score, pp.bonus, pp.deadline,
+           u1.name as creator_name, d.name as department_name,
+           u2.name as assignee_name, u3.name as approver_name
+    FROM perf_plans pp
+    LEFT JOIN users u1 ON pp.creator_id = u1.id
+    LEFT JOIN departments d ON u1.department_id = d.id
+    LEFT JOIN users u2 ON pp.assignee_id = u2.id
+    LEFT JOIN users u3 ON pp.approver_id = u3.id
+  `;
+  const params: any[] = [];
+  if (quarter) { query += ' WHERE pp.quarter = ?'; params.push(quarter); }
+  query += ' ORDER BY pp.created_at DESC';
+
+  const rows = db.prepare(query).all(...params) as any[];
+
+  // 构建 CSV
+  const headers = ['编号', '标题', '类型', '状态', '季度', '进度%', '评分', '奖金', '截止日期', '发起人', '部门', '执行人', '审批人'];
+  const statusMap: Record<string, string> = {
+    draft: '草稿', pending_review: '待审批', in_progress: '进行中',
+    approved: '已通过', rejected: '已驳回', assessed: '已评分',
+    completed: '已完成', pending_assessment: '待评估', pending_reward: '待发奖'
+  };
+
+  const csvLines = [
+    '\uFEFF' + headers.join(','), // BOM for Excel UTF-8
+    ...rows.map(r => [
+      `PF-${String(r.id).padStart(6, '0')}`,
+      `"${(r.title || '').replace(/"/g, '""')}"`,
+      r.category || '',
+      statusMap[r.status] || r.status,
+      r.quarter || '',
+      r.progress ?? '',
+      r.score ?? '',
+      r.bonus ?? '',
+      r.deadline || '',
+      r.creator_name || '',
+      r.department_name || '',
+      r.assignee_name || '',
+      r.approver_name || ''
+    ].join(','))
+  ];
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="perf_report_${quarter || 'all'}.csv"`);
+  return res.send(csvLines.join('\n'));
+});
+
+export default router;

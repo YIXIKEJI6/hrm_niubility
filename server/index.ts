@@ -27,6 +27,11 @@ import permissionsRoutes from './routes/permissions';
 import notificationsRoutes from './routes/notifications';
 import workflowsRoutes from './routes/workflows';
 import approvalFlowsRoutes from './routes/approval-flows';
+import voiceRoutes from './routes/voice';
+import perfAnalyticsRoutes from './routes/perf-analytics';
+import perfSupervisionRoutes from './routes/perf-supervision';
+import perfFinanceRoutes from './routes/perf-finance';
+import perfPDCARoutes from './routes/perf-pdca';
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
@@ -51,6 +56,11 @@ app.use('/api/permissions', permissionsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/workflows', workflowsRoutes);
 app.use('/api/approval-flows', approvalFlowsRoutes);
+app.use('/api/voice', voiceRoutes);
+app.use('/api/perf/analytics', perfAnalyticsRoutes);
+app.use('/api/perf/supervision', perfSupervisionRoutes);
+app.use('/api/perf/finance', perfFinanceRoutes);
+app.use('/api/perf/pdca', perfPDCARoutes);
 
 // 健康检查
 app.get('/api/health', (_req, res) => {

@@ -8,7 +8,11 @@ import PanoramaDashboard from './pages/PanoramaDashboard';
 import AdminPanel from './pages/AdminPanel';
 import OrgChart from './pages/OrgChart';
 import MyWorkflows from './pages/MyWorkflows';
+import PerformanceManager from './pages/PerformanceManager';
+import PerfAnalyticsPage from './pages/PerfAnalyticsPage';
+import SalaryManager from './pages/SalaryManager';
 import DevRoleSwitcher from './components/DevRoleSwitcher';
+import Watermark from './components/Watermark';
 import { useAuth } from './context/AuthContext';
 
 export default function App() {
@@ -34,7 +38,7 @@ export default function App() {
   // 若无用户身份：外部浏览器自动跳转扫码登录，开发模式显示测试账号切换器
   if (!currentUser) {
     const isWecom = navigator.userAgent.toLowerCase().includes('wxwork');
-    const isDev = import.meta.env?.DEV;
+    const isDev = (import.meta as any).env?.DEV;
 
     // 生产模式下直接跳转扫码登录（不显示阻断提示）
     if (!isDev && !isWecom) {
@@ -86,6 +90,12 @@ export default function App() {
         return <OrgChart navigate={navigate} />;
       case 'workflows':
         return <MyWorkflows navigate={navigate} />;
+      case 'perf-manage':
+        return <PerformanceManager navigate={navigate} />;
+      case 'perf-analytics':
+        return <PerfAnalyticsPage navigate={navigate} />;
+      case 'salary':
+        return <SalaryManager navigate={navigate} />;
       default:
         return <EmployeeDashboard navigate={navigate} />;
     }
@@ -95,6 +105,7 @@ export default function App() {
     <>
       {renderView()}
       <DevRoleSwitcher />
+      <Watermark text={currentUser.name} />
     </>
   );
 }

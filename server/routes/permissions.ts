@@ -27,12 +27,13 @@ export const ALL_PERMISSIONS = [
   { key: 'view_salary_data',  label: '查看薪资数据',    module: '字段权限', defaultRoles: ['admin','hr'] },
   { key: 'view_perf_scores',  label: '查看绩效评分',    module: '字段权限', defaultRoles: ['admin','hr','manager'] },
   { key: 'view_bonus_amount', label: '查看奖金金额',    module: '字段权限', defaultRoles: ['admin','hr','manager'] },
+  { key: 'view_dept_data',    label: '查看本部门数据',  module: '字段权限', defaultRoles: ['admin','hr','manager','employee'] },
   { key: 'view_other_dept',   label: '查看跨部门数据',  module: '字段权限', defaultRoles: ['admin','hr'] },
   { key: 'edit_org_info',     label: '编辑组织架构',    module: '字段权限', defaultRoles: ['admin','hr'] },
 ];
 
 // ── 获取某用户的有效权限（角色默认 + 个人覆盖） ───────────────────────
-function getUserEffectivePerms(userId: string): string[] {
+export function getUserEffectivePerms(userId: string): string[] {
   const db = getDb();
   const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as any;
   if (!user) return [];
