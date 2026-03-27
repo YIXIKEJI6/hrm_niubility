@@ -57,7 +57,7 @@ router.get('/leaderboard', authMiddleware, (req, res) => {
 });
 
 // 员工提议新任务 (任何人都可以提)
-router.post('/tasks/propose', authMiddleware, (req: AuthRequest, res) => {
+router.post('/tasks/propose', authMiddleware, async (req: AuthRequest, res) => {
   const { title, description, department, difficulty, reward_type, bonus, max_participants, is_draft } = req.body;
   if (!title) return res.status(400).json({ code: 400, message: '任务标题不能为空' });
   const db = getDb();
@@ -77,17 +77,24 @@ router.post('/tasks/propose', authMiddleware, (req: AuthRequest, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`
   ).run(title, description || null, department || null, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId, proposalStatus);
 
-  // 站内通知 HR + Admin
-  const hrAdmins = db.prepare("SELECT id FROM users WHERE role IN ('hr', 'admin')").all() as any[];
-  const hrAdminIds = hrAdmins.map((u: any) => u.id);
-  const proposerName = (db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId) as any)?.name || req.userId;
-  if (hrAdminIds.length) {
-    createNotification(hrAdminIds, 'proposal', '📋 新提案待审核', `${proposerName} 提议新任务「${title}」，建议奖金 ¥${bonus || 0}`, '/admin?module=pool');
-    // 企微推送
-    try { sendCardMessage(hrAdminIds, '📋 新提案待审核', `${proposerName} 提议新任务「${title}」\n建议奖金: ¥${bonus || 0}`, `${process.env.APP_URL || 'http://localhost:3000'}/admin`); } catch(e) {}
+  // 只在正式提交（非草稿）时通知 HR + Admin
+  if (!is_draft) {
+    const hrAdmins = db.prepare("SELECT id FROM users WHERE role IN ('hr', 'admin')").all() as any[];
+    const hrAdminIds = hrAdmins.map((u: any) => u.id);
+    const proposerName = (db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId) as any)?.name || req.userId;
+    console.log(`[Pool] 提案提交通知: 提案人=${proposerName}, HR/Admin人数=${hrAdminIds.length}, IDs=${hrAdminIds.join(',')}`);
+    if (hrAdminIds.length) {
+      createNotification(hrAdminIds, 'proposal', '📋 新提案待审核', `${proposerName} 提议新任务「${title}」，建议奖金 ¥${bonus || 0}`, '/workflows');
+      try {
+        await sendCardMessage(hrAdminIds, '📋 新提案待审核', `${proposerName} 提议新任务「${title}」\n建议奖金: ¥${bonus || 0}`, `${process.env.APP_URL || 'http://localhost:3000'}/workflows`);
+        console.log('[Pool] 企微通知已发送');
+      } catch(e: any) {
+        console.error('[Pool] 企微通知发送失败:', e?.message || e);
+      }
+    }
   }
 
-  return res.json({ code: 0, message: '提案已提交，等待人事审核', data: { id: result.lastInsertRowid } });
+  return res.json({ code: 0, message: is_draft ? '草稿已保存' : '提案已提交，等待人事审核', data: { id: result.lastInsertRowid } });
 });
 
 // 授权用户直接发布任务
@@ -178,7 +185,7 @@ router.post('/proposals/:id/resubmit', authMiddleware, (req: AuthRequest, res) =
   const hrAdminIds = hrAdmins.map((u: any) => u.id);
   const proposerName = (db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId) as any)?.name || req.userId;
   if (hrAdminIds.length) {
-    createNotification(hrAdminIds, 'proposal', '📋 提案重新提交', `${proposerName} 借修后重新提交了提案「${title || proposal.title}」`, '/admin?module=pool');
+    createNotification(hrAdminIds, 'proposal', '📋 提案重新提交', `${proposerName} 借修后重新提交了提案「${title || proposal.title}」`, '/workflows');
   }
 
   return res.json({ code: 0, message: '提案已重新提交' });
@@ -230,7 +237,7 @@ router.post('/proposals/:id/review', authMiddleware, (req: AuthRequest, res) => 
       const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
       const adminIds = admins.map((u: any) => u.id);
       if (adminIds.length) {
-        createNotification(adminIds, 'proposal', '🔍 提案待复核', `「${proposal.title}」已通过人事审核，请进行总经理复核`, '/admin?module=pool');
+        createNotification(adminIds, 'proposal', '🔍 提案待复核', `「${proposal.title}」已通过人事审核，请进行总经理复核`, '/workflows');
         try { sendCardMessage(adminIds, '🔍 提案待复核', `「${proposal.title}」已通过人事审核\n请进行总经理复核`, `${process.env.APP_URL || 'http://localhost:3000'}/admin`); } catch(e) {}
       }
       // 通知提案人进度
@@ -315,7 +322,7 @@ router.post('/tasks/:id/join', authMiddleware, (req: AuthRequest, res) => {
   const hrAdminIds = hrAdmins.map((u: any) => u.id);
   const applicantName = (db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId) as any)?.name || req.userId;
   if (hrAdminIds.length) {
-    createNotification(hrAdminIds, 'pool_join', '📋 绩效池加入申请', `${applicantName} 申请加入任务「${task.title}」，请审批`, '/admin?module=pool');
+    createNotification(hrAdminIds, 'pool_join', '📋 绩效池加入申请', `${applicantName} 申请加入任务「${task.title}」，请审批`, '/workflows');
     try { sendCardMessage(hrAdminIds, '📋 绩效池加入申请', `${applicantName} 申请加入任务「${task.title}」\n请前往管理后台审批`, `${process.env.APP_URL || 'http://localhost:3000'}/admin`); } catch(e) {}
   }
 
