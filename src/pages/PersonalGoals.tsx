@@ -414,6 +414,36 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
         type="personal"
         users={users}
         submitting={submitting}
+        onDraft={async (data) => {
+          setSubmitting(true);
+          try {
+            const token = localStorage.getItem('token');
+            const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
+            const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
+            const res = await fetch('/api/perf/plans', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({
+                title: data.summary || '草稿目标',
+                description: encodeSmartDescription(data.a_smart, data.r_smart, {
+                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
+                }),
+                category: data.taskType || '常规任务',
+                target_value: targetValue,
+                deadline: data.t,
+                collaborators: data.c,
+                assignee_id: currentUser?.id,
+                approver_id: approverId,
+              })
+            });
+            const json = await res.json();
+            if (json.code === 0) {
+              alert('草稿已保存');
+              setIsModalOpen(false);
+              fetchPlans();
+            } else { alert(json.message || '保存失败'); }
+          } catch { alert('保存失败'); } finally { setSubmitting(false); }
+        }}
         initialData={{
           summary: '完成人事管理系统（HRM）性能优化与看板重构',
           s: '核心页面加载速度提升 50%（<1.5s）',

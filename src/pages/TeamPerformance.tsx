@@ -285,9 +285,40 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         type="team"
         users={subordinates.map(s => ({ id: s.id, name: s.name }))}
         submitting={submitting}
+        onDraft={async (data) => {
+          setSubmitting(true);
+          try {
+            const token = localStorage.getItem('token');
+            const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
+            const res = await fetch('/api/perf/plans', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({
+                title: data.summary || '草稿任务',
+                description: encodeSmartDescription(data.a_smart, data.r_smart, {
+                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
+                }),
+                category: data.taskType || '临时指派',
+                target_value: targetValue,
+                deadline: data.t,
+                collaborators: data.c,
+                assignee_id: data.a || subordinates[0]?.id || '',
+                quarter: '2024 Q2',
+                creator_id: currentUser?.id,
+                approver_id: currentUser?.id,
+              })
+            });
+            const json = await res.json();
+            if (json.code === 0) {
+              alert('草稿已保存');
+              setIsAssignModalOpen(false);
+              fetchTeamStatus();
+            } else { alert(json.message || '保存失败'); }
+          } catch { alert('保存失败'); } finally { setSubmitting(false); }
+        }}
         initialData={{
-          a: subordinates[0]?.id || '', // 默认执行人
-          r: currentUser?.id, // 默认负责人为主管自己
+          a: subordinates[0]?.id || '',
+          r: currentUser?.id,
           summary: '团队季度核心目标下达',
           s: '完成分配的核心业务指标或技术重构任务',
           m: '达成率 100%，无重大事故',
