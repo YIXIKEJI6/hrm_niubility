@@ -336,6 +336,20 @@ router.delete('/departments/:id', authMiddleware, requireRole('admin', 'hr'), (r
   return res.json({ code: 0, message: `已删除部门「${dept.name}」` });
 });
 
+// ─── 成员设为离职 ─────────────────────────────────────────────────
+router.delete('/users/:userId', authMiddleware, requireRole('admin', 'hr'), (req: AuthRequest, res) => {
+  const db = getDb();
+  const userId = req.params.userId;
+
+  const user = db.prepare('SELECT id, name, status FROM users WHERE id = ?').get(userId) as any;
+  if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+  if (user.status === 'resigned') return res.json({ code: 0, message: `${user.name} 已是离职状态` });
+
+  // Set status to resigned instead of deleting, to preserve historical data
+  db.prepare("UPDATE users SET status = 'resigned' WHERE id = ?").run(userId);
+  return res.json({ code: 0, message: `已将「${user.name}」设为离职` });
+});
+
 // ─── 部门绩效统计 ─────────────────────────────────────────────────
 router.get('/departments/:id/stats', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
