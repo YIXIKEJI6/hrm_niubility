@@ -234,6 +234,53 @@ const MultiSelectUserDropdown = ({
   );
 };
 
+/* ── 任务属性下拉 ── */
+const TASK_TYPE_OPTIONS = ['常规任务', '重点项目', '创新探索', '临时指派'];
+const TaskTypeDropdown = ({ value, onChange, readonly }: { value: string; onChange: (v: string) => void; readonly?: boolean }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
+
+  return (
+    <div ref={ref} className={`flex items-center bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-2 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 hover:border-white/30 cursor-pointer'} transition-all duration-200 relative`} onClick={() => !readonly && setIsOpen(!isOpen)}>
+      <span className="text-[11px] font-black text-white/70 mr-2 tracking-wider uppercase">任务属性</span>
+      <div className="flex items-center gap-1 select-none">
+        <span className={`text-sm tracking-wide font-semibold ${value ? 'text-white' : 'text-white/50'}`}>{value || '选择属性'}</span>
+        {!readonly && <ChevronDown size={13} className={`text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
+      </div>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 5, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 5, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            onClick={e => e.stopPropagation()}
+            className="absolute top-full left-0 mt-2 w-40 bg-[#1e2640]/95 backdrop-blur-xl rounded-xl shadow-2xl shadow-black/30 border border-white/10 overflow-hidden z-50 py-1"
+          >
+            {TASK_TYPE_OPTIONS.map(opt => (
+              <button
+                key={opt}
+                className={`w-full text-left px-4 py-2 text-xs flex items-center justify-between hover:bg-white/5 transition-colors ${value === opt ? 'text-blue-400 font-bold bg-blue-500/5' : 'text-slate-300'}`}
+                onClick={() => { onChange(opt); setIsOpen(false); }}
+              >
+                <span>{opt}</span>
+                {value === opt && <Check size={13} className="text-blue-400" />}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 type SectionId = 's' | 'm' | 'a_smart' | 'r_smart' | 't' | 'attachments' | null;
 
 export interface SmartTaskData {
@@ -671,32 +718,12 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                   </div>
                 )}
 
-                {/* 任务属性 Dropdown + Custom Input (Datalist) */}
-                <div className="flex items-center bg-white/10 rounded-md px-3 py-1.5 border border-white/20 transition-colors">
-                  <span className="text-sm font-bold text-white/90 mr-2">任务属性</span>
-                  <div className="relative flex items-center">
-                    {readonly ? (
-                      <span className="bg-transparent text-sm text-white pr-2 font-medium">{headerSelections.taskType || '--'}</span>
-                    ) : (
-                      <>
-                        <input 
-                          list="taskTypeOptions"
-                          value={headerSelections.taskType}
-                          onChange={e => setHeaderSelections({...headerSelections, taskType: e.target.value})}
-                          placeholder="输入或选择属性"
-                          className="bg-transparent text-sm text-white outline-none pr-6 font-medium placeholder:text-white/50 w-32 focus:w-40 transition-all duration-300"
-                        />
-                        <datalist id="taskTypeOptions">
-                          <option value="常规任务" />
-                          <option value="重点项目" />
-                          <option value="创新探索" />
-                          <option value="临时指派" />
-                        </datalist>
-                        <ChevronDown size={14} className="text-white/70 absolute right-1 pointer-events-none" />
-                      </>
-                    )}
-                  </div>
-                </div>
+                {/* 任务属性 Dropdown (custom styled) */}
+                <TaskTypeDropdown
+                  value={headerSelections.taskType}
+                  onChange={v => setHeaderSelections({...headerSelections, taskType: v})}
+                  readonly={readonly}
+                />
               </div>
             </div>
 
