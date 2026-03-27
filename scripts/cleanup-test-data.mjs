@@ -44,9 +44,17 @@ const cleanup = db.transaction(() => {
   safeRun('薪资记录', () => db.prepare(`DELETE FROM salary_records WHERE user_id IN (${placeholders})`).run(...TEST_USERS));
   safeRun('权限记录', () => db.prepare(`DELETE FROM permissions WHERE user_id IN (${placeholders})`).run(...TEST_USERS));
 
-  // 删除测试用户本身（仅删除未通过企微同步的）
-  const r = db.prepare(`DELETE FROM users WHERE id IN (${placeholders}) AND wecom_userid IS NULL`).run(...TEST_USERS);
-  console.log(`   ✅ 测试用户: 删除 ${r.changes} 个 (企微同步用户不受影响)`);
+  // 删除测试用户本身
+  // 先检查 wecom_userid 列是否存在
+  const cols = db.prepare("PRAGMA table_info(users)").all();
+  const hasWecomCol = cols.some(c => c.name === 'wecom_userid');
+  let r;
+  if (hasWecomCol) {
+    r = db.prepare(`DELETE FROM users WHERE id IN (${placeholders}) AND (wecom_userid IS NULL OR wecom_userid = '')`).run(...TEST_USERS);
+  } else {
+    r = db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...TEST_USERS);
+  }
+  console.log(`   ✅ 测试用户: 删除 ${r.changes} 个`);
 });
 
 try {
