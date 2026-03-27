@@ -14,7 +14,7 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
     if (items.length === 0) return items;
     const ids = items.map(i => i.id).join(',');
     if (type === 'perf_plan') {
-      const logs = db.prepare(`SELECT * FROM perf_logs WHERE plan_id IN (${ids}) ORDER BY created_at ASC`).all();
+      const logs = db.prepare(`SELECT pl.*, u.name as user_name FROM perf_logs pl LEFT JOIN users u ON pl.user_id = u.id WHERE pl.plan_id IN (${ids}) ORDER BY pl.created_at ASC`).all();
       items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
     }
     // pool_tasks log structure can be added here if implemented elsewhere
@@ -23,8 +23,9 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
 
   // 1. 我发起的绩效计划
   let perfPlans = db.prepare(
-    `SELECT pp.*, u.name as approver_name, 'perf_plan' as flow_type
+    `SELECT pp.*, cu.name as creator_name, u.name as approver_name, 'perf_plan' as flow_type
      FROM perf_plans pp
+      LEFT JOIN users cu ON pp.creator_id = cu.id
      LEFT JOIN users u ON pp.approver_id = u.id
      WHERE pp.creator_id = ?
      ORDER BY pp.created_at DESC`
@@ -64,7 +65,7 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     if (items.length === 0) return items;
     const ids = items.map(i => i.id).join(',');
     if (type === 'perf_plan') {
-      const logs = db.prepare(`SELECT * FROM perf_logs WHERE plan_id IN (${ids}) ORDER BY created_at ASC`).all();
+      const logs = db.prepare(`SELECT pl.*, u.name as user_name FROM perf_logs pl LEFT JOIN users u ON pl.user_id = u.id WHERE pl.plan_id IN (${ids}) ORDER BY pl.created_at ASC`).all();
       items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
     }
     return items;
@@ -145,7 +146,7 @@ router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {
     if (items.length === 0) return items;
     const ids = items.map(i => i.id).join(',');
     if (type === 'perf_plan') {
-      const logs = db.prepare(`SELECT * FROM perf_logs WHERE plan_id IN (${ids}) ORDER BY created_at ASC`).all();
+      const logs = db.prepare(`SELECT pl.*, u.name as user_name FROM perf_logs pl LEFT JOIN users u ON pl.user_id = u.id WHERE pl.plan_id IN (${ids}) ORDER BY pl.created_at ASC`).all();
       items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
     }
     return items;
