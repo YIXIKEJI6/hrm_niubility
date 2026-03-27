@@ -106,7 +106,7 @@ export default function MyWorkflows({ navigate }: MyWorkflowsProps) {
 
   useEffect(() => { fetchTab(activeTab); }, [activeTab]);
 
-  const handleApproveReject = async (id: number, flowType: string, action: 'approve'|'reject', comment: string) => {
+  const handleApproveReject = async (id: number, flowType: string, action: 'approve'|'reject', comment: string, updatedData?: { bonus?: string; rewardType?: string; maxParticipants?: string }) => {
     setSubmittingApprovals(true);
     try {
       const isPerf = flowType === 'perf_plan';
@@ -118,7 +118,13 @@ export default function MyWorkflows({ navigate }: MyWorkflowsProps) {
       // For perf_plan /reject, backend expects { reason }, /approve expects {} (but adding reason is safe)
       const payload = isPerf 
         ? { reason: comment } 
-        : { action, reason: comment };
+        : { 
+            action, 
+            reason: comment,
+            ...(updatedData?.bonus !== undefined ? { bonus: updatedData.bonus } : {}),
+            ...(updatedData?.rewardType ? { reward_type: updatedData.rewardType } : {}),
+            ...(updatedData?.maxParticipants ? { max_participants: updatedData.maxParticipants } : {})
+          };
 
       const res = await fetch(realEndpoint, {
         method: 'POST',
@@ -379,7 +385,7 @@ export default function MyWorkflows({ navigate }: MyWorkflowsProps) {
             readonly={!isEditableByCreator} // Editable if creator is revising draft/rejected
             approverMode={selectedTask.isPending}
             customFooter={withdrawFooter}
-            onApprove={(comment) => handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'approve', comment)}
+            onApprove={(comment, updatedData) => handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'approve', comment, updatedData)}
             onReject={(comment) => handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'reject', comment)}
             submitting={submittingApprovals}
             users={users}
