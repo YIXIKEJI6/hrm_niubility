@@ -167,9 +167,15 @@ function TreeNode({
 function MemberCard({
   user,
   isLeader,
+  canManage,
+  onDelete,
+  onMove,
 }: {
   user: UserInfo;
   isLeader: boolean;
+  canManage?: boolean;
+  onDelete?: (userId: string, name: string) => void;
+  onMove?: (userId: string, name: string) => void;
 }) {
   const rc = roleConfig[user.role] || roleConfig.employee;
 
@@ -216,6 +222,26 @@ function MemberCard({
             <span className="text-[10px] text-slate-400">ID: {user.id}</span>
           </div>
         </div>
+
+        {/* 管理按钮 */}
+        {canManage && (
+          <div className="flex flex-col gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={() => onMove?.(user.id, user.name)}
+              title="调整部门"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+            </button>
+            <button
+              onClick={() => onDelete?.(user.id, user.name)}
+              title="设为离职"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">person_remove</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -223,7 +249,8 @@ function MemberCard({
 
 // ──────────────────── 主组件 ────────────────────
 export default function OrgChart({ navigate }: { navigate: (view: string) => void }) {
-  const { currentUser } = useAuth();
+  const { currentUser, hasPermission } = useAuth();
+  const canManage = hasPermission('manage_users');
 
   const [tree, setTree] = useState<DeptNode[]>([]);
   const [selectedDeptId, setSelectedDeptId] = useState<number | null>(null);
@@ -231,6 +258,8 @@ export default function OrgChart({ navigate }: { navigate: (view: string) => voi
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<{ userId: string; name: string } | null>(null);
+  const [moveDeptId, setMoveDeptId] = useState<number | null>(null);
 
   // 统计
   const [stats, setStats] = useState({ deptCount: 0, totalMembers: 0 });
@@ -318,6 +347,68 @@ export default function OrgChart({ navigate }: { navigate: (view: string) => voi
 
   const handleExpandAll = () => setExpandedIds(new Set(collectAllIds(tree)));
   const handleCollapseAll = () => setExpandedIds(new Set());
+
+  // 删除成员 (设为离职)
+  const handleDeleteMember = async (userId: string, name: string) => {
+    if (!confirm(`确定将「${name}」设为离职状态？该操作不会删除数据，可通过编辑恢复。`)) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/org/users/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        // 刷新部门详情
+        if (selectedDeptId) {
+          const dres = await fetch(`/api/org/departments/${selectedDeptId}`, { headers: { Authorization: `Bearer ${token}` } });
+          const ddata = await dres.json();
+          if (ddata.code === 0) setDeptDetail(ddata.data);
+        }
+      } else {
+        alert(json.message || '操作失败');
+      }
+    } catch { alert('网络异常'); }
+  };
+
+  // 调整部门
+  const handleMoveMember = async () => {
+    if (!moveTarget || !moveDeptId) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/org/users/${moveTarget.userId}/department`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department_id: moveDeptId }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        setMoveTarget(null);
+        setMoveDeptId(null);
+        // 刷新当前部门
+        if (selectedDeptId) {
+          const dres = await fetch(`/api/org/departments/${selectedDeptId}`, { headers: { Authorization: `Bearer ${token}` } });
+          const ddata = await dres.json();
+          if (ddata.code === 0) setDeptDetail(ddata.data);
+        }
+      } else {
+        alert(json.message || '操作失败');
+      }
+    } catch { alert('网络异常'); }
+  };
+
+  // 扁平化部门树 (用于调整部门选择器)
+  const flatDepts = React.useMemo(() => {
+    const result: { id: number; name: string; depth: number }[] = [];
+    const walk = (nodes: DeptNode[], depth: number) => {
+      for (const n of nodes) {
+        result.push({ id: n.id, name: n.name, depth });
+        walk(n.children, depth + 1);
+      }
+    };
+    walk(tree, 0);
+    return result;
+  }, [tree]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-on-surface font-body selection:bg-primary-fixed">
@@ -492,6 +583,9 @@ export default function OrgChart({ navigate }: { navigate: (view: string) => voi
                             key={user.id}
                             user={user}
                             isLeader={user.id === deptDetail.leader_user_id}
+                            canManage={canManage}
+                            onDelete={handleDeleteMember}
+                            onMove={(userId, name) => { setMoveTarget({ userId, name }); setMoveDeptId(null); }}
                           />
                         ))}
                       </div>
@@ -566,6 +660,56 @@ export default function OrgChart({ navigate }: { navigate: (view: string) => voi
           </section>
         </div>
       </main>
+
+      {/* 调整部门弹窗 */}
+      {moveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMoveTarget(null)} />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 fade-in duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">调整部门</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">将 <b className="text-slate-600">{moveTarget.name}</b> 调至新部门</p>
+              </div>
+              <button onClick={() => setMoveTarget(null)} className="p-1 text-slate-400 hover:text-slate-700 transition-colors">
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+            <div className="px-6 py-5 max-h-[50vh] overflow-y-auto space-y-1">
+              {flatDepts.map(d => (
+                <button
+                  key={d.id}
+                  onClick={() => setMoveDeptId(d.id)}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center gap-2 transition-all ${
+                    moveDeptId === d.id
+                      ? 'bg-primary/10 text-primary font-bold ring-1 ring-primary/30'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                  style={{ paddingLeft: `${12 + d.depth * 20}px` }}
+                >
+                  <span className="material-symbols-outlined text-[14px]">
+                    {d.depth === 0 ? 'apartment' : 'folder'}
+                  </span>
+                  {d.name}
+                  {moveDeptId === d.id && (
+                    <span className="ml-auto material-symbols-outlined text-[16px] text-primary">check_circle</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button onClick={() => setMoveTarget(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
+                取消
+              </button>
+              <button onClick={handleMoveMember} disabled={!moveDeptId}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 shadow-sm">
+                确认调整
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

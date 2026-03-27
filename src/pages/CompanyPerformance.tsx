@@ -62,6 +62,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [selectedTask, setSelectedTask] = useState<PoolTask | null>(null);
   const [modalStep, setModalStep] = useState<ModalStep>('detail');
   const [applyReason, setApplyReason] = useState('');
+  const [applyRole, setApplyRole] = useState<'R' | 'A'>('A');
   const [applying, setApplying] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [bonusFilter, setBonusFilter] = useState<BonusFilter>('all');
@@ -345,7 +346,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       const res = await fetch(`/api/pool/tasks/${selectedTask.id}/join`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: applyReason }),
+        body: JSON.stringify({ reason: applyReason, role: applyRole }),
       });
       const json = await res.json();
       if (json.code === 0) {
@@ -741,6 +742,35 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                     <span className="ml-auto text-[10px] px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full font-medium">申请人</span>
                   </div>
 
+                  {/* Role Selection */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2.5">
+                      选择参与角色
+                    </label>
+                    <div className="flex gap-3">
+                      {[
+                        { key: 'R' as const, icon: 'person', label: '负责人', desc: '主导任务交付，对结果负最终责任', color: 'blue' },
+                        { key: 'A' as const, icon: 'engineering', label: '执行人', desc: '实际执行任务，参与具体工作', color: 'emerald' },
+                      ].map(r => (
+                        <button key={r.key} onClick={() => setApplyRole(r.key)}
+                          className={`flex-1 p-3.5 rounded-xl border-2 transition-all text-left ${
+                            applyRole === r.key
+                              ? `border-${r.color}-500 bg-${r.color}-50 dark:bg-${r.color}-900/20 ring-2 ring-${r.color}-500/20`
+                              : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`material-symbols-outlined text-[18px] ${applyRole === r.key ? `text-${r.color}-500` : 'text-slate-400'}`} style={{ fontVariationSettings: "'FILL' 1" }}>{r.icon}</span>
+                            <span className={`text-sm font-bold ${applyRole === r.key ? `text-${r.color}-600 dark:text-${r.color}-400` : 'text-slate-600 dark:text-slate-300'}`}>
+                              <span className="text-[10px] font-black mr-1 opacity-60">{r.key}</span>{r.label}
+                            </span>
+                            {applyRole === r.key && <span className={`ml-auto material-symbols-outlined text-[16px] text-${r.color}-500`}>check_circle</span>}
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">{r.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Reason */}
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
@@ -750,7 +780,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       value={applyReason}
                       onChange={e => setApplyReason(e.target.value)}
                       placeholder="描述你的优势、经验或参与动机，帮助主管快速评估…"
-                      rows={4}
+                      rows={3}
                       className="w-full text-sm px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-[#0060a9]/30 text-slate-700 dark:text-slate-300 placeholder-slate-400 transition-all"
                     />
                   </div>

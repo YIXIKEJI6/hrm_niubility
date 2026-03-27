@@ -23,8 +23,9 @@ router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, re
     const departments = await getDepartmentList();
 
     const deptStmt = db.prepare(`INSERT OR REPLACE INTO departments (id, name, parent_id) VALUES (?, ?, ?)`);
+    // 只插入新用户，不覆盖已有用户的编辑信息
     const userStmt = db.prepare(
-      `INSERT OR REPLACE INTO users (id, name, title, department_id, avatar_url, mobile, email, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO users (id, name, title, department_id, avatar_url, mobile, email, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     // 3. 同步部门
@@ -223,6 +224,38 @@ router.get('/users-list', authMiddleware, requireRole('admin', 'hr'), (_req, res
      WHERE u.status = 'active' ORDER BY u.name`
   ).all();
   return res.json({ code: 0, data: users });
+});
+
+// 删除用户 (设为 inactive, 仅 admin/hr)
+router.delete('/users/:id', authMiddleware, requireRole('admin', 'hr'), (req: AuthRequest, res) => {
+  const db = getDb();
+  const user = db.prepare('SELECT id, name FROM users WHERE id = ?').get(req.params.id) as any;
+  if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+
+  // 不允许删除超级管理员
+  if (isSuperAdmin(req.params.id)) {
+    return res.status(403).json({ code: 403, message: '不可删除最高系统管理员' });
+  }
+
+  db.prepare('UPDATE users SET status = ? WHERE id = ?').run('inactive', req.params.id);
+  return res.json({ code: 0, message: `已将 ${user.name} 设为离职状态` });
+});
+
+// 调整用户部门 (仅 admin/hr)
+router.put('/users/:id/department', authMiddleware, requireRole('admin', 'hr'), (req: AuthRequest, res) => {
+  const { department_id } = req.body;
+  const db = getDb();
+
+  if (!department_id) return res.status(400).json({ code: 400, message: '缺少目标部门 ID' });
+
+  const user = db.prepare('SELECT id, name FROM users WHERE id = ?').get(req.params.id) as any;
+  if (!user) return res.status(404).json({ code: 404, message: '用户不存在' });
+
+  const dept = db.prepare('SELECT id, name FROM departments WHERE id = ?').get(department_id) as any;
+  if (!dept) return res.status(404).json({ code: 404, message: '目标部门不存在' });
+
+  db.prepare('UPDATE users SET department_id = ? WHERE id = ?').run(department_id, req.params.id);
+  return res.json({ code: 0, message: `已将 ${user.name} 调至 ${dept.name}` });
 });
 
 export default router;

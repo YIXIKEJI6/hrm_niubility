@@ -571,7 +571,17 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
   };
 
   const handleSubmit = () => {
-    if (type === 'personal' || type === 'team' || type === 'pool_publish' || type === 'pool_propose') {
+    if (type === 'pool_propose') {
+      // 提案只需要议题和任务属性
+      if (!formData.summary?.trim()) {
+        alert('请填写提案议题！');
+        return;
+      }
+      if (!headerSelections.taskType) {
+        alert('请选择任务属性！');
+        return;
+      }
+    } else if (type === 'personal' || type === 'team' || type === 'pool_publish') {
       const required = [
         { key: 'summary', label: '目标简述' },
         { key: 's', label: '明确目标 (S)' },
@@ -586,12 +596,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         alert(`请填写完整以下必填项才能提交：\n${missing.map(m => m.label).join('、')}`);
         return;
       }
-      if (type === 'pool_propose') {
-        if (!headerSelections.taskType) {
-          alert('请选择任务属性！');
-          return;
-        }
-      } else if (!headerSelections.r || !headerSelections.a || !headerSelections.c || !headerSelections.e || !headerSelections.taskType) {
+      if (!headerSelections.r || !headerSelections.a || !headerSelections.c || !headerSelections.e || !headerSelections.taskType) {
         alert(`请在顶部完整选择配置：负责人、执行人、咨询人、验收人以及任务属性！`);
         return;
       }
@@ -744,7 +749,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                         onChange={(e) => {
                           if (!isRecording) handleUpdate('summary', e.target.value);
                         }}
-                        placeholder="完成人事务管理系统（HRM）性能优化与看板重构"
+                        placeholder={type === 'pool_propose' ? '输入提案议题，例如：搭建全渠道客户反馈系统' : '完成人事务管理系统（HRM）性能优化与看板重构'}
                         className="w-full pl-4 pr-44 py-3 text-base font-bold text-gray-900 bg-white border border-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-1 focus:ring-[#1677ff] focus:border-[#1677ff] transition-all placeholder:font-normal placeholder:text-gray-400"
                       />
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -775,6 +780,9 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-1 h-3.5 bg-[#1677ff] rounded-full" />
                   <h3 className="font-bold text-gray-900 text-sm">SMART 详情说明</h3>
+                  {type === 'pool_propose' && (
+                    <span className="text-[11px] text-slate-400 font-normal ml-1">（不是必填，但尽可能给更多信息）</span>
+                  )}
                 </div>
 
                 {/* SMART Sections */}
