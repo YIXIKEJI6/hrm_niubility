@@ -1089,7 +1089,22 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                         className="px-4 pb-4"
                       >
                         {!readonly && (
-                          <div className="border border-dashed border-gray-300 rounded-lg p-5 flex flex-col items-center justify-center text-center bg-[#f8f9fb] hover:bg-gray-50 transition-colors cursor-pointer group">
+                          <div 
+                            className="border border-dashed border-gray-300 rounded-lg p-5 flex flex-col items-center justify-center text-center bg-[#f8f9fb] hover:bg-gray-50 transition-colors cursor-pointer group"
+                            onClick={() => document.getElementById('smart-task-file-input')?.click()}
+                            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-blue-400', 'bg-blue-50/50'); }}
+                            onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50/50'); }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50/50');
+                              const files = Array.from(e.dataTransfer.files);
+                              const newAttachments = files.map(f => ({
+                                name: f.name,
+                                size: f.size > 1024 * 1024 ? `${(f.size / 1024 / 1024).toFixed(1)} MB` : `${(f.size / 1024).toFixed(0)} KB`
+                              }));
+                              handleUpdate('attachments', [...formData.attachments, ...newAttachments]);
+                            }}
+                          >
                             <div className="w-10 h-10 bg-blue-50 text-[#005ea4] rounded-full flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
                               <Upload size={18} />
                             </div>
@@ -1097,6 +1112,22 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                             <p className="text-xs text-gray-500">支持 PDF, DOCX, XLSX 等，单文件最大 50MB</p>
                           </div>
                         )}
+                        <input
+                          id="smart-task-file-input"
+                          type="file"
+                          multiple
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.png,.jpg,.jpeg"
+                          className="hidden"
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            const newAttachments = files.map(f => ({
+                              name: f.name,
+                              size: f.size > 1024 * 1024 ? `${(f.size / 1024 / 1024).toFixed(1)} MB` : `${(f.size / 1024).toFixed(0)} KB`
+                            }));
+                            handleUpdate('attachments', [...formData.attachments, ...newAttachments]);
+                            e.target.value = '';
+                          }}
+                        />
 
                         {formData.attachments.length > 0 && (
                           <div className="mt-3 space-y-2">
@@ -1125,21 +1156,6 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                 )}
                               </div>
                             ))}
-                          </div>
-                        )}
-                        {!readonly && (
-                          <div className="mt-4 flex justify-center">
-                            <button 
-                              onClick={() => {
-                                handleUpdate('attachments', [
-                                  ...formData.attachments, 
-                                  { name: `支持附件_${formData.attachments.length + 1}.pdf`, size: '1.2 MB' }
-                                ]);
-                              }}
-                              className="text-xs text-[#005ea4] hover:text-[#0077ce] font-bold flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full transition-colors"
-                            >
-                              <Plus size={14} /> 模拟上传文件
-                            </button>
                           </div>
                         )}
                       </motion.div>
