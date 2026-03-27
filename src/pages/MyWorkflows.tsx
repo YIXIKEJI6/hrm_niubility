@@ -37,6 +37,7 @@ function StatusBadge({ status }: { status: string }) {
 function FlowTypeTag({ type }: { type: string }) {
   if (type === 'perf_plan') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-blue-600 bg-blue-50 border border-blue-100">绩效计划</span>;
   if (type === 'proposal') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-purple-600 bg-purple-50 border border-purple-100">绩效提案</span>;
+  if (type === 'pool_join') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-emerald-600 bg-emerald-50 border border-emerald-100">加入申请</span>;
   return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-slate-500 bg-slate-100">{type}</span>;
 }
 
@@ -110,14 +111,18 @@ export default function MyWorkflows({ navigate }: MyWorkflowsProps) {
     setSubmittingApprovals(true);
     try {
       const isPerf = flowType === 'perf_plan';
-      // Map to correct API endpoints since perf_plan has specific approve/reject endpoints, and proposals/pool use /review
+      const isJoin = flowType === 'pool_join';
+      // Map to correct API endpoints
       const realEndpoint = isPerf 
-        ? `/api/perf/plans/${id}/${action}` // action is 'approve' or 'reject'
+        ? `/api/perf/plans/${id}/${action}`
+        : isJoin
+        ? `/api/pool/join-requests/${id}/review`
         : `/api/pool/proposals/${id}/review`;
         
-      // For perf_plan /reject, backend expects { reason }, /approve expects {} (but adding reason is safe)
       const payload = isPerf 
         ? { reason: comment } 
+        : isJoin
+        ? { action, comment }
         : { 
             action, 
             reason: comment,
@@ -426,31 +431,38 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
   }
 
   const flowType = item.flow_type || 'unknown';
-  const status = flowType === 'proposal' ? item.proposal_status : item.status;
+  const status = flowType === 'proposal' ? item.proposal_status : flowType === 'pool_join' ? item.status : item.status;
   const title = item.title;
-  const creator = item.creator_name || item.created_by;
+  const creator = item.creator_name || item.created_by || item.user_id;
   const approver = item.approver_name || item.hr_reviewer_name || item.admin_reviewer_name;
+
+  const iconBg = flowType === 'perf_plan' ? 'bg-blue-50 dark:bg-blue-900/30' 
+    : flowType === 'pool_join' ? 'bg-emerald-50 dark:bg-emerald-900/30' 
+    : 'bg-purple-50 dark:bg-purple-900/30';
+  const iconColor = flowType === 'perf_plan' ? 'text-blue-500' 
+    : flowType === 'pool_join' ? 'text-emerald-500' 
+    : 'text-purple-500';
+  const iconName = flowType === 'perf_plan' ? 'trending_up' 
+    : flowType === 'pool_join' ? 'person_add'
+    : 'lightbulb';
+  const codePrefix = flowType === 'proposal' ? 'PL' : flowType === 'pool_join' ? 'JR' : 'PF';
 
   return (
     <div 
-      onClick={onClick}
-      className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-4 transition-all group hover:shadow-md hover:border-blue-300 cursor-pointer`}
+      onClick={flowType !== 'pool_join' ? onClick : undefined}
+      className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-4 transition-all group hover:shadow-md hover:border-blue-300 ${flowType !== 'pool_join' ? 'cursor-pointer' : ''}`}
     >
       <div className="flex items-start gap-4">
         {/* Icon */}
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-          flowType === 'perf_plan' ? 'bg-blue-50 dark:bg-blue-900/30' : 'bg-purple-50 dark:bg-purple-900/30'
-        }`}>
-          <span className={`material-symbols-outlined text-[20px] ${
-            flowType === 'perf_plan' ? 'text-blue-500' : 'text-purple-500'
-          }`}>{flowType === 'perf_plan' ? 'trending_up' : 'lightbulb'}</span>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+          <span className={`material-symbols-outlined text-[20px] ${iconColor}`}>{iconName}</span>
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded shadow-sm">
-              {flowType === 'proposal' ? 'PL' : 'PF'}-{String(item.id).padStart(6, '0')}
+              {codePrefix}-{String(item.id).padStart(6, '0')}
             </span>
             <FlowTypeTag type={flowType} />
             <StatusBadge status={status} />
@@ -487,6 +499,12 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
           )}
           {item.description && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{item.description}</p>
+          )}
+          {flowType === 'pool_join' && (
+            <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
+              {item.role && <span>期望角色：{item.role}</span>}
+              {item.reason && <span>申请理由：{item.reason}</span>}
+            </div>
           )}
         </div>
 
@@ -560,7 +578,7 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
                 status === 'approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
                 'border-dashed border-amber-300 bg-amber-50 text-amber-600'
               }`}>
-                <span className="font-bold">{approver || '系统/审批人'}</span>
+                <span className="font-bold">{approver || (flowType === 'pool_join' ? '管理员' : '审批人')}</span>
                 <span className="text-[9px] opacity-80">
                   {status === 'rejected' ? '已驳回' : status === 'approved' ? '已完成' : '待处理'}
                 </span>

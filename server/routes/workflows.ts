@@ -109,6 +109,24 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     items.push(...adminPending);
   }
 
+  // 3. 待我审核的加入申请 (HR/Admin)
+  if (['hr', 'admin'].includes(role)) {
+    const joinPending = db.prepare(
+      `SELECT jr.*, u.name as creator_name, pt.title as task_title, 'pool_join' as flow_type
+       FROM pool_join_requests jr
+       LEFT JOIN users u ON jr.user_id = u.id
+       LEFT JOIN pool_tasks pt ON jr.pool_task_id = pt.id
+       WHERE jr.status = 'pending'
+       ORDER BY jr.created_at DESC`
+    ).all();
+    // Map fields for frontend compatibility
+    joinPending.forEach((j: any) => {
+      j.title = `${j.creator_name || j.user_id} 申请加入「${j.task_title || '任务#' + j.pool_task_id}」`;
+      j.proposal_status = 'pending';
+    });
+    items.push(...joinPending);
+  }
+
   items.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return res.json({ code: 0, data: items });
 });
@@ -151,7 +169,21 @@ router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {
      ORDER BY pt.created_at DESC`
   ).all(userId, userId);
 
-  const all = [...perfReviewed, ...proposalReviewed].sort((a: any, b: any) =>
+  // 3. 我审核过的加入申请
+  const joinReviewed = db.prepare(
+    `SELECT jr.*, u.name as creator_name, pt.title as task_title, 'pool_join' as flow_type
+     FROM pool_join_requests jr
+     LEFT JOIN users u ON jr.user_id = u.id
+     LEFT JOIN pool_tasks pt ON jr.pool_task_id = pt.id
+     WHERE jr.reviewed_by = ? AND jr.status IN ('approved', 'rejected')
+     ORDER BY jr.updated_at DESC`
+  ).all(userId);
+  joinReviewed.forEach((j: any) => {
+    j.title = `${j.creator_name || j.user_id} 申请加入「${j.task_title || '任务#' + j.pool_task_id}」`;
+    j.proposal_status = j.status;
+  });
+
+  const all = [...perfReviewed, ...proposalReviewed, ...joinReviewed].sort((a: any, b: any) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
   return res.json({ code: 0, data: all });
