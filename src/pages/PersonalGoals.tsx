@@ -458,7 +458,9 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           r_smart: '直接关联公司年度数字化转型战略，极大提升内网工具的操作效率',
           t: '2024-09-30',
           taskType: '重点项目',
-          r: currentUser?.id
+          r: currentUser?.id,
+          a: currentUser?.id,
+          e: currentUser?.role === 'employee' ? 'zhangwei' : 'lifang'
         }}
       />
 

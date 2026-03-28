@@ -670,9 +670,18 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         alert(`请填写完整以下必填项才能提交：\n${missing.map(m => m.label).join('、')}`);
         return;
       }
-      if (!headerSelections.r || !headerSelections.a || !headerSelections.c || !headerSelections.e || !headerSelections.taskType) {
-        alert(`请在顶部完整选择配置：负责人、执行人、咨询人、验收人以及任务属性！`);
-        return;
+      // 个人目标: 负责人+验收人+任务属性 必选; 执行人/咨询人 可选
+      // 团队/绩效池: 全部必选
+      if (type === 'personal') {
+        if (!headerSelections.r || !headerSelections.e || !headerSelections.taskType) {
+          alert(`请在顶部选择：负责人、验收人以及任务属性！`);
+          return;
+        }
+      } else {
+        if (!headerSelections.r || !headerSelections.a || !headerSelections.c || !headerSelections.e || !headerSelections.taskType) {
+          alert(`请在顶部完整选择配置：负责人、执行人、咨询人、验收人以及任务属性！`);
+          return;
+        }
       }
     }
 
