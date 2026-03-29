@@ -47,6 +47,80 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
   const [newPlan, setNewPlan] = useState<SmartData & { assignee_id: string }>({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', collaborators: '', assignee_id: '' });
   const [submitting, setSubmitting] = useState(false);
 
+  const [viewMode, setViewMode] = useState<'personnel' | 'kanban' | 'list'>('personnel');
+  const [searchKey, setSearchKey] = useState('');
+  const [sortKey, setSortKey] = useState<'status' | 'deadline' | 'progress' | 'assignee_name'>('deadline');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  
+  const flatTasks = React.useMemo(() => {
+    let tasks: any[] = [];
+    subordinates.forEach(sub => sub.tasks?.forEach(t => tasks.push({ ...t, assignee_id: sub.id, assignee_name: sub.name, assignee_avatar: sub.avatar_url, assignee_role: sub.role, assignee_score: sub.score })));
+    if (searchKey.trim()) {
+      const lower = searchKey.toLowerCase();
+      tasks = tasks.filter(t => t.title.toLowerCase().includes(lower) || t.assignee_name.toLowerCase().includes(lower));
+    }
+    tasks.sort((a, b) => {
+      let valA, valB;
+      if (sortKey === 'progress') { valA = a.progress || 0; valB = b.progress || 0; }
+      else if (sortKey === 'deadline') { valA = new Date(a.deadline || '2099-01-01').getTime(); valB = new Date(b.deadline || '2099-01-01').getTime(); }
+      else if (sortKey === 'status') {
+        const w = (s: string) => s === 'in_progress' ? 1 : s === 'pending_review' ? 2 : s === 'completed' ? 3 : 0;
+        valA = w(a.status); valB = w(b.status);
+      } else { valA = a.assignee_name; valB = b.assignee_name; }
+      if (typeof valA === 'string') return sortOrder === 'asc' ? valA.localeCompare(valB as string) : (valB as string).localeCompare(valA);
+      return sortOrder === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
+    });
+    return tasks;
+  }, [subordinates, searchKey, sortKey, sortOrder]);
+
+  // AI Drawer State
+  const [isDiagDrawerOpen, setIsDiagDrawerOpen] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResult, setDiagResult] = useState('');
+
+  const handleDiagnoseTeam = async () => {
+    setIsDiagDrawerOpen(true);
+    setDiagLoading(true);
+    setDiagResult('');
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('未发现权鉴');
+      
+      // Generate analytics JSON payload
+      const analyticsData = flatTasks.map(t => ({
+        人名: t.assignee_name,
+        任务: t.title,
+        状态: t.status === 'completed' || t.status === 'assessed' ? '已完成' : t.status === 'in_progress' ? '进行中' : t.status === 'pending_review' ? '待审批' : '其他',
+        进度: t.progress + '%',
+        截止: t.deadline || '无'
+      }));
+
+      const prompt = `请作为资深HRBP，根据以下团队近期任务调度数据，分析：\n1. 是谁存在超期风险或是零进度问题？\n2. 团队中有没有出现工作量严重失衡的情况？\n3. 给出3点严厉且一针见血的管理建议。\n\n数据: ${JSON.stringify(analyticsData, null, 2)}`;
+
+      const res = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ prompt })
+      });
+
+      if (!res.ok) throw new Error('API Error');
+      const json = await res.json();
+      if (json.code === 0 && json.data?.analysis) {
+        setDiagResult(json.data.analysis);
+      } else {
+        setDiagResult('诊断未生成，请检查数据。');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setDiagResult(`诊断服务暂时不可用：${err.message}`);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
   // Drag to scroll
   const dragRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -213,58 +287,91 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           </div>
         </section>
 
-        {/* Quick Action Cards Section */}
-        <section className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Unified Top Section: Quick Actions + Team Overview */}
+        <section className="mb-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
           {currentUser?.role !== 'employee' && (
             <>
-              <div onClick={() => { setIsAssignModalOpen(true); setNewPlan(p => ({ ...p, assignee_id: subordinates[0]?.id || '' })); }} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors">
-                  <span className="material-symbols-outlined text-primary group-hover:text-white">add_task</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-on-surface tracking-tight">团队内发起任务</h4>
-                  <p className="text-xs text-on-surface-variant mt-0.5">为团队成员分配绩效目标与关键任务</p>
+              {/* Card 1: Assign Task */}
+              <div onClick={() => { setIsAssignModalOpen(true); setNewPlan(p => ({ ...p, assignee_id: subordinates[0]?.id || '' })); }} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between">
+                <div className="flex items-start space-x-4 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-primary group-hover:text-white">add_task</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-on-surface tracking-tight">团队内发起任务</h4>
+                    <p className="text-[11px] text-on-surface-variant mt-1 leading-relaxed">为团队成员分配关键的绩效目标与执行任务</p>
+                  </div>
                 </div>
               </div>
               
-              <div onClick={() => setIsApplyModalOpen(true)} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                  <span className="material-symbols-outlined group-hover:text-white">post_add</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-on-surface tracking-tight text-slate-800">申请新任务</h4>
-                  <p className="text-xs text-on-surface-variant mt-0.5">使用完整的 SMART 原则向上级提报</p>
+              {/* Card 2: Apply Task */}
+              <div onClick={() => setIsApplyModalOpen(true)} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between">
+                <div className="flex items-start space-x-4 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition-colors shrink-0">
+                    <span className="material-symbols-outlined group-hover:text-white">post_add</span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-on-surface tracking-tight text-slate-800">申请新任务</h4>
+                    <p className="text-[11px] text-on-surface-variant mt-1 leading-relaxed">使用严谨完整的 SMART 原则向直属上级提报计划</p>
+                  </div>
                 </div>
               </div>
             </>
           )}
-        </section>
 
-        {/* Team Overview Section (Bento Grid) */}
-        <section className="mb-10 bg-white border border-surface-container rounded-2xl p-6 shadow-sm">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-8">
-            <div className="flex-grow">
-              <div className="flex justify-between items-end mb-4">
-                <div>
-                  <h3 className="text-lg font-black font-headline text-on-surface">团队整体进度</h3>
-                  <p className="text-xs text-on-surface-variant font-label mt-0.5">当前周期任务执行概况</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-secondary/10 text-secondary">
-                    <span className="w-1.5 h-1.5 rounded-full bg-secondary mr-1.5"></span>
-                    按计划进行 (On Track)
-                  </span>
-                  <span className="text-2xl font-black text-primary font-headline">72%</span>
-                </div>
+          {/* Card 3: Team Overview Section */}
+          <div className={`bg-white border border-surface-container rounded-2xl p-5 shadow-sm flex flex-col justify-between ${currentUser?.role === 'employee' ? 'lg:col-span-3' : 'lg:col-span-1'}`}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-sm font-black font-headline text-on-surface">团队整体进度</h3>
+                <p className="text-[11px] text-on-surface-variant font-label mt-1">当前周期执行概况</p>
               </div>
-              <div className="w-full bg-surface-container rounded-full h-3 overflow-hidden">
-                <div className="bg-gradient-to-r from-primary to-primary-container h-full rounded-full transition-all duration-1000" style={{ width: '72%' }}></div>
+              <div className="flex flex-col items-end">
+                <span className="text-2xl font-black text-primary font-headline leading-none">72%</span>
+                <span className="inline-flex items-center text-[9px] font-bold text-secondary mt-1">
+                  <span className="w-1 h-1 rounded-full bg-secondary mr-1"></span>On Track
+                </span>
               </div>
+            </div>
+            <div className="w-full bg-surface-container rounded-full h-2 overflow-hidden mt-auto">
+              <div className="bg-gradient-to-r from-primary to-primary-container h-full rounded-full transition-all duration-1000" style={{ width: '72%' }}></div>
             </div>
           </div>
         </section>
 
-        {/* Dynamic Member Cards — 人员左右滑动 × 任务上下滑动 */}
+        {/* ── View Toggle & Toolbar ── */}
+        <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex bg-surface-container rounded-xl p-1 w-full md:w-auto overflow-x-auto">
+            <button onClick={() => setViewMode('personnel')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${viewMode === 'personnel' ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-black/5'}`}>
+              <span className="material-symbols-outlined text-[18px]">groups</span>
+              按人员列阵
+            </button>
+            <button onClick={() => setViewMode('kanban')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${viewMode === 'kanban' ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-black/5'}`}>
+              <span className="material-symbols-outlined text-[18px]">view_kanban</span>
+              任务看板
+            </button>
+            <button onClick={() => setViewMode('list')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${viewMode === 'list' ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-black/5'}`}>
+              <span className="material-symbols-outlined text-[18px]">table_rows</span>
+              数据列表
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="relative w-full md:w-64">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+              <input 
+                type="text" 
+                placeholder="搜索任务或人员..."
+                value={searchKey}
+                onChange={e => setSearchKey(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-white border border-surface-container rounded-xl text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── View: Personnel (Original Card Layout) ── */}
+        {viewMode === 'personnel' && (
         <div
           ref={dragRef}
           onMouseDown={onDragStart}
@@ -279,7 +386,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
               <p className="text-sm font-bold">{currentUser?.role === 'employee' ? '暂无部门同事数据' : '暂无下属成员数据'}</p>
             </div>
           ) : (
-            subordinates.map((sub, idx) => {
+            subordinates.filter(s => !searchKey.trim() || s.name.toLowerCase().includes(searchKey.toLowerCase())).map((sub, idx) => {
             const cardColors = [
               { ring: 'ring-rose-300', accent: 'text-rose-500', bg: 'from-rose-400/20 to-pink-400/20', dot: 'bg-rose-400' },
               { ring: 'ring-blue-300', accent: 'text-blue-500', bg: 'from-blue-400/20 to-cyan-400/20', dot: 'bg-blue-400' },
@@ -358,7 +465,235 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
             )})
           )}
         </div>
+        )}
+
+        {/* ── View: Kanban (Task Board Layout) ── */}
+        {viewMode === 'kanban' && (
+          <div className="flex gap-4 overflow-x-auto pb-4 h-[calc(100vh-320px)] min-h-[400px]">
+            {[
+              { id: 'pending', title: '待处理 / 挂起', statuses: ['pending', 'suspended', 'claiming'] },
+              { id: 'in_progress', title: '进行中', statuses: ['in_progress'] },
+              { id: 'review', title: '待验收', statuses: ['pending_review'] },
+              { id: 'done', title: '已完成 / 已评分', statuses: ['completed', 'assessed', 'rewarded'] }
+            ].map(col => (
+              <div key={col.id} className="flex-none w-80 flex flex-col bg-surface-container-lowest border border-surface-container rounded-2xl overflow-hidden shadow-sm">
+                <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border-b border-surface-container font-bold text-sm text-slate-700 dark:text-slate-300 flex justify-between items-center">
+                  <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600"></span>{col.title}</span>
+                  <span className="text-xs bg-black/5 dark:bg-white/10 px-2 py-0.5 rounded-full">{flatTasks.filter(t => col.statuses.includes(t.status)).length}</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+                  {flatTasks.filter(t => col.statuses.includes(t.status)).map(task => (
+                    <div key={task.id} onClick={() => setSelectedTask(task)} className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md cursor-pointer transition-all hover:border-primary/30 active:scale-[0.98]">
+                      <div className="flex justify-between items-start mb-2.5 gap-2">
+                        <span className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-2 leading-snug flex-1">{task.title}</span>
+                        {task.category && <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-500 shrink-0 uppercase tracking-widest">{task.category}</span>}
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400 mb-4">
+                        <span className="material-symbols-outlined text-[12px]">calendar_clock</span>
+                        <span className={task.deadline && new Date(task.deadline).getTime() < Date.now() && !['completed', 'assessed'].includes(task.status) ? 'text-red-500 font-bold' : ''}>截止: {task.deadline || '无'}</span>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700/50 pt-3">
+                        <div className="flex items-center gap-2">
+                          {task.assignee_avatar ? (
+                            <img src={task.assignee_avatar} className="w-6 h-6 rounded-full object-cover shadow-sm ring-1 ring-slate-200 dark:ring-slate-700" alt={task.assignee_name} />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#0060a9] to-[#4da3e8] text-white flex items-center justify-center text-[10px] font-bold shadow-sm">{task.assignee_name.charAt(0)}</div>
+                          )}
+                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{task.assignee_name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-primary">{task.progress || 0}%</span>
+                          <div className="w-10 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div className="bg-primary h-full rounded-full" style={{ width: `${task.progress || 0}%` }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {flatTasks.filter(t => col.statuses.includes(t.status)).length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-32 opacity-50">
+                      <span className="material-symbols-outlined text-3xl mb-2 text-slate-300">inbox</span>
+                      <span className="text-xs font-medium text-slate-400">暂无任务</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── View: List (Data Table Layout) ── */}
+        {viewMode === 'list' && (
+          <div className="bg-white dark:bg-slate-900 border border-surface-container rounded-2xl overflow-hidden shadow-sm flex flex-col h-[calc(100vh-320px)] min-h-[400px]">
+            <div className="overflow-y-auto flex-1 custom-scrollbar">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 text-xs uppercase sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-6 py-4 font-bold tracking-wider rounded-tl-xl w-1/3">
+                      任务目标
+                    </th>
+                    <th className="px-6 py-4 font-bold tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => { setSortKey('assignee_name'); setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); }}>
+                      <div className="flex items-center gap-1">负责人 {sortKey === 'assignee_name' && <span className="material-symbols-outlined text-[14px]">{sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</div>
+                    </th>
+                    <th className="px-6 py-4 font-bold tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => { setSortKey('status'); setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); }}>
+                      <div className="flex items-center gap-1">当前状态 {sortKey === 'status' && <span className="material-symbols-outlined text-[14px]">{sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</div>
+                    </th>
+                    <th className="px-6 py-4 font-bold tracking-wider cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => { setSortKey('progress'); setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); }}>
+                      <div className="flex items-center gap-1">执行进度 {sortKey === 'progress' && <span className="material-symbols-outlined text-[14px]">{sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</div>
+                    </th>
+                    <th className="px-6 py-4 font-bold tracking-wider cursor-pointer rounded-tr-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => { setSortKey('deadline'); setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); }}>
+                      <div className="flex items-center gap-1">截止日期 {sortKey === 'deadline' && <span className="material-symbols-outlined text-[14px]">{sortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-container text-slate-700 dark:text-slate-300">
+                  {flatTasks.length === 0 ? (
+                    <tr><td colSpan={5} className="px-6 py-16 text-center text-slate-400"><span className="material-symbols-outlined text-4xl mb-2 block">search_off</span>暂无符合条件的数据</td></tr>
+                  ) : flatTasks.map(task => (
+                    <tr key={task.id} onClick={() => setSelectedTask(task)} className="hover:bg-[#0060a9]/5 dark:hover:bg-[rgb(0,96,169)]/20 cursor-pointer transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-[#0060a9] transition-colors whitespace-normal line-clamp-2 leading-relaxed">{task.title}</span>
+                          {task.category && <span className="text-[10px] font-bold mt-1 text-slate-400 uppercase tracking-widest">{task.category}</span>}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#0060a9] to-[#4da3e8] text-white flex items-center justify-center text-[10px] font-bold shrink-0 shadow-sm">{task.assignee_name.charAt(0)}</div>
+                          <span className="text-sm font-bold">{task.assignee_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-[10px] px-2.5 py-1 rounded font-bold uppercase tracking-wide border ${
+                          task.status === 'completed' || task.status === 'assessed' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                          task.status === 'in_progress' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                          task.status === 'pending_review' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                          task.status === 'rejected' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {task.status === 'completed' || task.status === 'assessed' ? '待考核' :
+                           task.status === 'in_progress' ? '进行中' :
+                           task.status === 'pending_review' ? '待审批' :
+                           task.status === 'rejected' ? '被驳回' : '挂起'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 max-w-[140px]">
+                          <div className="flex-1 bg-surface-container-highest h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-gradient-to-r from-primary to-secondary h-full rounded-full" style={{ width: `${task.progress || 0}%` }}></div>
+                          </div>
+                          <span className="text-xs font-black text-slate-700 dark:text-slate-300 w-8 text-right">{task.progress || 0}%</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-500 text-xs flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[14px]">event</span>
+                        {task.deadline ? (
+                          <span className={new Date(task.deadline).getTime() < Date.now() && !['completed', 'assessed'].includes(task.status) ? 'text-red-500 font-bold' : ''}>
+                            {task.deadline}
+                          </span>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-6 py-3 border-t border-surface-container bg-slate-50 dark:bg-slate-800/50 text-xs font-bold text-slate-400 flex justify-between items-center">
+              <span>共计检索 {flatTasks.length} 条数据结果</span>
+            </div>
+          </div>
+        )}
         </div>
+
+        {/* ── AI Diagnosis Floating Button ── */}
+        <button
+          onClick={handleDiagnoseTeam}
+          className="fixed top-1/2 -translate-y-1/2 right-0 z-[90] flex items-center justify-center w-12 h-16 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-l-xl shadow-[-4px_0_15px_rgba(99,102,241,0.3)] hover:shadow-[-8px_0_25px_rgba(99,102,241,0.4)] hover:w-14 transition-all text-white group"
+          title="AI 团队洞察诊断"
+        >
+          <div className="absolute inset-0 rounded-l-xl animate-ping bg-purple-400 opacity-20 delay-100"></div>
+          <span className="font-black font-headline text-lg tracking-tighter relative z-10">AI</span>
+        </button>
+
+        {/* ── AI Diagnosis Drawer ── */}
+        {isDiagDrawerOpen && (
+          <div className="fixed inset-0 z-[100] flex justify-end">
+            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm cursor-pointer transition-opacity" onClick={() => setIsDiagDrawerOpen(false)}></div>
+            <div className="relative w-full md:w-[480px] h-full bg-white dark:bg-slate-900 shadow-[-10px_0_30px_rgba(0,0,0,0.1)] flex flex-col transform transition-transform duration-300 animate-in slide-in-from-right overflow-hidden">
+              {/* Header */}
+              <div className="px-6 py-5 border-b border-surface-container bg-surface-container-low flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                    <span className="material-symbols-outlined">psychiatry</span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black font-headline text-slate-800 dark:text-slate-100">AI 团队诊断报告</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">DeepSeek HRM Analyzer</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsDiagDrawerOpen(false)}
+                  className="w-8 h-8 rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
+              
+              {/* Content Body */}
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-slate-900/50 custom-scrollbar relative">
+                {diagLoading ? (
+                  <div className="flex flex-col gap-4 animate-pulse pt-2">
+                    <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-1/3 mb-4"></div>
+                    <div className="space-y-3">
+                      <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-full"></div>
+                      <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-11/12"></div>
+                      <div className="h-3 bg-slate-200 dark:bg-slate-800 rounded w-4/5"></div>
+                    </div>
+                    <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-1/4 mt-6 mb-4"></div>
+                    <div className="h-24 bg-slate-200 dark:bg-slate-800 rounded-xl w-full border border-slate-100 dark:border-slate-700/50"></div>
+                    <div className="flex items-center justify-center gap-2 mt-12 text-slate-400">
+                      <span className="material-symbols-outlined animate-spin text-[16px]">sync</span>
+                      <span className="text-xs font-bold font-label">AI 正在深度分析中...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[15px] text-slate-700 dark:text-slate-300 leading-loose font-body">
+                    {diagResult.split('\n').map((line, idx) => {
+                      if (line.startsWith('### ')) return <h4 key={idx} className="text-[16px] font-black font-headline text-slate-800 dark:text-slate-100 mt-6 mb-2">{line.replace('### ', '').replace(/\*\*/g, '')}</h4>;
+                      if (line.startsWith('## ')) return <h3 key={idx} className="text-[18px] font-black font-headline text-indigo-700 dark:text-indigo-400 mt-8 mb-3 pb-2 border-b border-indigo-100 dark:border-indigo-900/50">{line.replace('## ', '').replace(/\*\*/g, '')}</h3>;
+                      if (line.startsWith('# ')) return <h2 key={idx} className="text-[20px] font-black font-headline text-slate-900 dark:text-white mt-4 mb-4">{line.replace('# ', '').replace(/\*\*/g, '')}</h2>;
+                      if (line.trim().startsWith('- ')) return <div key={idx} className="flex items-start gap-2 ml-2 mb-2"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0 mt-2"></span><span dangerouslySetInnerHTML={{ __html: line.replace('- ', '').replace(/\*\*(.*?)\*\*/g, '<b class="text-indigo-700 dark:text-indigo-400 font-black">$1</b>') }} className="font-medium"></span></div>;
+                      if (!line.trim()) return <div key={idx} className="h-3"></div>;
+                      
+                      const formattedLine = line.replace(/\*\*(.*?)\*\*/g, '<b class="text-slate-900 dark:text-slate-100 font-black">$1</b>');
+                      return <p key={idx} dangerouslySetInnerHTML={{ __html: formattedLine }} className="mb-3"></p>;
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              {/* Footer Action */}
+              <div className="p-4 border-t border-surface-container bg-white dark:bg-slate-900 shrink-0 flex gap-3">
+                <button 
+                  onClick={handleDiagnoseTeam}
+                  disabled={diagLoading}
+                  className="flex-1 py-3 px-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex justify-center items-center gap-2 disabled:opacity-50 active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[18px]">refresh</span>重新诊断
+                </button>
+                <button 
+                  onClick={() => {
+                    alert('已获取建议核心卡点，即将向相关责任人推送企微提醒...');
+                    setIsDiagDrawerOpen(false);
+                  }}
+                  disabled={diagLoading || !diagResult}
+                  className="flex-[2] py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-white shadow-md shadow-primary/20 font-bold transition-all flex justify-center items-center gap-2 disabled:opacity-50 active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[18px]">send</span>一键应用建议
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Top-Down Assignment Modal */}
