@@ -722,7 +722,12 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
                 status === 'approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
                 'border-dashed border-amber-300 bg-amber-50 text-amber-600'
               }`}>
-                <span className="font-bold">{item.pending_reviewer_name || approver || '待指定'}</span>
+                <span className="font-bold">
+                  {item.pending_reviewer_name || approver || 
+                    (status === 'pending_admin' ? '总经理' : 
+                     status === 'pending_hr' ? 'HR' : 
+                     status === 'pending_review' ? '审批人' : '待指定')}
+                </span>
                 <span className="text-[9px] opacity-80">
                   {status === 'rejected' ? '已驳回' : status === 'approved' ? '已完成' : '待处理'}
                 </span>
