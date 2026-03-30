@@ -1349,39 +1349,42 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
 
                     // 根据当前状态添加未来节点
                     const futureSteps: { role: string; name: string; label: string; isError?: boolean }[] = [];
+                    const hrUsers = users.filter(u => u.role === 'hr').map(u => u.name).join(' 或 ') || '缺失';
+                    const adminUsers = users.filter(u => u.role === 'admin' || (u as any).is_super_admin).map(u => u.name).join(' 或 ') || '缺失';
+
                     if (type === 'personal' || type === 'team') {
                       const finalNodeName = assigneeName || creatorName || '';
+                      const deptHeadName = initialData.dept_head_id ? (users.find(u => u.id === initialData.dept_head_id)?.name || '异常') : '缺失';
                       if (currentStatus === 'draft') {
-                        futureSteps.push({ role: '直属上级', name: approverName || '', label: '待一审', isError: !approverName });
-                        futureSteps.push({ role: '负责领导', name: '自动匹配', label: '待二审' });
-                        futureSteps.push({ role: '人事专员', name: '系统动作', label: '抄送人事' });
+                        futureSteps.push({ role: '直属上级', name: approverName || '缺失', label: '待一审', isError: !approverName || approverName === '缺失' });
+                        futureSteps.push({ role: '负责领导', name: deptHeadName, label: '待二审', isError: deptHeadName === '缺失' || deptHeadName === '异常' });
+                        futureSteps.push({ role: '人事专员', name: hrUsers, label: '抄送人事', isError: hrUsers === '缺失' });
                         futureSteps.push({ role: '执行人', name: finalNodeName, label: '待执行', isError: !finalNodeName });
                       } else if (currentStatus === 'pending_review') {
-                        futureSteps.push({ role: '直属上级', name: approverName || '', label: '待一审', isError: !approverName });
-                        futureSteps.push({ role: '负责领导', name: '自动匹配', label: '待二审' });
-                        futureSteps.push({ role: '人事专员', name: '系统动作', label: '抄送人事' });
+                        futureSteps.push({ role: '直属上级', name: approverName || '缺失', label: '待一审', isError: !approverName || approverName === '缺失' });
+                        futureSteps.push({ role: '负责领导', name: deptHeadName, label: '待二审', isError: deptHeadName === '缺失' || deptHeadName === '异常' });
+                        futureSteps.push({ role: '人事专员', name: hrUsers, label: '抄送人事', isError: hrUsers === '缺失' });
                         futureSteps.push({ role: '执行人', name: finalNodeName, label: '待执行', isError: !finalNodeName });
                       } else if (currentStatus === 'pending_dept_review') {
-                        const deptHeadName = initialData.dept_head_id ? (users.find(u => u.id === initialData.dept_head_id)?.name) : '未指定';
-                        futureSteps.push({ role: '负责领导', name: deptHeadName || '异常', label: '待二审', isError: !deptHeadName });
-                        futureSteps.push({ role: '人事专员', name: '系统动作', label: '抄送人事' });
+                        futureSteps.push({ role: '负责领导', name: deptHeadName, label: '待二审', isError: deptHeadName === '缺失' || deptHeadName === '异常' });
+                        futureSteps.push({ role: '人事专员', name: hrUsers, label: '抄送人事', isError: hrUsers === '缺失' });
                         futureSteps.push({ role: '执行人', name: finalNodeName, label: '待执行', isError: !finalNodeName });
                       } else if (currentStatus === 'in_progress') {
-                        futureSteps.push({ role: '直属上级', name: approverName || '', label: '待考核', isError: !approverName });
+                        futureSteps.push({ role: '直属上级', name: approverName || '缺失', label: '待考核', isError: !approverName || approverName === '缺失' });
                       } else if (currentStatus === 'pending_assessment') {
-                        futureSteps.push({ role: '直属上级', name: approverName || '', label: '待评分', isError: !approverName });
+                        futureSteps.push({ role: '直属上级', name: approverName || '缺失', label: '待评分', isError: !approverName || approverName === '缺失' });
                       } else if (currentStatus === 'assessed') {
-                        futureSteps.push({ role: '人事专员', name: '系统动作', label: '待发放奖励' });
+                        futureSteps.push({ role: '人事专员', name: hrUsers, label: '待发放奖励', isError: hrUsers === '缺失' });
                       }
                     } else {
                       if (currentStatus === 'draft') {
-                        futureSteps.push({ role: '人事考评', name: '人事预设', label: '待初始核准' });
-                        futureSteps.push({ role: '总经理', name: '管理层', label: '待终审批复' });
+                        futureSteps.push({ role: '人事考评', name: hrUsers, label: '待初始核准', isError: hrUsers === '缺失' });
+                        futureSteps.push({ role: '总经理', name: adminUsers, label: '待终审批复', isError: adminUsers === '缺失' });
                       } else if (currentStatus === 'pending_hr') {
-                        futureSteps.push({ role: '人事考评', name: '人事预设', label: '待初始核准' });
-                        futureSteps.push({ role: '总经理', name: '管理层', label: '待终审批复' });
+                        futureSteps.push({ role: '人事考评', name: hrUsers, label: '待初始核准', isError: hrUsers === '缺失' });
+                        futureSteps.push({ role: '总经理', name: adminUsers, label: '待终审批复', isError: adminUsers === '缺失' });
                       } else if (currentStatus === 'pending_admin') {
-                        futureSteps.push({ role: '总经理', name: '管理层', label: '待终审批复' });
+                        futureSteps.push({ role: '总经理', name: adminUsers, label: '待终审批复', isError: adminUsers === '缺失' });
                       }
                     }
 
