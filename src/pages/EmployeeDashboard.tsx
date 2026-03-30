@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import PersonalGoalsPanel from '../components/PersonalGoalsPanel';
@@ -481,7 +481,7 @@ function NotificationsDetail({ data, navigate, onClose }: { data: DashData; navi
 
   const markRead = async (id: number) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
+      await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       setAllNotifs(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
     } catch {}
   };
@@ -516,48 +516,7 @@ function NotificationsDetail({ data, navigate, onClose }: { data: DashData; navi
   );
 }
 
-/* ================================================================
-   模块注册表 — label + icon 用于自定义面板
-   ================================================================ */
-const MODULE_REGISTRY: { id: string; label: string; icon: string; component: React.FC<ModuleProps> }[] = [];
 
-const STORAGE_KEY = 'hrm_dashboard_layout_v2';
-const NUM_COLS = 3;
-
-// Default column distribution
-function defaultColumns(): string[][] {
-  const ids = MODULE_REGISTRY.map(m => m.id);
-  const cols: string[][] = [[], [], []];
-  ids.forEach((id, i) => cols[i % NUM_COLS].push(id));
-  return cols;
-}
-
-interface LayoutState { columns: string[][]; hidden: string[]; }
-
-function loadLayout(): LayoutState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const allIds = new Set(MODULE_REGISTRY.map(m => m.id));
-      const cols: string[][] = (parsed.columns || [[], [], []]).map((col: string[]) =>
-        (col || []).filter((id: string) => allIds.has(id))
-      );
-      // Ensure exactly 3 columns
-      while (cols.length < NUM_COLS) cols.push([]);
-      // Add any new modules not in saved layout
-      const usedIds = new Set(cols.flat());
-      const missing = MODULE_REGISTRY.map(m => m.id).filter(id => !usedIds.has(id));
-      missing.forEach((id, i) => cols[i % NUM_COLS].push(id));
-      return { columns: cols, hidden: parsed.hidden || [] };
-    }
-  } catch {}
-  return { columns: defaultColumns(), hidden: [] };
-}
-
-function saveLayout(columns: string[][], hidden: string[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ columns, hidden }));
-}
 
 /* ================================================================
    主页组件
@@ -574,45 +533,32 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
   const [recentNotifs, setRecentNotifs] = useState<any[]>([]);
   const [myProposals, setMyProposals] = useState<any[]>([]);
   const [totalPlansCount, setTotalPlansCount] = useState(0);
-
-  // Layout state: 3-column grid
-  const [columns, setColumns] = useState<string[][]>(() => loadLayout().columns);
-  const [hiddenModules, setHiddenModules] = useState<Set<string>>(() => new Set(loadLayout().hidden));
-  const [isEditing, setIsEditing] = useState(false);
-  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [dashLoading, setDashLoading] = useState(true);
 
   // Detail modal state
   const [detailModal, setDetailModal] = useState<DetailModalType>(null);
-
-  // Drag state: track source position (colIdx, itemIdx) and drop target
-  const dragRef = useRef<{ id: string; colIdx: number; itemIdx: number } | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ colIdx: number; itemIdx: number } | null>(null);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
   useEffect(() => { fetchTasks(); fetchDashboardData(); }, []);
 
-  // Persist layout changes
-  useEffect(() => {
-    saveLayout(columns, Array.from(hiddenModules));
-  }, [columns, hiddenModules]);
-
   const fetchTasks = async () => {
     try { const r = await fetch('/api/tasks', { headers }); if (r.ok) setTasks(await r.json()); } catch {}
   };
 
   const fetchDashboardData = async () => {
+    setDashLoading(true);
     try {
-      const [pendingRes, notifRes, plansRes, proposalsRes] = await Promise.all([
+      const [pendingRes, notifRes, plansRes, proposalsRes, ucRes] = await Promise.all([
         fetch('/api/workflows/pending', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
         fetch('/api/notifications?limit=5', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
         fetch(`/api/perf/plans${currentUser?.id ? `?userId=${currentUser.id}` : ''}`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
         fetch('/api/pool/my-proposals', { headers }).then(r => r.json()).catch(() => ({ data: [] })),
+        fetch('/api/notifications/unread-count', { headers }).then(r => r.json()).catch(() => ({ data: { count: 0 } })),
       ]);
       setPendingWorkflows(pendingRes?.data?.length || 0);
       setRecentNotifs(notifRes?.data || []);
-      const ucRes = await fetch('/api/notifications/unread-count', { headers }).then(r => r.json()).catch(() => ({ data: { count: 0 } }));
       setUnreadCount(ucRes?.data?.count || 0);
 
       const ongoingPlans = (plansRes?.data || []).filter((p: any) => !['completed', 'cancelled'].includes(p.status));
@@ -621,6 +567,7 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
 
       setMyProposals((proposalsRes?.data || []).slice(0, 3));
     } catch {}
+    setDashLoading(false);
   };
 
   const handleToggleTaskStatus = async (task: Task) => {
@@ -637,81 +584,6 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
     } catch {}
   };
 
-  // ── Cross-column drag handlers ──
-  const handleDragStart = useCallback((id: string, colIdx: number, itemIdx: number) => {
-    dragRef.current = { id, colIdx, itemIdx };
-  }, []);
-
-  const handleDragOverItem = useCallback((e: React.DragEvent, colIdx: number, itemIdx: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDropTarget({ colIdx, itemIdx });
-  }, []);
-
-  const handleDragOverColumn = useCallback((e: React.DragEvent, colIdx: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    // Drop at end of column
-    setDropTarget({ colIdx, itemIdx: -1 });
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const src = dragRef.current;
-    const dst = dropTarget;
-    if (!src || !dst) { setDropTarget(null); return; }
-
-    setColumns(prev => {
-      const newCols = prev.map(col => [...col]);
-      // Remove from source
-      const [removed] = newCols[src.colIdx].splice(src.itemIdx, 1);
-      if (!removed) return prev;
-      // Insert at destination
-      const targetIdx = dst.itemIdx === -1 ? newCols[dst.colIdx].length : dst.itemIdx;
-      // Adjust index if same column and source was before target
-      const adjustedIdx = src.colIdx === dst.colIdx && src.itemIdx < targetIdx ? targetIdx - 1 : targetIdx;
-      newCols[dst.colIdx].splice(Math.max(0, adjustedIdx), 0, removed);
-      return newCols;
-    });
-
-    dragRef.current = null;
-    setDropTarget(null);
-  }, [dropTarget]);
-
-  const handleDragEnd = useCallback(() => {
-    dragRef.current = null;
-    setDropTarget(null);
-  }, []);
-
-  const handleRemoveModule = useCallback((id: string) => {
-    setHiddenModules(prev => new Set([...prev, id]));
-  }, []);
-
-  const handleAddModule = useCallback((id: string) => {
-    // Add to shortest column
-    setColumns(prev => {
-      const newCols = prev.map(col => [...col]);
-      const visibleLengths = newCols.map(col => col.filter(cid => !hiddenModules.has(cid)).length);
-      const shortestCol = visibleLengths.indexOf(Math.min(...visibleLengths));
-      if (!newCols.flat().includes(id)) {
-        newCols[shortestCol].push(id);
-      }
-      return newCols;
-    });
-    setHiddenModules(prev => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    setShowAddPanel(false);
-  }, [hiddenModules]);
-
-  const handleResetLayout = useCallback(() => {
-    setColumns(defaultColumns());
-    setHiddenModules(new Set());
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
-
   // Date
   const now = new Date();
   const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -724,9 +596,6 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
 
   const dashData: DashData = { pendingWorkflows, unreadCount, myPlans, recentNotifs, myProposals, tasks, pendingTasks, completedTasks, totalPlansCount };
   const dashActions: DashActions = { toggleTask: handleToggleTaskStatus, openTaskModal: () => setIsTaskModalOpen(true) };
-
-  const hiddenModuleList = MODULE_REGISTRY.filter(m => hiddenModules.has(m.id));
-  const modMap = Object.fromEntries(MODULE_REGISTRY.map(m => [m.id, m]));
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface text-on-surface antialiased">
@@ -746,32 +615,46 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
 
           {/* Stat Cards */}
           <div className={`grid gap-3 ${isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4'}`}>
-            {[
-              { label: '待我审批', value: pendingWorkflows, icon: 'pending_actions', from: 'from-blue-50', to: 'to-indigo-50', text: 'text-blue-700', sub: 'text-blue-600/70', border: 'border-blue-100/60', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', modal: 'workflows' as DetailModalType, badge: pendingWorkflows },
-              { label: '进行中绩效', value: totalPlansCount, icon: 'trending_up', from: 'from-emerald-50', to: 'to-teal-50', text: 'text-emerald-700', sub: 'text-emerald-600/70', border: 'border-emerald-100/60', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', modal: 'perf' as DetailModalType },
-              { label: '待办事项', value: pendingTasks.length, icon: 'checklist', from: 'from-amber-50', to: 'to-orange-50', text: 'text-amber-700', sub: 'text-amber-600/70', border: 'border-amber-100/60', iconBg: 'bg-amber-100', iconColor: 'text-amber-600', modal: 'tasks' as DetailModalType, badge: pendingTasks.length },
-              { label: '未读消息', value: unreadCount, icon: 'mail', from: 'from-purple-50', to: 'to-violet-50', text: 'text-purple-700', sub: 'text-purple-600/70', border: 'border-purple-100/60', iconBg: 'bg-purple-100', iconColor: 'text-purple-600', modal: 'notifications' as DetailModalType, badge: unreadCount },
-            ].map(c => (
-              <button key={c.label} 
-                onClick={() => {
-                  if (c.modal === 'workflows') navigate('workflows?tab=pending');
-                  else if (c.modal === 'perf') {
-                    document.getElementById('personal-goals-section')?.scrollIntoView({ behavior: 'smooth' });
-                  }
-                  else if (c.modal) setDetailModal(c.modal);
-                }}
-                className={`bg-gradient-to-br ${c.from} ${c.to} rounded-2xl p-4 text-left hover:shadow-md transition-all border ${c.border}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`w-9 h-9 ${c.iconBg} rounded-xl flex items-center justify-center`}>
-                    <span className={`material-symbols-outlined ${c.iconColor} text-[18px]`}>{c.icon}</span>
+            {dashLoading ? (
+              // Skeleton loading state
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-slate-100 dark:bg-slate-800/60 rounded-2xl p-4 animate-pulse">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-9 h-9 bg-slate-200 dark:bg-slate-700 rounded-xl" />
                   </div>
-                  {c.badge != null && c.badge > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-black">{c.badge}</span>}
+                  <div className="h-7 w-12 bg-slate-200 dark:bg-slate-700 rounded-lg mb-1.5" />
+                  <div className="h-3 w-16 bg-slate-200 dark:bg-slate-700 rounded" />
                 </div>
-                <p className={`text-2xl font-black ${c.text}`}>{c.value}</p>
-                <p className={`text-[11px] ${c.sub} font-bold`}>{c.label}</p>
-              </button>
-            ))}
+              ))
+            ) : (
+              [
+                { label: '待我审批', value: pendingWorkflows, icon: 'pending_actions', from: 'from-blue-50', to: 'to-indigo-50', text: 'text-blue-700', sub: 'text-blue-600/70', border: 'border-blue-100/60', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', modal: 'workflows' as DetailModalType, badge: pendingWorkflows },
+                { label: '进行中绩效', value: totalPlansCount, icon: 'trending_up', from: 'from-emerald-50', to: 'to-teal-50', text: 'text-emerald-700', sub: 'text-emerald-600/70', border: 'border-emerald-100/60', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', modal: 'perf' as DetailModalType },
+                { label: '待办事项', value: pendingTasks.length, icon: 'checklist', from: 'from-amber-50', to: 'to-orange-50', text: 'text-amber-700', sub: 'text-amber-600/70', border: 'border-amber-100/60', iconBg: 'bg-amber-100', iconColor: 'text-amber-600', modal: 'tasks' as DetailModalType, badge: pendingTasks.length },
+                { label: '未读消息', value: unreadCount, icon: 'mail', from: 'from-purple-50', to: 'to-violet-50', text: 'text-purple-700', sub: 'text-purple-600/70', border: 'border-purple-100/60', iconBg: 'bg-purple-100', iconColor: 'text-purple-600', modal: 'notifications' as DetailModalType, badge: unreadCount },
+              ].map(c => (
+                <button key={c.label}
+                  onClick={() => {
+                    if (c.modal === 'workflows') navigate('workflows?tab=pending');
+                    else if (c.modal === 'perf') {
+                      document.getElementById('personal-goals-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }
+                    else if (c.modal) setDetailModal(c.modal);
+                  }}
+                  className={`bg-gradient-to-br ${c.from} ${c.to} rounded-2xl p-4 text-left hover:shadow-md active:scale-95 transition-all border ${c.border}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`w-9 h-9 ${c.iconBg} rounded-xl flex items-center justify-center`}>
+                      <span className={`material-symbols-outlined ${c.iconColor} text-[18px]`}>{c.icon}</span>
+                    </div>
+                    {c.badge != null && c.badge > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-black">{c.badge}</span>}
+                  </div>
+                  <p className={`text-2xl font-black ${c.text}`}>{c.value}</p>
+                  <p className={`text-[11px] ${c.sub} font-bold`}>{c.label}</p>
+                </button>
+              ))
+            )}
           </div>
+
 
 
 
@@ -860,126 +743,7 @@ export default function EmployeeDashboard({ navigate }: { navigate: (view: strin
           </div>
           )}
 
-          {/* ── 自由拖拽布局区 (desktop only) ── */}
-          {!isMobile && (
-          <div className="mt-10 border-t border-slate-200/60 dark:border-slate-800 pt-8">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                <span className="material-symbols-outlined text-purple-500">dashboard_customize</span>
-                自定义仪表盘
-              </h3>
-              <button onClick={() => { setIsEditing(!isEditing); setShowAddPanel(false); }}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  isEditing
-                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-600'
-                    : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 border border-slate-200 dark:border-slate-700 hover:shadow-md'
-                }`}>
-                <span className="material-symbols-outlined text-[16px]">{isEditing ? 'check' : 'dashboard_customize'}</span>
-                {isEditing ? '完成编辑' : '自定义'}
-              </button>
-            </div>
-          {/* Editing Toolbar */}
-          {isEditing && (
-            <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-200/60 dark:border-blue-800/30">
-              <span className="material-symbols-outlined text-blue-500 text-[18px]">info</span>
-              <span className="text-xs text-blue-700 dark:text-blue-300 font-medium flex-1">拖拽模块到任意位置，支持跨列移动。点击 × 隐藏模块</span>
-              <button onClick={() => setShowAddPanel(!showAddPanel)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-slate-800 rounded-lg text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 border border-emerald-200 dark:border-emerald-800 transition-all">
-                <span className="material-symbols-outlined text-[14px]">add_circle</span>
-                添加模块 {hiddenModuleList.length > 0 && `(${hiddenModuleList.length})`}
-              </button>
-              <button onClick={handleResetLayout}
-                className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-slate-800 rounded-lg text-[10px] font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition-all">
-                <span className="material-symbols-outlined text-[14px]">restart_alt</span>
-                重置布局
-              </button>
-            </div>
-          )}
 
-          {/* Add Module Panel */}
-          {isEditing && showAddPanel && hiddenModuleList.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800">
-              {hiddenModuleList.map(mod => (
-                <button key={mod.id} onClick={() => handleAddModule(mod.id)}
-                  className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all border border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-400 group">
-                  <span className="material-symbols-outlined text-[16px] text-slate-400 group-hover:text-emerald-500">{mod.icon}</span>
-                  <span className="text-xs font-bold text-slate-600 group-hover:text-emerald-700">{mod.label}</span>
-                  <span className="material-symbols-outlined text-[14px] text-slate-300 group-hover:text-emerald-400 ml-auto">add</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* ── 3-Column Free Canvas Grid ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
-            {columns.map((col, colIdx) => {
-              const visibleItems = col.filter(id => !hiddenModules.has(id));
-              return (
-                <div
-                  key={colIdx}
-                  className={`space-y-4 min-h-[100px] rounded-2xl transition-all ${
-                    isEditing ? 'p-2 border-2 border-dashed border-transparent' : ''
-                  } ${dropTarget?.colIdx === colIdx && dropTarget?.itemIdx === -1 ? 'border-blue-300 bg-blue-50/30' : ''}`}
-                  onDragOver={(e) => {
-                    if (!isEditing) return;
-                    // Only activate column drop zone if not over a specific item
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const y = e.clientY - rect.top;
-                    if (y > rect.height - 40 || visibleItems.length === 0) {
-                      handleDragOverColumn(e, colIdx);
-                    }
-                  }}
-                  onDrop={handleDrop}
-                >
-                  {visibleItems.map((modId, itemIdx) => {
-                    const mod = modMap[modId];
-                    if (!mod) return null;
-                    const Comp = mod.component;
-                    const isOver = dropTarget?.colIdx === colIdx && dropTarget?.itemIdx === itemIdx;
-                    return (
-                      <div key={mod.id}>
-                        {/* Drop indicator line */}
-                        {isEditing && isOver && (
-                          <div className="h-1 bg-blue-400 rounded-full mx-4 mb-2 animate-pulse" />
-                        )}
-                        <div
-                          draggable={isEditing}
-                          onDragStart={() => handleDragStart(mod.id, colIdx, itemIdx)}
-                          onDragOver={(e) => { if (isEditing) handleDragOverItem(e, colIdx, itemIdx); }}
-                          onDrop={handleDrop}
-                          onDragEnd={handleDragEnd}
-                          className={`transition-all ${
-                            isEditing ? 'cursor-grab active:cursor-grabbing' : ''
-                          }`}
-                          style={{ WebkitUserDrag: isEditing ? 'element' : 'none' } as any}
-                        >
-                          <ModCard
-                            isEditing={isEditing}
-                            onRemove={() => handleRemoveModule(mod.id)}
-                            dragHandleProps={isEditing ? {
-                              onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
-                            } : undefined}
-                          >
-                            <Comp navigate={navigate} data={dashData} actions={dashActions} />
-                          </ModCard>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {/* Empty column drop zone */}
-                  {isEditing && visibleItems.length === 0 && (
-                    <div className="flex items-center justify-center h-32 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs">
-                      <span className="material-symbols-outlined text-[20px] mr-1">add</span>
-                      拖拽模块到此列
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          </div>
-          )}
         </div>
       </main>
 

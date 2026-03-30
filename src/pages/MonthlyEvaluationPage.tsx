@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,6 +12,105 @@ interface EvalTask {
   target_user_id: string;
   target_user_name: string;
   target_department_name: string;
+}
+
+
+// ── 可搜索用户选择器 ────────────────────────────────────────────────
+function SearchableUserSelect({
+  value,
+  users,
+  onChange,
+}: {
+  value: string;
+  users: { id: string; name: string }[];
+  onChange: (uid: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = query
+    ? users.filter(u => u.name.toLowerCase().includes(query.toLowerCase()))
+    : users;
+
+  const selectedUser = users.find(u => u.id === value);
+
+  return (
+    <div ref={ref} className="relative flex-1">
+      <button
+        type="button"
+        onClick={() => { setOpen(o => !o); setQuery(''); }}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm font-bold outline-none focus:border-indigo-400 hover:border-indigo-300 transition-colors text-left"
+      >
+        <span className={selectedUser ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400'}>
+          {selectedUser ? selectedUser.name : '- 删除此名额 -'}
+        </span>
+        <span className="material-symbols-outlined text-slate-400 text-[16px] shrink-0">
+          {open ? 'expand_less' : 'expand_more'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute z-[9999] mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl shadow-slate-900/10 overflow-hidden">
+          {/* 搜索框 */}
+          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[15px]">search</span>
+              <input
+                autoFocus
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="搜索姓名..."
+                className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 font-medium"
+              />
+            </div>
+          </div>
+          {/* 选项列表 */}
+          <div className="max-h-48 overflow-y-auto">
+            <div
+              onClick={() => { onChange(''); setOpen(false); }}
+              className="px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors font-medium"
+            >
+              - 删除此名额 -
+            </div>
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-xs text-slate-400">未找到匹配的人员</div>
+            ) : (
+              filtered.map(u => (
+                <div
+                  key={u.id}
+                  onClick={() => { onChange(u.id); setOpen(false); }}
+                  className={`px-3 py-2 text-sm cursor-pointer transition-colors flex items-center gap-2 ${
+                    u.id === value
+                      ? 'bg-indigo-50 text-indigo-700 font-bold dark:bg-indigo-900/30 dark:text-indigo-300'
+                      : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 font-medium'
+                  }`}
+                >
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-400 to-violet-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                    {u.name.charAt(0)}
+                  </div>
+                  {u.name}
+                  {u.id === value && (
+                    <span className="material-symbols-outlined text-[14px] ml-auto text-indigo-500">check</span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: string) => void }) {
@@ -380,11 +479,11 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                       <div className="space-y-2 ml-6">
                         {previewReviewers[role.key].map((uid: string, idx: number) => (
                           <div key={idx} className="flex gap-2 items-center">
-                            <select value={uid} onChange={e => handleReviewerChange(role.key, idx, e.target.value)}
-                              className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm font-bold outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
-                              <option value="">- 删除此名额 -</option>
-                              {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                            </select>
+                            <SearchableUserSelect
+                              value={uid}
+                              users={allUsers}
+                              onChange={newUid => handleReviewerChange(role.key, idx, newUid)}
+                            />
                             <button onClick={() => handleReviewerChange(role.key, idx, '')} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
                           </div>
                         ))}
@@ -480,17 +579,28 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">绩效发薪依据得分 <span className="text-red-500">*</span></label>
-                    <input type="number" min="0" max="100" value={scoreInput} onChange={e => setScoreInput(Number(e.target.value))} className="w-full px-4 py-4 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all text-2xl font-black text-center text-blue-600 bg-slate-50/50" placeholder="0" autoFocus />
+                    <div className={`w-full flex items-center justify-center rounded-2xl py-5 mb-3 transition-all duration-300 ${Number(scoreInput) >= 81 ? 'bg-emerald-50 border-2 border-emerald-200' : Number(scoreInput) >= 61 ? 'bg-amber-50 border-2 border-amber-200' : Number(scoreInput) > 0 ? 'bg-red-50 border-2 border-red-200' : 'bg-slate-50 border-2 border-slate-200'}`}>
+                      <span className={`text-6xl font-black tracking-tighter transition-colors duration-300 tabular-nums ${Number(scoreInput) >= 81 ? 'text-emerald-600' : Number(scoreInput) >= 61 ? 'text-amber-600' : Number(scoreInput) > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                        {scoreInput || '–'}
+                      </span>
+                      {Number(scoreInput) > 0 && <span className={`text-lg font-bold ml-1 mt-4 ${Number(scoreInput) >= 81 ? 'text-emerald-500' : Number(scoreInput) >= 61 ? 'text-amber-500' : 'text-red-400'}`}>分</span>}
+                    </div>
+                    {Number(scoreInput) > 0 && (
+                      <div className={`text-center text-xs font-bold mb-3 ${Number(scoreInput) >= 81 ? 'text-emerald-600' : Number(scoreInput) >= 61 ? 'text-amber-600' : 'text-red-500'}`}>
+                        {Number(scoreInput) >= 81 ? '✓ 优秀 — 超额完成目标，表现卓越' : Number(scoreInput) >= 61 ? '◎ 达标 — 基本完成目标，需提升' : '⚠ 不达标 — 未完成目标，请填写评价'}
+                      </div>
+                    )}
+                    <input type="number" min="0" max="100" value={scoreInput || ''} onChange={e => setScoreInput(Math.min(100, Math.max(0, Number(e.target.value))))} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all text-xl font-black text-center text-slate-700 bg-white" placeholder="输入分数 0-100" autoFocus />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">综合简要评价 (选填)</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">综合简要评价 {Number(scoreInput) < 61 && Number(scoreInput) > 0 ? <span className="text-red-500 text-xs font-semibold">(不达标时必填)</span> : '(选填)'}</label>
                     <textarea rows={5} value={commentInput} onChange={e => setCommentInput(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all text-sm resize-none bg-slate-50/50" placeholder="输入评价，如：本月交付响应极快，质量可靠..." />
                   </div>
                 </div>
 
                 <div className="p-5 bg-slate-50 border-t border-slate-100 flex gap-3 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)]">
                   <button onClick={() => setScoringTask(null)} className="flex-1 py-3 bg-white text-slate-600 font-bold rounded-xl border border-slate-200 hover:bg-slate-100 transition-all">取消</button>
-                  <button onClick={submitScore} className="flex-[2] py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-xl shadow-blue-500/30 active:scale-95 transition-all text-lg">不可逆·确认提交</button>
+                  <button onClick={submitScore} disabled={!scoreInput} className="flex-[2] py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-xl shadow-blue-500/30 active:scale-95 transition-all text-lg disabled:opacity-40 disabled:cursor-not-allowed">不可逆·确认提交</button>
                 </div>
               </div>
               

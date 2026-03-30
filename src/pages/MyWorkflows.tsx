@@ -71,6 +71,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
   const [users, setUsers] = useState<any[]>([]);
   const [selectedTask, setSelectedTask] = useState<{ type: string, data: any, isPending: boolean, originalStatus?: string } | null>(null);
   const [submittingApprovals, setSubmittingApprovals] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const { currentUser } = useAuth();
   const isMobile = useIsMobile();
 
@@ -100,7 +101,12 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
       const res = await fetch(`/api/workflows/${tab}`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       if (json.code === 0) {
-        setData(json.data || []);
+        let items = json.data || [];
+        // ── 前端防走: 「待我审核」 Tab 中过滤掉自己发起的条目 ──
+        if (tab === 'pending' && currentUser?.id) {
+          items = items.filter((item: any) => item.creator_id !== currentUser.id && item.created_by !== currentUser.id);
+        }
+        setData(items);
       }
     } catch {}
     setLoading(false);
@@ -132,7 +138,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
     try {
       const isPerf = flowType === 'perf_plan';
       const isJoin = flowType === 'pool_join';
-      // Map to correct API endpoints
       const realEndpoint = isPerf 
         ? `/api/perf/plans/${id}/${action}`
         : isJoin
@@ -169,10 +174,11 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
         const refreshCounts = await fetch(`/api/workflows/pending`, { headers }).then(r=>r.json()).catch(()=>null);
         if (refreshCounts) setCounts(prev => ({ ...prev, pending: refreshCounts.data?.length || 0 }));
       } else {
-        alert(data.message || '操作失败');
+        // 显示后端错误（包含越级/自审错误）
+        setApprovalError(data.message || '操作失败');
       }
     } catch (e) {
-      alert('网络错误');
+      setApprovalError('网络错误，请重试');
     } finally {
       setSubmittingApprovals(false);
     }
@@ -482,19 +488,34 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
 
         // Custom footer for withdraw-able items
         const withdrawFooter = canWithdraw ? (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleWithdraw}
-              disabled={submittingApprovals}
-              className="px-5 py-2 text-sm font-bold text-amber-600 bg-white border border-amber-300 hover:bg-amber-50 rounded-xl transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5"
-            >
-              <span className="material-symbols-outlined text-[16px]">undo</span>
-              撤回申请
-            </button>
-            <button type="button" onClick={() => setSelectedTask(null)} className="px-6 py-2 text-sm font-bold text-white bg-[#005ea4] hover:bg-[#0077ce] rounded-xl transition-colors shadow-sm focus:outline-none">
-              关闭
-            </button>
+          <div className="flex flex-col gap-2 w-full">
+            {approvalError && (
+              <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-600 text-sm font-bold w-full">
+                <span className="material-symbols-outlined text-[16px]">error</span>
+                {approvalError}
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleWithdraw}
+                disabled={submittingApprovals}
+                className="px-5 py-2 text-sm font-bold text-amber-600 bg-white border border-amber-300 hover:bg-amber-50 rounded-xl transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[16px]">undo</span>
+                撤回申请
+              </button>
+              <button type="button" onClick={() => setSelectedTask(null)} className="px-6 py-2 text-sm font-bold text-white bg-[#005ea4] hover:bg-[#0077ce] rounded-xl transition-colors shadow-sm focus:outline-none">
+                关闭
+              </button>
+            </div>
+          </div>
+        ) : approvalError ? (
+          <div className="flex flex-col gap-2 w-full">
+            <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-600 text-sm font-bold w-full">
+              <span className="material-symbols-outlined text-[16px]">error</span>
+              {approvalError}
+            </div>
           </div>
         ) : undefined;
 
@@ -504,15 +525,15 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
             title={selectedTask.isPending ? '流程审批' : isEditableByCreator ? '重新提交审批' : '流程详情'}
             type={selectedTask.type as any}
             initialData={selectedTask.data}
-            readonly={!isEditableByCreator} // Editable if creator is revising draft/rejected
+            readonly={!isEditableByCreator}
             approverMode={selectedTask.isPending}
             customFooter={withdrawFooter}
-            onApprove={(comment, updatedData) => handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'approve', comment, updatedData)}
-            onReject={(comment) => handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'reject', comment)}
+            onApprove={(comment, updatedData) => { setApprovalError(null); handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'approve', comment, updatedData); }}
+            onReject={(comment) => { setApprovalError(null); handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'reject', comment); }}
             onDelete={isEditableByCreator ? handleDelete : undefined}
             submitting={submittingApprovals}
             users={users}
-            onClose={() => setSelectedTask(null)}
+            onClose={() => { setSelectedTask(null); setApprovalError(null); }}
             onSubmit={handleEditSubmit}
           />
         );

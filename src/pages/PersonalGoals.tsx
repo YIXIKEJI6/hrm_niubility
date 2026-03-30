@@ -50,6 +50,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
     quarter: '2024 Q3'
   });
   const [submitting, setSubmitting] = useState(false);
+  const [myManagerId, setMyManagerId] = useState<string>('');
   // 二次编辑被驳回的目标
   const [editingPlan, setEditingPlan] = useState<PerfPlan | null>(null);
   const [editForm, setEditForm] = useState<SmartData>({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', collaborators: '' });
@@ -61,8 +62,35 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
     if (currentUser?.id) {
       fetchPlans();
       fetchUsers();
+      fetchMyManager();
     }
   }, [currentUser]);
+
+  /** 从组织架构获取直属上级（部门负责人），若无则尝试取 HR 兜底 */
+  const fetchMyManager = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      // Step 1: 获取当前用户的部门 ID
+      const meRes = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      const meData = await meRes.json();
+      const deptId = meData?.data?.department_id;
+      if (deptId) {
+        // Step 2: 获取部门 leader
+        const deptRes = await fetch(`/api/org/departments/${deptId}`, { headers: { Authorization: `Bearer ${token}` } });
+        const deptData = await deptRes.json();
+        const leaderId = deptData?.data?.leader_user_id;
+        if (leaderId && leaderId !== currentUser?.id) {
+          setMyManagerId(leaderId);
+          return;
+        }
+      }
+      // Step 3: 兜底 — 取任意 HR 或管理员
+      const usersRes = await fetch('/api/org/users', { headers: { Authorization: `Bearer ${token}` } });
+      const usersData = await usersRes.json();
+      const hrUser = (usersData?.data || []).find((u: any) => u.role === 'hr' || u.role === 'admin');
+      if (hrUser) setMyManagerId(hrUser.id);
+    } catch {}
+  };
 
   const fetchUsers = async () => {
     try {
@@ -93,7 +121,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
     try {
       const token = localStorage.getItem('token');
       // 1. 创建草稿
-      const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
+      const approverId = myManagerId || currentUser?.id || '';
       const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
@@ -442,7 +470,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           setSubmitting(true);
           try {
             const token = localStorage.getItem('token');
-            const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
+            const approverId = myManagerId || currentUser?.id || '';
             const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
             const res = await fetch('/api/perf/plans', {
               method: 'POST',

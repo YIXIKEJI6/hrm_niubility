@@ -416,6 +416,34 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       <main className={`flex-1 mt-16 min-h-[calc(100vh-4rem)] overflow-y-auto ${isMobile ? 'pb-20' : ''}`}>
         <div className={`max-w-screen-2xl mx-auto ${isMobile ? 'px-4 pt-4 pb-6' : 'px-8 pt-6 pb-10'}`}>
 
+          {/* ── 顶部统计概览卡 ── */}
+          {!isMobile && !loading && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              {(() => {
+                const activeTasks = tasks.filter(t => t.status === 'in_progress' || t.status === 'claiming');
+                const totalBonus = tasks.filter(t => t.reward_type !== 'score').reduce((sum, t) => sum + (t.bonus || 0), 0);
+                const totalParticipants = leaderboard.length;
+                const completedTasks = tasks.filter(t => t.status === 'rewarded').length;
+                const stats = [
+                  { label: '任务总数', value: tasks.filter(t=>t.status!=='proposing').length, sub: `${completedTasks} 已发赏`, icon: 'task_alt', gradient: 'from-blue-500 to-indigo-600' },
+                  { label: '进行中', value: activeTasks.length, sub: `${tasks.filter(t=>t.status==='claiming').length} 认领中`, icon: 'directions_run', gradient: 'from-emerald-500 to-teal-600' },
+                  { label: '奖金池总额', value: `¥${totalBonus.toLocaleString()}`, sub: '现金奖励合计', icon: 'paid', gradient: 'from-amber-500 to-orange-600' },
+                  { label: '参与员工', value: totalParticipants, sub: '上榜人数', icon: 'people', gradient: 'from-purple-500 to-violet-600' },
+                ];
+                return stats.map(s => (
+                  <div key={s.label} className={`bg-gradient-to-br ${s.gradient} rounded-2xl p-4 text-white shadow-lg`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="material-symbols-outlined text-white/70 text-[22px]" style={{ fontVariationSettings: "'FILL' 1" }}>{s.icon}</span>
+                    </div>
+                    <p className="text-2xl font-black tracking-tight mb-0.5">{s.value}</p>
+                    <p className="text-xs text-white/80 font-bold">{s.label}</p>
+                    <p className="text-[10px] text-white/60 mt-0.5">{s.sub}</p>
+                  </div>
+                ));
+              })()}
+            </div>
+          )}
+
           {/* Title Row (Action Buttons) */}
           <div className={`flex justify-end mb-3 ${isMobile ? '' : ''}`}>
             <div className={`flex items-center ${isMobile ? 'gap-1.5 w-full' : 'gap-2'}`}>

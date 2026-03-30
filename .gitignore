@@ -12,3 +12,4 @@ data/*.db
 deploy.config
 
 data/
+.mcp.json

@@ -313,6 +313,11 @@ router.post('/proposals/:id/review', authMiddleware, (req: AuthRequest, res) => 
   const reviewer = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
   if (!reviewer) return res.status(401).json({ code: 401, message: '未授权' });
 
+  // ── 禁止自批：提案发起人不能审批自己的提案 ──
+  if (proposal.created_by === req.userId) {
+    return res.status(403).json({ code: 403, message: '提案发起人不能审批自己提交的提案' });
+  }
+
   if (action === 'approve') {
     if (proposal.proposal_status === 'pending_hr') {
       // HR 审核通过 → 流转到 Admin

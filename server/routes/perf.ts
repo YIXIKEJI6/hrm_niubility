@@ -168,6 +168,15 @@ router.post('/plans/:id/approve', authMiddleware, async (req: AuthRequest, res) 
   const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
   if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
 
+  // ── 禁止越级/自审：发起人不能审批自己的计划 ──
+  if (plan.creator_id === req.userId && req.userRole !== 'admin') {
+    return res.status(403).json({ code: 403, message: '发起人不能审批自己提交的计划' });
+  }
+  // ── 禁止越级：只有指定的 approver_id 或 admin 才能在 pending_review 阶段审批 ──
+  if (plan.status === 'pending_review' && plan.approver_id && plan.approver_id !== req.userId && req.userRole !== 'admin') {
+    return res.status(403).json({ code: 403, message: '您不是本计划的审批人，不能越级审批' });
+  }
+
   if (plan.status === 'pending_review') {
     let deptHeadId = null;
     if (plan.department_id) {
@@ -202,6 +211,15 @@ router.post('/plans/:id/reject', authMiddleware, async (req: AuthRequest, res) =
   const planId = Number(req.params.id);
   const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
   if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
+
+  // ── 禁止自审 ──
+  if (plan.creator_id === req.userId && req.userRole !== 'admin') {
+    return res.status(403).json({ code: 403, message: '发起人不能驳回自己提交的计划' });
+  }
+  // ── 禁止越级 ──
+  if (plan.status === 'pending_review' && plan.approver_id && plan.approver_id !== req.userId && req.userRole !== 'admin') {
+    return res.status(403).json({ code: 403, message: '您不是本计划的审批人，不能越级操作' });
+  }
 
   if (plan.status === 'pending_dept_review') {
     if (plan.dept_head_id !== req.userId && req.userRole !== 'admin') {
