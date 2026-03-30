@@ -27,6 +27,11 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
   const [showImportModal, setShowImportModal] = useState(false);
   const [takingTestId, setTakingTestId] = useState<number | null>(null);
 
+  // 发起评估 — 搜索与多选
+  const [evalUserSearch, setEvalUserSearch] = useState('');
+  const [evalSelectedUsers, setEvalSelectedUsers] = useState<string[]>([]);
+  const [evalModelId, setEvalModelId] = useState('');
+
   useEffect(() => {
     if (initialTestId) {
       setTakingTestId(initialTestId);
@@ -167,9 +172,8 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
 
   const startEvaluation = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.target as HTMLFormElement);
-    const uids = formData.getAll('users').map(String);
-    const mId = formData.get('model_id');
+    const uids = evalSelectedUsers;
+    const mId = evalModelId;
     if (!uids.length || !mId) return alert('请选择人员和使用的评估模型');
     
     try {
@@ -181,6 +185,9 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
       const json = await res.json();
       if (json.code === 0) {
         setShowEvalModal(false);
+        setEvalSelectedUsers([]);
+        setEvalModelId('');
+        setEvalUserSearch('');
         fetchEvaluations();
         setActiveTab('evaluations');
       } else alert(json.message);
@@ -550,6 +557,19 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                 <input type="text" value={editingModel.department_id || ''} onChange={e => setEditingModel({...editingModel, department_id: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none" placeholder="业务部 / 技术部..."/>
               </div>
               <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-600">
+                  岗位说明 <span className="text-slate-400 font-normal">(选填)</span>
+                </label>
+                <p className="text-[10px] text-slate-400">描述该模型适用的岗位职责、用途或考核背景，方便后续快速识别。</p>
+                <textarea
+                  rows={3}
+                  value={editingModel.description || ''}
+                  onChange={e => setEditingModel({...editingModel, description: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none resize-none"
+                  placeholder="例如：适用于招聘周期短的岗位，重点考查快速上手能力与项目执行力..."
+                />
+              </div>
+              <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-600">能力维度设置 *</label>
                 <p className="text-[10px] text-slate-400 mb-2">为该模型添加考核的衡量维度（通常 4-6 项）</p>
                 <div className="space-y-2">
@@ -623,25 +643,119 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
           <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50">
                 <h3 className="font-black text-slate-800 flex items-center gap-2">发起人员能力评估</h3>
-                <button onClick={() => setShowEvalModal(false)} className="text-slate-400"><span className="material-symbols-outlined">close</span></button>
+                <button onClick={() => { setShowEvalModal(false); setEvalSelectedUsers([]); setEvalModelId(''); setEvalUserSearch(''); }} className="text-slate-400"><span className="material-symbols-outlined">close</span></button>
              </div>
              <form onSubmit={startEvaluation} className="p-6 space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-2">选择考核标准(能力模型)</label>
-                  <select name="model_id" required className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500">
+                  <select
+                    value={evalModelId}
+                    onChange={e => setEvalModelId(e.target.value)}
+                    required
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                  >
                     <option value="">--请选择--</option>
                     {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-2">下发评估大名单 (可多选)</label>
-                  <select name="users" multiple required size={6} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500">
-                     {users.map(u => <option key={u.id} value={u.id}>{u.name} - {u.department}</option>)}
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1">按住 Ctrl/Cmd 单击进行多选。系统会自动分发给相应人员及其对应主管开展双评。</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-slate-600">下发评估大名单</label>
+                    {evalSelectedUsers.length > 0 && (
+                      <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                        已选 {evalSelectedUsers.length} 人
+                      </span>
+                    )}
+                  </div>
+                  {/* 搜索框 */}
+                  <div className="relative mb-2">
+                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">search</span>
+                    <input
+                      type="text"
+                      placeholder="输入姓名搜索..."
+                      value={evalUserSearch}
+                      onChange={e => setEvalUserSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-400 bg-slate-50"
+                    />
+                  </div>
+                  {/* 可勾选列表 */}
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    {/* 全选 / 反选 */}
+                    <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const filtered = users.filter(u =>
+                            !evalUserSearch || u.name?.includes(evalUserSearch) || (u.department || '').includes(evalUserSearch)
+                          );
+                          const filteredIds = filtered.map((u: any) => String(u.id));
+                          const allSelected = filteredIds.every(id => evalSelectedUsers.includes(id));
+                          if (allSelected) {
+                            setEvalSelectedUsers(prev => prev.filter(id => !filteredIds.includes(id)));
+                          } else {
+                            setEvalSelectedUsers(prev => [...new Set([...prev, ...filteredIds])]);
+                          }
+                        }}
+                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800"
+                      >
+                        {users.filter(u =>
+                          !evalUserSearch || u.name?.includes(evalUserSearch) || (u.department || '').includes(evalUserSearch)
+                        ).every((u: any) => evalSelectedUsers.includes(String(u.id)))
+                          ? '取消全选' : '全选当前'}
+                      </button>
+                      <span className="text-[10px] text-slate-400">共 {users.length} 人</span>
+                    </div>
+                    <div className="max-h-52 overflow-y-auto divide-y divide-slate-50">
+                      {users
+                        .filter((u: any) =>
+                          !evalUserSearch ||
+                          u.name?.includes(evalUserSearch) ||
+                          (u.department || '').includes(evalUserSearch)
+                        )
+                        .map((u: any) => {
+                          const selected = evalSelectedUsers.includes(String(u.id));
+                          return (
+                            <label
+                              key={u.id}
+                              className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${
+                                selected ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => {
+                                  const uid = String(u.id);
+                                  setEvalSelectedUsers(prev =>
+                                    prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+                                  );
+                                }}
+                                className="w-3.5 h-3.5 rounded accent-indigo-600"
+                              />
+                              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-[11px] font-black flex-shrink-0">
+                                {u.name?.charAt(0)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-bold truncate ${ selected ? 'text-indigo-700' : 'text-slate-800'}`}>{u.name}</p>
+                                {u.department && <p className="text-[10px] text-slate-400 truncate">{u.department}</p>}
+                              </div>
+                              {selected && <span className="material-symbols-outlined text-indigo-500 text-[16px] flex-shrink-0">check_circle</span>}
+                            </label>
+                          );
+                        })}
+                      {users.filter((u: any) =>
+                        !evalUserSearch || u.name?.includes(evalUserSearch) || (u.department || '').includes(evalUserSearch)
+                      ).length === 0 && (
+                        <div className="py-8 text-center text-slate-400 text-sm">未找到匹配的人员</div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5">勾选即可多选。系统会自动分发给相应人员及其对应主管开展双评。</p>
                 </div>
-                <div className="pt-4 flex justify-end">
-                   <button type="submit" className="bg-indigo-600 text-white font-bold px-6 py-2 rounded-lg text-sm hover:bg-indigo-700 w-full shadow-md shadow-indigo-600/20">立即下发开始</button>
+                <div className="pt-2 flex justify-end">
+                   <button type="submit" disabled={!evalSelectedUsers.length || !evalModelId} className="bg-indigo-600 text-white font-bold px-6 py-2 rounded-lg text-sm hover:bg-indigo-700 w-full shadow-md shadow-indigo-600/20 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity">
+                     {evalSelectedUsers.length > 0 ? `立即下发 ${evalSelectedUsers.length} 人` : '立即下发开始'}
+                   </button>
                 </div>
              </form>
           </div>

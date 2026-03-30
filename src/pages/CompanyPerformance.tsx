@@ -418,7 +418,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
           {/* ── 顶部统计概览卡 ── */}
           {!isMobile && !loading && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {(() => {
                 const activeTasks = tasks.filter(t => t.status === 'in_progress' || t.status === 'claiming');
                 const totalBonus = tasks.filter(t => t.reward_type !== 'score').reduce((sum, t) => sum + (t.bonus || 0), 0);
@@ -431,13 +431,12 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   { label: '参与员工', value: totalParticipants, sub: '上榜人数', icon: 'people', gradient: 'from-purple-500 to-violet-600' },
                 ];
                 return stats.map(s => (
-                  <div key={s.label} className={`bg-gradient-to-br ${s.gradient} rounded-2xl p-4 text-white shadow-lg`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="material-symbols-outlined text-white/70 text-[22px]" style={{ fontVariationSettings: "'FILL' 1" }}>{s.icon}</span>
+                  <div key={s.label} className={`bg-gradient-to-br ${s.gradient} rounded-xl px-4 py-2.5 text-white shadow-md flex items-center gap-3`}>
+                    <span className="material-symbols-outlined text-white/60 text-[20px] flex-shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>{s.icon}</span>
+                    <div className="min-w-0">
+                      <p className="text-xl font-black tracking-tight leading-tight">{s.value}</p>
+                      <p className="text-[11px] text-white/80 font-bold leading-tight">{s.label} <span className="text-white/50 font-normal">· {s.sub}</span></p>
                     </div>
-                    <p className="text-2xl font-black tracking-tight mb-0.5">{s.value}</p>
-                    <p className="text-xs text-white/80 font-bold">{s.label}</p>
-                    <p className="text-[10px] text-white/60 mt-0.5">{s.sub}</p>
                   </div>
                 ));
               })()}

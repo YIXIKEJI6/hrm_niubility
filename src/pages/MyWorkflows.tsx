@@ -10,7 +10,7 @@ interface MyWorkflowsProps {
   initialTab?: TabKey;
 }
 
-type TabKey = 'initiated' | 'pending' | 'reviewed' | 'cc' | 'pool_mgmt';
+type TabKey = 'initiated' | 'pending' | 'reviewed' | 'cc' | 'pool_mgmt' | 'exception_mgmt';
 
 const BASE_TABS: { key: TabKey; label: string; icon: string; emptyText: string }[] = [
   { key: 'initiated', label: '我发起的', icon: 'send', emptyText: '暂无发起的流程' },
@@ -67,7 +67,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab || 'initiated');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState<Record<TabKey, number>>({ initiated: 0, pending: 0, reviewed: 0, cc: 0, pool_mgmt: 0 });
+  const [counts, setCounts] = useState<Record<TabKey, number>>({ initiated: 0, pending: 0, reviewed: 0, cc: 0, pool_mgmt: 0, exception_mgmt: 0 });
   const [users, setUsers] = useState<any[]>([]);
   const [selectedTask, setSelectedTask] = useState<{ type: string, data: any, isPending: boolean, originalStatus?: string } | null>(null);
   const [submittingApprovals, setSubmittingApprovals] = useState(false);
@@ -77,7 +77,8 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
 
   const TABS = [
     ...BASE_TABS,
-    ...( ['admin', 'hr', 'manager'].includes(currentUser?.role) ? [{ key: 'pool_mgmt' as TabKey, label: '绩效池管理', icon: 'pool', emptyText: '暂无绩效池任务' }] : [] )
+    ...( ['admin', 'hr', 'manager'].includes(currentUser?.role) ? [{ key: 'pool_mgmt' as TabKey, label: '绩效池管理', icon: 'pool', emptyText: '暂无绩效池任务' }] : [] ),
+    ...( ['admin', 'hr'].includes(currentUser?.role) ? [{ key: 'exception_mgmt' as TabKey, label: '流程异常', icon: 'warning', emptyText: '' }] : [] ),
   ];
   
   const token = localStorage.getItem('token');
@@ -236,6 +237,8 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 p-6">
             <PoolModule />
           </div>
+        ) : activeTab === 'exception_mgmt' ? (
+          <ExceptionMgmtPanel />
         ) : loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -736,6 +739,249 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
           )}
         </div>
       </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 流程异常管理面板 (HR/Admin 专用) ───────────────────────────
+function ExceptionMgmtPanel() {
+  const [items, setItems] = React.useState<any[]>([]);
+  const [summary, setSummary] = React.useState<any>({});
+  const [loading, setLoading] = React.useState(true);
+  const [users, setUsers] = React.useState<any[]>([]);
+  const [days, setDays] = React.useState(3);
+  const [selected, setSelected] = React.useState<any | null>(null);
+  const [action, setAction] = React.useState<'reassign' | 'force' | null>(null);
+  const [newApproverId, setNewApproverId] = React.useState('');
+  const [forceAction, setForceAction] = React.useState<'approve' | 'reject'>('approve');
+  const [reason, setReason] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [msg, setMsg] = React.useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  const token = localStorage.getItem('token');
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [excRes, usrRes] = await Promise.all([
+        fetch(`/api/workflow-exceptions/stuck?days=${days}`, { headers }).then(r => r.json()),
+        fetch('/api/org/users', { headers }).then(r => r.json()),
+      ]);
+      if (excRes.code === 0) { setItems(excRes.data.items); setSummary(excRes.data.summary); }
+      if (usrRes.code === 0) setUsers(usrRes.data || []);
+    } catch {}
+    setLoading(false);
+  };
+
+  React.useEffect(() => { load(); }, [days]);
+
+  const handleReassign = async () => {
+    if (!selected || !newApproverId) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/workflow-exceptions/reassign', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flowType: selected.flow_type, flowId: selected.id, newApproverId, reason }),
+      }).then(r => r.json());
+      setMsg(res.code === 0 ? { type: 'ok', text: res.message } : { type: 'err', text: res.message });
+      if (res.code === 0) { setSelected(null); setAction(null); setReason(''); setNewApproverId(''); load(); }
+    } catch { setMsg({ type: 'err', text: '网络错误' }); }
+    setSubmitting(false);
+  };
+
+  const handleForce = async () => {
+    if (!selected || !reason || reason.trim().length < 5) {
+      setMsg({ type: 'err', text: '原因至少需要5个字' }); return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/workflow-exceptions/force-advance', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flowType: selected.flow_type, flowId: selected.id, action: forceAction, reason }),
+      }).then(r => r.json());
+      setMsg(res.code === 0 ? { type: 'ok', text: res.message } : { type: 'err', text: res.message });
+      if (res.code === 0) { setSelected(null); setAction(null); setReason(''); load(); }
+    } catch { setMsg({ type: 'err', text: '网络错误' }); }
+    setSubmitting(false);
+  };
+
+  const riskColors: Record<string, string> = {
+    critical: 'bg-red-100 text-red-700 border-red-200',
+    high: 'bg-orange-100 text-orange-700 border-orange-200',
+    medium: 'bg-amber-50 text-amber-700 border-amber-200',
+  };
+  const riskLabels: Record<string, string> = { critical: '紧急', high: '高风险', medium: '待处理' };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+              <span className="material-symbols-outlined text-red-500 text-[20px]">warning</span>
+            </div>
+            <div>
+              <h2 className="font-black text-slate-800 dark:text-white">流程异常管理</h2>
+              <p className="text-xs text-slate-400">检测卡点流程，进行转派或强制推进</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">超过</span>
+            <select value={days} onChange={e => setDays(Number(e.target.value))}
+              className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
+              {[1,3,5,7,14].map(d => <option key={d} value={d}>{d}天</option>)}
+            </select>
+            <span className="text-xs text-slate-500">未推进</span>
+            <button onClick={load} className="text-xs px-3 py-1.5 bg-blue-500 text-white rounded-lg font-bold hover:bg-blue-600">刷新</button>
+          </div>
+        </div>
+        {!loading && (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: '紧急', count: summary.critical || 0, color: 'text-red-600', bg: 'bg-red-50', icon: 'error' },
+              { label: '高风险', count: summary.high || 0, color: 'text-orange-600', bg: 'bg-orange-50', icon: 'warning' },
+              { label: '待处理', count: summary.medium || 0, color: 'text-amber-600', bg: 'bg-amber-50', icon: 'info' },
+            ].map(s => (
+              <div key={s.label} className={`rounded-xl p-3 ${s.bg} flex items-center gap-2`}>
+                <span className={`material-symbols-outlined text-[18px] ${s.color}`}>{s.icon}</span>
+                <div>
+                  <div className={`text-xl font-black ${s.color}`}>{s.count}</div>
+                  <div className="text-[10px] text-slate-500">{s.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {msg && (
+        <div className={`px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 ${msg.type === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+          <span className="material-symbols-outlined text-[16px]">{msg.type === 'ok' ? 'check_circle' : 'error'}</span>
+          {msg.text}
+          <button onClick={() => setMsg(null)} className="ml-auto opacity-60 hover:opacity-100 text-xs">✕</button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-16"><div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+      ) : items.length === 0 ? (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 p-12 text-center">
+          <span className="material-symbols-outlined text-6xl text-emerald-300 block mb-3">check_circle</span>
+          <p className="text-slate-500 font-bold">暂无异常流程</p>
+          <p className="text-xs text-slate-400 mt-1">所有流程均在正常推进中</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item: any, i: number) => (
+            <div key={`${item.flow_type}-${item.id}-${i}`}
+              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 p-4 hover:shadow-md transition-all">
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${riskColors[item.risk]}`}>
+                      {riskLabels[item.risk]}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                      {item.flow_type === 'perf_plan' ? '绩效计划' : item.flow_type === 'proposal' ? '绩效提案' : '加入申请'}
+                    </span>
+                    <span className="text-[10px] text-slate-400">卡住 <strong className="text-red-500">{item.stuck_days}</strong> 天</span>
+                  </div>
+                  <p className="font-bold text-slate-800 dark:text-white text-sm truncate">{item.title}</p>
+                  <div className="flex items-center gap-4 mt-1 text-[11px] text-slate-400 flex-wrap">
+                    <span>发起人：{item.creator_name || item.creator_id}</span>
+                    <span>当前等待：{item.approver_name || '待指定'}</span>
+                    {item.approver_status === 'resigned' && (
+                      <span className="text-red-500 font-bold">⚠️ 审批人已离职</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button onClick={() => { setSelected(item); setAction('reassign'); setMsg(null); }}
+                    className="text-xs px-3 py-1.5 border border-blue-300 text-blue-600 rounded-lg font-bold hover:bg-blue-50 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">swap_horiz</span>转派
+                  </button>
+                  <button onClick={() => { setSelected(item); setAction('force'); setMsg(null); }}
+                    className="text-xs px-3 py-1.5 border border-orange-300 text-orange-600 rounded-lg font-bold hover:bg-orange-50 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">fast_forward</span>推进
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {selected && action === 'reassign' && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setAction(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-black text-slate-800 text-lg mb-1">转派审批人</h3>
+            <p className="text-sm text-slate-500 mb-4 truncate">「{selected.title}」</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-500 block mb-1">新审批人</label>
+                <select value={newApproverId} onChange={e => setNewApproverId(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                  <option value="">请选择</option>
+                  {users.filter((u: any) => ['hr','admin','manager'].includes(u.role)).map((u: any) => (
+                    <option key={u.id} value={u.id}>{u.name}（{u.role}）</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 block mb-1">转派原因（可选）</label>
+                <textarea value={reason} onChange={e => setReason(e.target.value)}
+                  placeholder="例：原审批人离职，转派给新负责人"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none h-20" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setAction(null)} className="flex-1 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-500">取消</button>
+              <button onClick={handleReassign} disabled={!newApproverId || submitting}
+                className="flex-1 py-2 bg-blue-500 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+                {submitting ? '处理中...' : '确认转派'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selected && action === 'force' && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setAction(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-black text-slate-800 text-lg mb-1">强制推进流程</h3>
+            <p className="text-sm text-slate-500 mb-1 truncate">「{selected.title}」</p>
+            <p className="text-xs text-red-500 mb-4">⚠️ 此操作不可撤销，将记入审计日志</p>
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <button onClick={() => setForceAction('approve')}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${forceAction === 'approve' ? 'bg-emerald-500 text-white border-emerald-500' : 'border-slate-200 text-slate-500'}`}>
+                  ✅ 强制通过
+                </button>
+                <button onClick={() => setForceAction('reject')}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${forceAction === 'reject' ? 'bg-red-500 text-white border-red-500' : 'border-slate-200 text-slate-500'}`}>
+                  ❌ 强制驳回
+                </button>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 block mb-1">操作原因 <span className="text-red-500">*（至少5个字）</span></label>
+                <textarea value={reason} onChange={e => setReason(e.target.value)}
+                  placeholder="请详细说明原因，将记入审计日志"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none h-24" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setAction(null)} className="flex-1 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-500">取消</button>
+              <button onClick={handleForce} disabled={reason.trim().length < 5 || submitting}
+                className={`flex-1 py-2 text-white rounded-xl text-sm font-bold disabled:opacity-50 ${forceAction === 'approve' ? 'bg-emerald-500' : 'bg-red-500'}`}>
+                {submitting ? '处理中...' : `确认${forceAction === 'approve' ? '通过' : '驳回'}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
