@@ -30,6 +30,9 @@ router.get('/broken', authMiddleware, (req: AuthRequest, res) => {
     ORDER BY pp.created_at DESC
   `).all() as any[];
 
+  const hrCount = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'hr' AND status != 'inactive'").get() as any).c;
+  const adminCount = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin' AND status != 'inactive'").get() as any).c;
+
   // 检测异常
   const broken = plans.filter(p => {
     // 1. 需要审批人但没有 approver_id
@@ -40,6 +43,10 @@ router.get('/broken', authMiddleware, (req: AuthRequest, res) => {
     if (['approved', 'in_progress'].includes(p.status) && !p.assignee_id) return true;
     // 4. 部门没有负责人 (将来会卡住)
     if (!p.dept_leader_id && p.status !== 'in_progress') return true;
+    // 5. 缺少全局人事专员
+    if (hrCount === 0) return true;
+    // 6. 缺少全局系统管理员
+    if (adminCount === 0) return true;
     return false;
   }).map(p => ({
     ...p,
@@ -48,6 +55,8 @@ router.get('/broken', authMiddleware, (req: AuthRequest, res) => {
       ...(!p.dept_head_id && p.status === 'pending_dept_review' ? ['缺少部门负责人(二审)'] : []),
       ...(!p.assignee_id && ['approved', 'in_progress'].includes(p.status) ? ['缺少执行人'] : []),
       ...(!p.dept_leader_id ? ['所属部门无负责人'] : []),
+      ...(hrCount === 0 ? ['系统缺少人事专员角色分配'] : []),
+      ...(adminCount === 0 ? ['系统缺少总经理角色分配'] : []),
     ]
   }));
 

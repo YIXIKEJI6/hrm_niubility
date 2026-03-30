@@ -1354,19 +1354,23 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
 
                     if (type === 'personal' || type === 'team') {
                       const finalNodeName = assigneeName || creatorName || '';
-                      const deptHeadName = initialData.dept_head_id ? (users.find(u => u.id === initialData.dept_head_id)?.name || '异常') : '缺失';
+                      
+                      // In draft and pending_review, dept_head_id is not yet stamped by the backend. It will be determined at routing time.
+                      const deptHeadDraftName = initialData.dept_head_id ? (users.find(u => u.id === initialData.dept_head_id)?.name || '异常') : '待流转匹配';
+                      const deptHeadActualName = initialData.dept_head_id ? (users.find(u => u.id === initialData.dept_head_id)?.name || '异常') : '缺失';
+
                       if (currentStatus === 'draft') {
                         futureSteps.push({ role: '直属上级', name: approverName || '缺失', label: '待一审', isError: !approverName || approverName === '缺失' });
-                        futureSteps.push({ role: '负责领导', name: deptHeadName, label: '待二审', isError: deptHeadName === '缺失' || deptHeadName === '异常' });
+                        futureSteps.push({ role: '负责领导', name: deptHeadDraftName, label: '待二审', isError: deptHeadDraftName === '异常' });
                         futureSteps.push({ role: '人事专员', name: hrUsers, label: '抄送人事', isError: hrUsers === '缺失' });
                         futureSteps.push({ role: '执行人', name: finalNodeName, label: '待执行', isError: !finalNodeName });
                       } else if (currentStatus === 'pending_review') {
                         futureSteps.push({ role: '直属上级', name: approverName || '缺失', label: '待一审', isError: !approverName || approverName === '缺失' });
-                        futureSteps.push({ role: '负责领导', name: deptHeadName, label: '待二审', isError: deptHeadName === '缺失' || deptHeadName === '异常' });
+                        futureSteps.push({ role: '负责领导', name: deptHeadDraftName, label: '待二审', isError: deptHeadDraftName === '异常' });
                         futureSteps.push({ role: '人事专员', name: hrUsers, label: '抄送人事', isError: hrUsers === '缺失' });
                         futureSteps.push({ role: '执行人', name: finalNodeName, label: '待执行', isError: !finalNodeName });
                       } else if (currentStatus === 'pending_dept_review') {
-                        futureSteps.push({ role: '负责领导', name: deptHeadName, label: '待二审', isError: deptHeadName === '缺失' || deptHeadName === '异常' });
+                        futureSteps.push({ role: '负责领导', name: deptHeadActualName, label: '待二审', isError: deptHeadActualName === '缺失' || deptHeadActualName === '异常' });
                         futureSteps.push({ role: '人事专员', name: hrUsers, label: '抄送人事', isError: hrUsers === '缺失' });
                         futureSteps.push({ role: '执行人', name: finalNodeName, label: '待执行', isError: !finalNodeName });
                       } else if (currentStatus === 'in_progress') {
