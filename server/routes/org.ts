@@ -109,7 +109,7 @@ router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, re
 router.get('/tree', authMiddleware, (_req, res) => {
   const db = getDb();
   const departments = db.prepare('SELECT * FROM departments ORDER BY sort_order').all() as any[];
-  const userCounts = db.prepare('SELECT department_id, COUNT(*) as count FROM users GROUP BY department_id').all() as any[];
+  const userCounts = db.prepare("SELECT department_id, COUNT(*) as count FROM users WHERE status = 'active' GROUP BY department_id").all() as any[];
 
   const countMap: Record<number, number> = {};
   for (const uc of userCounts) countMap[uc.department_id] = uc.count;
