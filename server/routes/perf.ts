@@ -46,15 +46,25 @@ router.post('/plans', authMiddleware, (req: AuthRequest, res) => {
 router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
   const { status, quarter, category, userId } = req.query;
   const db = getDb();
-  let sql = 'SELECT * FROM perf_plans WHERE 1=1';
+  let sql = `
+    SELECT p.*,
+      uc.name AS creator_name,
+      ua.name AS approver_name,
+      us.name AS assignee_name
+    FROM perf_plans p
+    LEFT JOIN users uc ON uc.id = p.creator_id
+    LEFT JOIN users ua ON ua.id = p.approver_id
+    LEFT JOIN users us ON us.id = p.assignee_id
+    WHERE 1=1
+  `;
   const params: any[] = [];
 
-  if (status) { sql += ' AND status = ?'; params.push(status); }
-  if (quarter) { sql += ' AND quarter = ?'; params.push(quarter); }
-  if (category) { sql += ' AND category = ?'; params.push(category); }
-  if (userId) { sql += ' AND (creator_id = ? OR assignee_id = ?)'; params.push(userId, userId); }
+  if (status) { sql += ' AND p.status = ?'; params.push(status); }
+  if (quarter) { sql += ' AND p.quarter = ?'; params.push(quarter); }
+  if (category) { sql += ' AND p.category = ?'; params.push(category); }
+  if (userId) { sql += ' AND (p.creator_id = ? OR p.assignee_id = ?)'; params.push(userId, userId); }
 
-  sql += ' ORDER BY created_at DESC';
+  sql += ' ORDER BY p.created_at DESC';
   const plans = db.prepare(sql).all(...params);
   return res.json({ code: 0, data: plans });
 });
@@ -62,7 +72,17 @@ router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
 // 绩效计划详情
 router.get('/plans/:id', authMiddleware, (req, res) => {
   const db = getDb();
-  const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(req.params.id);
+  const plan = db.prepare(`
+    SELECT p.*,
+      uc.name AS creator_name,
+      ua.name AS approver_name,
+      us.name AS assignee_name
+    FROM perf_plans p
+    LEFT JOIN users uc ON uc.id = p.creator_id
+    LEFT JOIN users ua ON ua.id = p.approver_id
+    LEFT JOIN users us ON us.id = p.assignee_id
+    WHERE p.id = ?
+  `).get(req.params.id);
   if (!plan) return res.status(404).json({ code: 404, message: '绩效计划不存在' });
   return res.json({ code: 0, data: plan });
 });

@@ -410,4 +410,57 @@ router.get('/departments/:id/stats', authMiddleware, (req: AuthRequest, res) => 
   });
 });
 
+// ── 获取我的直属上级（用于申请任务时动态填充审批人）
+// 查找逻辑优先级：
+//   1. team_view_scopes 中 member_id = 我的 manager_id（最精确）
+//   2. 部门 leader（同部门负责人）
+//   3. 返回 null（让前端手动选择）
+router.get('/my-superior', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const userId = req.userId!;
+
+  // 策略1：从 team_view_scopes 反查（谁把我设为成员，那个人就是我的主管）
+  const scopeManager = db.prepare(
+    `SELECT u.id, u.name, u.title, u.role
+     FROM team_view_scopes tvs
+     JOIN users u ON tvs.manager_id = u.id
+     WHERE tvs.member_id = ?
+     LIMIT 1`
+  ).get(userId) as any;
+
+  if (scopeManager) {
+    return res.json({ code: 0, data: scopeManager });
+  }
+
+  // 策略2：查同部门的 leader
+  const me = db.prepare('SELECT department_id FROM users WHERE id = ?').get(userId) as any;
+  if (me?.department_id) {
+    const deptLeader = db.prepare(
+      `SELECT u.id, u.name, u.title, u.role
+       FROM departments d
+       JOIN users u ON d.leader_user_id = u.id
+       WHERE d.id = ? AND u.id != ?
+       LIMIT 1`
+    ).get(me.department_id, userId) as any;
+
+    if (deptLeader) {
+      return res.json({ code: 0, data: deptLeader });
+    }
+  }
+
+  // 策略3：找同部门 role=supervisor/hr/admin 的人
+  if (me?.department_id) {
+    const superior = db.prepare(
+      `SELECT id, name, title, role FROM users
+       WHERE department_id = ? AND id != ? AND role IN ('supervisor','hr','admin')
+       LIMIT 1`
+    ).get(me.department_id, userId) as any;
+
+    if (superior) return res.json({ code: 0, data: superior });
+  }
+
+  // 未找到直属上级
+  return res.json({ code: 0, data: null });
+});
+
 export default router;

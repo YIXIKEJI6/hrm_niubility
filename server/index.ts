@@ -42,6 +42,7 @@ import payrollExportRoutes from './routes/payroll-export';
 import teamScopeRoutes from './routes/team-scope';
 import poolStarRoutes from './routes/pool-star';
 import poolRewardsRoutes from './routes/pool-rewards';
+import salaryRoutes from './routes/salary';
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
@@ -82,6 +83,7 @@ app.use('/api/payroll-export', payrollExportRoutes);
 app.use('/api/team-scope', teamScopeRoutes);
 app.use('/api/pool/star', poolStarRoutes);
 app.use('/api/pool/rewards', poolRewardsRoutes);
+app.use('/api/salary', salaryRoutes);
 
 // 健康检查
 app.get('/api/health', (_req, res) => {

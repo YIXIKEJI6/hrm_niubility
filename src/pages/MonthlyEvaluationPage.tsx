@@ -138,6 +138,8 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
   const [previewLoading, setPreviewLoading] = useState(false);
   const [hrLoading, setHrLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [deadline, setDeadline] = useState('');   // 考评截止日
+  const [remindMsg, setRemindMsg] = useState('');  // 折办反馈
 
   const fetchTasks = async () => {
     setLoading(true);
@@ -256,7 +258,7 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
       const res = await fetch('/api/monthly-eval/hr/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ month: triggerMonth, userIds: [previewUser.user_id], manualReviewers })
+        body: JSON.stringify({ month: triggerMonth, userIds: [previewUser.user_id], manualReviewers, deadline: deadline || undefined })
       });
       const data = await res.json();
       alert(data.message);
@@ -265,6 +267,35 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
       fetchTasks();
     } catch(err: any) { alert(err.message); }
     setIsPublishing(false);
+  };
+
+  const handleSetDeadline = async () => {
+    if (!deadline) return alert('请选择截止日');
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/monthly-eval/hr/set-deadline', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ month: triggerMonth, deadline })
+      });
+      const data = await res.json();
+      alert(data.message || '设置成功');
+    } catch { alert('设置失败'); }
+  };
+
+  const handleRemind = async (evaluationIds?: number[]) => {
+    setRemindMsg('');
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/monthly-eval/hr/remind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ month: triggerMonth, evaluationIds })
+      });
+      const data = await res.json();
+      setRemindMsg(data.message || '已发送折办');
+      setTimeout(() => setRemindMsg(''), 4000);
+    } catch { setRemindMsg('折办失败'); }
   };
 
   const handleReviewerChange = (role: string, index: number, val: string) => {
@@ -392,8 +423,40 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                     : '全局总览并调配人员的四大维度打分池，一键流转到终端。'}
                 </p>
               </div>
-              <div className="flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-xl border border-indigo-100 dark:border-indigo-800">
+              <div className="flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-xl border border-indigo-100 dark:border-indigo-800 flex-wrap">
                 <input type="month" value={triggerMonth} onChange={e => setTriggerMonth(e.target.value)} className="px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-700 font-bold bg-white dark:bg-slate-800 outline-none w-48" />
+                {/* 截止日设置 */}
+                {(currentUser?.role === 'hr' || currentUser?.role === 'admin' || currentUser?.is_super_admin) && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={deadline}
+                      onChange={e => setDeadline(e.target.value)}
+                      className="px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-700 text-sm bg-white dark:bg-slate-800 outline-none"
+                      title="考评截止日"
+                    />
+                    <button
+                      onClick={handleSetDeadline}
+                      disabled={!deadline}
+                      className="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1"
+                      title="设置该月考评的截止日"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">event</span>
+                      设置截止日
+                    </button>
+                    <button
+                      onClick={() => handleRemind()}
+                      className="px-3 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 flex items-center gap-1"
+                      title="向未打分人发送折办通知"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">notification_important</span>
+                      全员折办
+                    </button>
+                    {remindMsg && (
+                      <span className="text-xs text-emerald-600 font-bold animate-pulse">{remindMsg}</span>
+                    )}
+                  </div>
+                )}
                 {(currentUser?.role === 'hr' || currentUser?.role === 'admin' || currentUser?.is_super_admin) && (
                   <div className="px-5 py-2 bg-slate-200 text-slate-500 font-bold rounded-lg text-sm flex items-center gap-1.5 cursor-not-allowed" title="根据最新业务流程，已剥离一键发布功能，请下方逐一核实。">
                     <span className="material-symbols-outlined text-[18px]">block</span>

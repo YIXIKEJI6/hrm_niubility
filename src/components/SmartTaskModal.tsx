@@ -1472,9 +1472,23 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         {!approverMode && (
           <div className="p-4 sm:px-5 sm:py-3 bg-white border-t border-gray-200 flex items-center justify-end gap-2.5 shrink-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             {customFooter ? customFooter : readonly ? (
-              <button onClick={onClose} className="px-6 py-2 text-sm font-bold text-white bg-[#005ea4] hover:bg-[#0077ce] rounded-xl transition-colors shadow-sm focus:outline-none">
-                关闭
-              </button>
+              <div className="flex items-center gap-3 w-full">
+                {onDelete && (initialData as any)?.status === 'draft' && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm('确认删除此草稿？删除后不可恢复。')) onDelete!();
+                    }}
+                    className="px-4 py-2 text-sm font-bold text-rose-600 bg-white border border-rose-300 hover:bg-rose-50 rounded-xl transition-colors shadow-sm flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">delete</span>
+                    删除草稿
+                  </button>
+                )}
+                <div className="flex-1" />
+                <button onClick={onClose} className="px-6 py-2 text-sm font-bold text-white bg-[#005ea4] hover:bg-[#0077ce] rounded-xl transition-colors shadow-sm focus:outline-none">
+                  关闭
+                </button>
+              </div>
             ) : (
               <>
                 {onDelete && (

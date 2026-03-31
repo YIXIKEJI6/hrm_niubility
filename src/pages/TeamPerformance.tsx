@@ -201,11 +201,12 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       
       if (createData.code === 0 && createData.data?.id) {
         const planId = createData.data.id;
+        // 下发任务不自动 approve，保持 pending_review 状态，员工需确认接收，主管再审批
         await fetch(`/api/perf/plans/${planId}/submit`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-        await fetch(`/api/perf/plans/${planId}/approve`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
         
         setIsAssignModalOpen(false);
         fetchTeamStatus();
+        alert('任务已下发，等待员工确认接收后，请在「待我审批」中审批通过。');
       } else {
         alert(createData.message || '创建任务失败，请重试');
       }
@@ -226,7 +227,19 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         window.location.reload();
         return;
       }
-      const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
+
+      // 动态查询直属上级作为审批人（替代硬编码）
+      let approverId: string | undefined = data.approver_id;
+      if (!approverId) {
+        try {
+          const superiorRes = await fetch('/api/org/my-superior', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const superiorJson = await superiorRes.json();
+          approverId = superiorJson.data?.id;
+        } catch { /* 查询失败则继续，让后端校验 */ }
+      }
+
       const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
       
       const createRes = await fetch('/api/perf/plans', {

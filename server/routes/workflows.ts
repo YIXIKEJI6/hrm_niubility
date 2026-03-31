@@ -21,21 +21,40 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
     return items;
   };
 
-  // 1. 我发起的绩效计划
-  let perfPlans = db.prepare(
-    `SELECT pp.*, cu.name as creator_name, u.name as approver_name, 'perf_plan' as flow_type
+  // 1. 我发起的绩效计划（creator_id = 我）
+  let myPerfPlans = db.prepare(
+    `SELECT pp.*, cu.name as creator_name, u.name as approver_name, 'perf_plan' as flow_type,
+            'initiated' as source_type
      FROM perf_plans pp
       LEFT JOIN users cu ON pp.creator_id = cu.id
      LEFT JOIN users u ON pp.approver_id = u.id
      WHERE pp.creator_id = ?
      ORDER BY pp.created_at DESC`
   ).all(userId);
-  perfPlans = attachLogs(perfPlans, 'perf_plan');
+  myPerfPlans = attachLogs(myPerfPlans, 'perf_plan');
+
+  // 1b. 分配给我的绩效计划（assignee_id = 我 AND creator_id ≠ 我）
+  let assignedToMe = db.prepare(
+    `SELECT pp.*, cu.name as creator_name, u.name as approver_name, 'perf_plan' as flow_type,
+            'assigned' as source_type
+     FROM perf_plans pp
+      LEFT JOIN users cu ON pp.creator_id = cu.id
+     LEFT JOIN users u ON pp.approver_id = u.id
+     WHERE pp.assignee_id = ? AND pp.creator_id != ? AND pp.status != 'draft'
+     ORDER BY pp.created_at DESC`
+  ).all(userId, userId);
+  assignedToMe = attachLogs(assignedToMe, 'perf_plan');
+
+  // 合并我相关的绩效计划（去重）
+  const perfPlanMap = new Map<number, any>();
+  [...myPerfPlans, ...assignedToMe].forEach((p: any) => { if (!perfPlanMap.has(p.id)) perfPlanMap.set(p.id, p); });
+  const perfPlans = Array.from(perfPlanMap.values());
 
   // 2. 我提交的提案
   const proposals = db.prepare(
     `SELECT pt.*, 'proposal' as flow_type,
-       hr_u.name as hr_reviewer_name, admin_u.name as admin_reviewer_name
+       hr_u.name as hr_reviewer_name, admin_u.name as admin_reviewer_name,
+       'initiated' as source_type
      FROM pool_tasks pt
      LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
      LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
@@ -137,11 +156,50 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     } catch (e) {
       console.warn('[workflows/pending] pool_join_requests查询跳过:', (e as any)?.message);
     }
+
+    // 4. 奖励分配方案审核（HR审 pending_hr / Admin审 pending_admin）
+    try {
+      if (role === 'hr' || role === 'admin') {
+        const rewardHrPending = db.prepare(
+          `SELECT prp.*, pt.title as task_title, u.name as creator_name, 'reward_plan' as flow_type
+           FROM pool_reward_plans prp
+           LEFT JOIN pool_tasks pt ON prp.pool_task_id = pt.id
+           LEFT JOIN users u ON prp.initiator_id = u.id
+           WHERE prp.status = 'pending_hr'
+             AND prp.initiator_id != ?
+           ORDER BY prp.updated_at DESC`
+        ).all(userId);
+        rewardHrPending.forEach((r: any) => {
+          r.title = `「${r.task_title}」奖励分配方案 (HR审核)`;
+          r.pending_reviewer_name = currentUserName;
+        });
+        items.push(...rewardHrPending);
+      }
+      if (role === 'admin') {
+        const rewardAdminPending = db.prepare(
+          `SELECT prp.*, pt.title as task_title, u.name as creator_name, 'reward_plan' as flow_type
+           FROM pool_reward_plans prp
+           LEFT JOIN pool_tasks pt ON prp.pool_task_id = pt.id
+           LEFT JOIN users u ON prp.initiator_id = u.id
+           WHERE prp.status = 'pending_admin'
+             AND prp.initiator_id != ?
+           ORDER BY prp.updated_at DESC`
+        ).all(userId);
+        rewardAdminPending.forEach((r: any) => {
+          r.title = `「${r.task_title}」奖励分配方案 (总经理确认)`;
+          r.pending_reviewer_name = currentUserName;
+        });
+        items.push(...rewardAdminPending);
+      }
+    } catch (e) {
+      console.warn('[workflows/pending] pool_reward_plans查询跳过:', (e as any)?.message);
+    }
   }
 
   items.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return res.json({ code: 0, data: items });
 });
+
 
 // 我已审核的流程
 router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {

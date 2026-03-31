@@ -408,7 +408,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
   const { status, pay_period } = req.query;
   let sql = `
     SELECT prp.*, pt.title as task_title, pt.bonus as task_bonus,
-           u.name as initiator_name
+           u.name as initiator_name, u.name as creator_name
     FROM pool_reward_plans prp
     LEFT JOIN pool_tasks pt ON prp.pool_task_id = pt.id
     LEFT JOIN users u ON prp.initiator_id = u.id

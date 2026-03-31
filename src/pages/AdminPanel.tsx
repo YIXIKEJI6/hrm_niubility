@@ -478,8 +478,35 @@ export function PoolModule() {
   const [form, setForm] = useState({ title: '', department: '', difficulty: 'normal', bonus: '', max_participants: '5' });
   const [creating, setCreating] = useState(false);
   const [msg, setMsg] = useState('');
+  const [poolTab, setPoolTab] = useState<'tasks' | 'rewards'>('tasks');
+
+  // 奖励台账
+  const { data: rewardPlans, loading: rewardLoading, refetch: refetchRewards } = useApiGet('/api/pool/rewards');
+  const [markingPaid, setMarkingPaid] = useState<number | null>(null);
+
+  const handleMarkPaid = async (planId: number) => {
+    if (!confirm('确认该奖励已实际发放？此操作不可撤销。')) return;
+    setMarkingPaid(planId);
+    const res = await apiCall(`/api/pool/rewards/${planId}/mark-paid`, 'POST', {});
+    setMarkingPaid(null);
+    if (res.code === 0) {
+      refetchRewards();
+    } else {
+      alert(res.message || '操作失败');
+    }
+  };
+
+  const REWARD_STATUS: Record<string, [string, string]> = {
+    draft:         ['草稿', 'bg-slate-100 text-slate-500'],
+    pending_hr:    ['待HR审核', 'bg-amber-100 text-amber-700'],
+    pending_admin: ['待总经理确认', 'bg-orange-100 text-orange-700'],
+    approved:      ['已批准/待发放', 'bg-blue-100 text-blue-700'],
+    paid:          ['✅ 已发放', 'bg-emerald-100 text-emerald-700'],
+    rejected:      ['已驳回', 'bg-red-100 text-red-700'],
+  };
 
   // Proposal & Join requests are now handled globally in MyWorkflows.tsx.
+
   const handleCreate = async () => {
     if (!form.title.trim() || !form.bonus) return;
     setCreating(true);
@@ -504,7 +531,20 @@ export function PoolModule() {
 
   return (
     <div>
+      {/* Tab switcher */}
+      <div className="flex gap-2 mb-5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+        {[['tasks', 'pool', '绩效池任务'] as const, ['rewards', 'payments', '奖励台账'] as const].map(([key, icon, label]) => (
+          <button key={key} onClick={() => setPoolTab(key)}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              poolTab === key ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}>
+            <span className="material-symbols-outlined text-[16px]">{icon}</span>
+            {label}
+          </button>
+        ))}
+      </div>
 
+      {poolTab === 'tasks' ? (<>
       {/* ── Existing Pool Tasks ── */}
       <div className="flex items-center justify-between mb-4">
         <h4 className="font-bold text-slate-700">绩效池任务</h4>
@@ -580,6 +620,50 @@ export function PoolModule() {
               )}
             </div>
           )) : <p className="text-sm text-slate-400 text-center py-8 col-span-2">暂无绩效池任务</p>}
+        </div>
+      )}
+      </>) : (
+        /* ── 奖励台账 ── */
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="font-bold text-slate-700">奖励台账</h4>
+            <button onClick={() => refetchRewards()} className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">refresh</span>刷新
+            </button>
+          </div>
+          {rewardLoading ? (
+            <div className="text-center py-8 text-slate-400">加载中...</div>
+          ) : (
+            <div className="space-y-2">
+              {(rewardPlans || []).length ? (rewardPlans || []).map((p: any) => {
+                const [label, cls] = (REWARD_STATUS[p.status] || ['未知', 'bg-slate-100 text-slate-500']) as [string, string];
+                return (
+                  <div key={p.id} className="bg-slate-50 rounded-xl p-4 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-800 text-sm truncate">{p.task_title || `任务 #${p.pool_task_id}`}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">发起人：{p.creator_name} · {p.created_at?.slice(0, 10)}</p>
+                      {p.pay_period && <p className="text-xs text-slate-400">发放周期：{p.pay_period}</p>}
+                      {p.paid_at && <p className="text-xs text-emerald-600 font-medium">✅ 已发放：{p.paid_at?.slice(0, 10)}</p>}
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="font-black text-rose-500">¥{(p.total_bonus || 0).toLocaleString()}</span>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
+                      {p.status === 'approved' && (
+                        <button
+                          onClick={() => handleMarkPaid(p.id)}
+                          disabled={markingPaid === p.id}
+                          className="px-3 py-1.5 text-xs font-bold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                          {markingPaid === p.id ? '处理中...' : '确认已发放'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }) : <p className="text-sm text-slate-400 text-center py-8">暂无奖励台账记录</p>}
+            </div>
+          )}
         </div>
       )}
     </div>

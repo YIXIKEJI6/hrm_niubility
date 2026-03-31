@@ -45,6 +45,7 @@ function FlowTypeTag({ type }: { type: string }) {
   if (type === 'proposal') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-purple-600 bg-purple-50 border border-purple-100">绩效提案</span>;
   if (type === 'pool_join') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-emerald-600 bg-emerald-50 border border-emerald-100">加入申请</span>;
   if (type === 'test_assignment') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-indigo-600 bg-indigo-50 border border-indigo-100">能力测评</span>;
+  if (type === 'reward_plan') return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-amber-700 bg-amber-50 border border-amber-200">🎯 奖励分配</span>;
   return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-slate-500 bg-slate-100">{type}</span>;
 }
 
@@ -72,6 +73,9 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
   const [selectedTask, setSelectedTask] = useState<{ type: string, data: any, isPending: boolean, originalStatus?: string } | null>(null);
   const [submittingApprovals, setSubmittingApprovals] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  // reward_plan modal local state (hoisted to avoid conditional hook rule)
+  const [submittingReward, setSubmittingReward] = useState(false);
+  const [rewardComment, setRewardComment] = useState('');
   const { currentUser } = useAuth();
   const isMobile = useIsMobile();
 
@@ -146,26 +150,36 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
     try {
       const isPerf = flowType === 'perf_plan';
       const isJoin = flowType === 'pool_join';
-      const realEndpoint = isPerf 
-        ? `/api/perf/plans/${id}/${action}`
-        : isJoin
-        ? `/api/pool/join-requests/${id}/review`
-        : `/api/pool/proposals/${id}/review`;
-        
-      const payload = isPerf 
-        ? { reason: comment } 
-        : isJoin
-        ? { action, comment }
-        : { 
-            action, 
-            reason: comment,
-            ...(updatedData?.bonus !== undefined ? { bonus: updatedData.bonus } : {}),
-            ...(updatedData?.rewardType ? { reward_type: updatedData.rewardType } : {}),
-            ...(updatedData?.maxParticipants ? { max_participants: updatedData.maxParticipants } : {}),
-            ...(updatedData?.taskType ? { department: updatedData.taskType } : {}),
-            ...(updatedData?.attachments ? { attachments: updatedData.attachments } : {}),
-            ...(updatedData?.s !== undefined ? { s: updatedData.s, m: updatedData.m, a_smart: updatedData.a_smart, r_smart: updatedData.r_smart, t: updatedData.t, summary: updatedData.summary } : {})
-          };
+      const isRewardPlan = flowType === 'reward_plan';
+
+      let realEndpoint: string;
+      let payload: any;
+
+      if (isPerf) {
+        realEndpoint = `/api/perf/plans/${id}/${action}`;
+        payload = { reason: comment };
+      } else if (isJoin) {
+        realEndpoint = `/api/pool/join-requests/${id}/review`;
+        payload = { action, comment };
+      } else if (isRewardPlan) {
+        // 根据当前状态判断走 hr-review 还是 admin-confirm
+        const item = data.find((d: any) => d.id === id);
+        const endpoint = item?.status === 'pending_admin' ? 'admin-confirm' : 'hr-review';
+        realEndpoint = `/api/pool/rewards/${id}/${endpoint}`;
+        payload = { action, comment };
+      } else {
+        realEndpoint = `/api/pool/proposals/${id}/review`;
+        payload = {
+          action,
+          reason: comment,
+          ...(updatedData?.bonus !== undefined ? { bonus: updatedData.bonus } : {}),
+          ...(updatedData?.rewardType ? { reward_type: updatedData.rewardType } : {}),
+          ...(updatedData?.maxParticipants ? { max_participants: updatedData.maxParticipants } : {}),
+          ...(updatedData?.taskType ? { department: updatedData.taskType } : {}),
+          ...(updatedData?.attachments ? { attachments: updatedData.attachments } : {}),
+          ...(updatedData?.s !== undefined ? { s: updatedData.s, m: updatedData.m, a_smart: updatedData.a_smart, r_smart: updatedData.r_smart, t: updatedData.t, summary: updatedData.summary } : {})
+        };
+      }
 
       const res = await fetch(realEndpoint, {
         method: 'POST',
@@ -175,8 +189,8 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
         },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (data.code === 0) {
+      const data2 = await res.json();
+      if (data2.code === 0) {
         fetchTab(activeTab);
         setSelectedTask(null);
         const refreshCounts = await fetch(`/api/workflows/pending`, { headers }).then(r=>r.json()).catch(()=>null);
@@ -185,8 +199,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           setCounts(prev => ({ ...prev, pending: filtered.length }));
         }
       } else {
-        // 显示后端错误（包含越级/自审错误）
-        setApprovalError(data.message || '操作失败');
+        setApprovalError(data2.message || '操作失败');
       }
     } catch (e) {
       setApprovalError('网络错误，请重试');
@@ -299,6 +312,15 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                         originalStatus: item.status,
                       });
                       return;
+                    } else if (flowType === 'reward_plan') {
+                      // 奖励方案：直接用 item 数据展示，type=reward_plan
+                      setSelectedTask({
+                        type: 'reward_plan',
+                        data: { ...item, flow_type: 'reward_plan' },
+                        isPending,
+                        originalStatus: item.status,
+                      });
+                      return;
                     } else if (flowType === 'perf_plan') {
                       const r = await fetch(`/api/perf/plans/${item.id}`, { headers });
                       const j = await r.json();
@@ -321,8 +343,13 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                           s: tv.match(/S:\s*(.*?)(?=\nM:|$)/s)?.[1] || '',
                           m: tv.match(/M:\s*(.*?)(?=\nT:|$)/s)?.[1] || '',
                           t: tv.match(/T:\s*(.*)/s)?.[1] || '',
-                          a_smart: desc.match(/\[Resource\]:\s*(.*?)(?=\n\[Relevance\]:|$)/s)?.[1] || '',
-                          r_smart: desc.match(/\[Relevance\]:\s*(.*?)(?=\n\[PDCA-Plan\]:|$)/s)?.[1] || '',
+                          // 兼容两种格式：英文 [Resource]: 和中文【所需资源】/「所需资源」
+                          a_smart: desc.match(/\[Resource\]:\s*(.*?)(?=\n\[Relevance\]:|$)/s)?.[1]
+                            || desc.match(/[【「]所需资源[】」]\n([\s\S]*?)(?=\n\n[【「]|$)/)?.[1]
+                            || '',
+                          r_smart: desc.match(/\[Relevance\]:\s*(.*?)(?=\n\[PDCA-Plan\]:|$)/s)?.[1]
+                            || desc.match(/[【「]岗位关联[】」]\n([\s\S]*?)(?=\n\n[【「]|$)/)?.[1]
+                            || '',
                           planTime: desc.match(/\[PDCA-Plan\]:\s*(.*?)(?=\n\[PDCA-Do\]:|$)/s)?.[1] || '',
                           doTime: desc.match(/\[PDCA-Do\]:\s*(.*?)(?=\n\[PDCA-Check\]:|$)/s)?.[1] || '',
                           checkTime: desc.match(/\[PDCA-Check\]:\s*(.*?)(?=\n\[PDCA-Act\]:|$)/s)?.[1] || '',
@@ -532,6 +559,121 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           </div>
         ) : undefined;
 
+        // ── 奖励分配方案专用审批弹窗 ──
+        if (selectedTask.type === 'reward_plan') {
+          const plan = selectedTask.data;
+
+          const doRewardAction = async (action: 'approve' | 'reject') => {
+            setSubmittingReward(true);
+            setApprovalError(null);
+            await handleApproveReject(plan.id, 'reward_plan', action, rewardComment);
+            setSubmittingReward(false);
+          };
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-2xl">payments</span>
+                    <div>
+                      <p className="font-black text-lg">奖励分配方案审批</p>
+                      <p className="text-amber-100 text-xs">{plan.task_title || `任务 #${plan.pool_task_id}`}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setSelectedTask(null); setApprovalError(null); }} className="text-white/60 hover:text-white">
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                  {/* Status */}
+                  <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-4 py-3">
+                    <span className="material-symbols-outlined text-amber-500">info</span>
+                    <div>
+                      <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                        {plan.status === 'pending_admin' ? '总经理最终确认' : 'HR 审核中'}
+                      </p>
+                      <p className="text-xs text-amber-600/70">发起人：{plan.creator_name} · 发起时间：{plan.created_at?.slice(0, 10)}</p>
+                    </div>
+                  </div>
+
+                  {/* 奖金总额 */}
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
+                      <p className="text-xs text-slate-400 mb-1">奖金总额</p>
+                      <p className="font-black text-rose-500 text-lg">¥{plan.total_bonus_awarded?.toLocaleString() || 0}</p>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
+                      <p className="text-xs text-slate-400 mb-1">预计发放月</p>
+                      <p className="font-black text-slate-700 dark:text-slate-200">{plan.pay_period || '待定'}</p>
+                    </div>
+                  </div>
+
+                  {/* STAR 材料附件提示 */}
+                  {plan.star_report_id && (
+                    <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-4 py-3 text-xs text-indigo-700 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px]">description</span>
+                      已附 STAR 汇报材料（#{plan.star_report_id}），请查阅后审批
+                    </div>
+                  )}
+
+                  {/* 备注 */}
+                  {plan.notes && (
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-sm text-slate-600 dark:text-slate-300">
+                      <p className="text-xs font-bold text-slate-400 mb-1">备注</p>
+                      {plan.notes}
+                    </div>
+                  )}
+
+                  {/* 审批意见 */}
+                  {selectedTask.isPending && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5">审批意见（可选）</label>
+                      <textarea
+                        rows={2}
+                        className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        placeholder="填写补充说明..."
+                        value={rewardComment}
+                        onChange={e => setRewardComment(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  {approvalError && (
+                    <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-600 text-sm font-bold">
+                      <span className="material-symbols-outlined text-[16px]">error</span>
+                      {approvalError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-end gap-3">
+                  <button onClick={() => { setSelectedTask(null); setApprovalError(null); }}
+                    className="px-5 py-2 text-sm text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-100 font-bold">
+                    关闭
+                  </button>
+                  {selectedTask.isPending && (
+                    <>
+                      <button onClick={() => doRewardAction('reject')} disabled={submittingReward}
+                        className="px-5 py-2 text-sm font-bold text-red-600 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 disabled:opacity-50">
+                        驳回
+                      </button>
+                      <button onClick={() => doRewardAction('approve')} disabled={submittingReward}
+                        className="px-6 py-2 text-sm font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 shadow-sm">
+                        {submittingReward ? '处理中...' : plan.status === 'pending_admin' ? '✅ 总经理确认' : '✅ HR 通过'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         return (
           <SmartTaskModal
             isOpen={true}
@@ -551,6 +693,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           />
         );
       })()}
+
     </div>
   );
 }
@@ -622,6 +765,13 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
             </span>
             <FlowTypeTag type={flowType} />
             <StatusBadge status={status} />
+            {/* 整改6: 分配给我的任务添加标识徽章 */}
+            {tab === 'initiated' && item.source_type === 'assigned' && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-0.5">
+                <span className="material-symbols-outlined text-[10px]">assignment_ind</span>
+                分配给我
+              </span>
+            )}
           </div>
           <h3 className="font-bold text-slate-800 dark:text-white text-sm mb-1 truncate">{title}</h3>
           <div className="flex items-center gap-4 text-[11px] text-slate-400">
