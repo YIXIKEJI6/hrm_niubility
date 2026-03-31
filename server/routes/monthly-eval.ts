@@ -125,13 +125,14 @@ router.get('/hr/all-users', (req, res) => {
 });
 
 // 4. 下发考核单 (单人精细配置 或 批量自动推车)
+// 【风隖5修复】支持传入 deadline 字段
 router.post('/hr/publish', authMiddleware, (req: AuthRequest, res) => {
-  const { month, userIds, manualReviewers } = req.body;
+  const { month, userIds, manualReviewers, deadline } = req.body;
   if (!month || !userIds || !userIds.length) return res.status(400).json({ code: 1, message: '缺少参数' });
 
   const db = getDb();
   try {
-    const insertEval = db.prepare(`INSERT INTO monthly_evaluations (user_id, month, status) VALUES (?, ?, 'pending')`);
+    const insertEval = db.prepare(`INSERT INTO monthly_evaluations (user_id, month, status${deadline ? ', deadline' : ''}) VALUES (?, ?, 'pending'${deadline ? ', ?' : ''})`);
     const insertReviewer = db.prepare(`INSERT INTO monthly_eval_reviewers (evaluation_id, reviewer_id, role) VALUES (?, ?, ?)`);
 
     let generatedCount = 0;
@@ -142,7 +143,9 @@ router.post('/hr/publish', authMiddleware, (req: AuthRequest, res) => {
         db.prepare('DELETE FROM monthly_eval_reviewers WHERE evaluation_id IN (SELECT id FROM monthly_evaluations WHERE month = ? AND user_id = ?)').run(month, userId);
         db.prepare('DELETE FROM monthly_evaluations WHERE month = ? AND user_id = ?').run(month, userId);
 
-        const resEval = insertEval.run(userId, month);
+        const resEval = deadline
+          ? insertEval.run(userId, month, deadline)
+          : insertEval.run(userId, month);
         const evalId = resEval.lastInsertRowid;
         generatedCount++;
 
@@ -294,3 +297,68 @@ router.get('/user-tasks', (req, res) => {
 
 export default router;
 
+
+// 【风险5】POST /monthly-eval/hr/remind — HR 发起催办通知
+router.post('/hr/remind', authMiddleware, async (req: AuthRequest, res) => {
+  const db = getDb();
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
+  if (!['hr', 'admin'].includes(user?.role)) return res.status(403).json({ code: 403, message: '仅 HR/Admin 可发起催办' });
+
+  const { month, evaluationIds } = req.body;
+  if (!month) return res.status(400).json({ code: 400, message: '缺少 month' });
+
+  const { sendMarkdownMessage } = require('../services/message');
+  const now = new Date().toISOString();
+
+  let evalWhere = "WHERE e.month = ? AND r.status = 'pending'";
+  const params: any[] = [month];
+  if (evaluationIds && evaluationIds.length) {
+    evalWhere += ` AND e.id IN (${evaluationIds.map(() => '?').join(',')})`;
+    params.push(...evaluationIds);
+  }
+
+  const pendingReviewers = db.prepare(`
+    SELECT r.reviewer_id, r.role, r.id as reviewer_task_id,
+           u.name as target_name, e.deadline
+    FROM monthly_eval_reviewers r
+    JOIN monthly_evaluations e ON r.evaluation_id = e.id
+    JOIN users u ON e.user_id = u.id
+    ${evalWhere}
+  `).all(...params) as any[];
+
+  const grouped = new Map<string, any[]>();
+  for (const r of pendingReviewers) {
+    if (!grouped.has(r.reviewer_id)) grouped.set(r.reviewer_id, []);
+    grouped.get(r.reviewer_id)!.push(r);
+  }
+
+  const appUrl = process.env.APP_URL || 'http://localhost:5173';
+  let reminded = 0;
+  try {
+    for (const [reviewerId, tasks] of grouped) {
+      const names = tasks.map((t: any) => t.target_name).join('、');
+      const dl = tasks[0]?.deadline ? `截止 ${tasks[0].deadline}` : '请尽快完成';
+      const msg = `**⏰ 月度考核评分催办**\n\n> **月份：**${month}\n> **待评分员工：**${names}\n> **${dl}**\n\n[👉 立即去打分](${appUrl}/monthly-eval)`;
+      await sendMarkdownMessage([reviewerId], msg);
+      for (const t of tasks) {
+        db.prepare('UPDATE monthly_eval_reviewers SET reminded_at = ? WHERE id = ?').run(now, t.reviewer_task_id);
+      }
+      reminded++;
+    }
+  } catch {}
+
+  return res.json({ code: 0, message: `已向 ${reminded} 位待打分人发送催办通知` });
+});
+
+// 【风险5】PATCH /monthly-eval/hr/set-deadline — HR 设置考评批次截止日
+router.patch('/hr/set-deadline', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
+  if (!['hr', 'admin'].includes(user?.role)) return res.status(403).json({ code: 403, message: '仅 HR/Admin 可操作' });
+
+  const { month, deadline } = req.body;
+  if (!month || !deadline) return res.status(400).json({ code: 400, message: '缺少 month 或 deadline' });
+
+  db.prepare('UPDATE monthly_evaluations SET deadline = ? WHERE month = ?').run(deadline, month);
+  return res.json({ code: 0, message: `已设置 ${month} 考评截止日为 ${deadline}` });
+});

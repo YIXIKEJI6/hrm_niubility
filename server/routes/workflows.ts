@@ -71,20 +71,21 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     return items;
   };
 
-  // 1. 待我审批的绩效计划
+  // 1. 待我审批的绩效计划（【风隖7修复】服务端过滤自己发起的）
   let perfPending = db.prepare(
     `SELECT pp.*, u.name as creator_name, au.name as approver_name, 'perf_plan' as flow_type
      FROM perf_plans pp
      LEFT JOIN users u ON pp.creator_id = u.id
      LEFT JOIN users au ON pp.approver_id = au.id
-     WHERE (pp.approver_id = ? AND pp.status = 'pending_review')
-        OR (pp.dept_head_id = ? AND pp.status = 'pending_dept_review')
+     WHERE ((pp.approver_id = ? AND pp.status = 'pending_review')
+         OR (pp.dept_head_id = ? AND pp.status = 'pending_dept_review'))
+       AND pp.creator_id != ?
      ORDER BY pp.created_at DESC`
-  ).all(userId, userId);
+  ).all(userId, userId, userId);
   perfPending = attachLogs(perfPending, 'perf_plan');
   items.push(...perfPending);
 
-  // 2. 待我审核的提案 (HR可审 pending_hr, Admin可审 pending_admin)
+  // 2. 待我审核的提案 (HR可审 pending_hr, Admin可审 pending_admin)【风隖7修复：过滤自己提交的提案】
   if (['hr', 'admin'].includes(role)) {
     const hrPending = db.prepare(
       `SELECT pt.*, u.name as creator_name, 'proposal' as flow_type,
@@ -94,9 +95,9 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
        LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
        LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
        WHERE pt.proposal_status = 'pending_hr'
+         AND pt.created_by != ?
        ORDER BY pt.created_at DESC`
-    ).all();
-    // 标注当前审核人名字
+    ).all(userId);
     hrPending.forEach((p: any) => { p.pending_reviewer_name = currentUserName; });
     items.push(...hrPending);
   }
@@ -109,8 +110,9 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
        LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
        LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
        WHERE pt.proposal_status = 'pending_admin'
+         AND pt.created_by != ?
        ORDER BY pt.created_at DESC`
-    ).all();
+    ).all(userId);
     adminPending.forEach((p: any) => { p.pending_reviewer_name = currentUserName; });
     items.push(...adminPending);
   }

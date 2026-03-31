@@ -508,6 +508,16 @@ export function initDatabase(): void {
     try { db.prepare(sql).run(); } catch (e) {}
   }
 
+  // 【风险5】monthly_evaluations 增加 deadline 字段（HR 设置考评截止时间）
+  // 【风险6】pool_reward_plans 增加 paid_at 字段（实际发放时间）
+  const v211Migrations = [
+    'ALTER TABLE monthly_evaluations ADD COLUMN deadline DATE',
+    'ALTER TABLE monthly_eval_reviewers ADD COLUMN reminded_at DATETIME',
+    'ALTER TABLE pool_reward_plans ADD COLUMN paid_at DATETIME',
+  ];
+  for (const sql of v211Migrations) {
+    try { db.prepare(sql).run(); } catch (e) {}
+  }
 
   // ============ 初始化能力库预设数据 ============
   const libCount = db.prepare('SELECT COUNT(*) as count FROM competency_library').get() as {count: number};

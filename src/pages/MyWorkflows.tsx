@@ -126,11 +126,18 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
         )
       );
       const newCounts: Record<string, number> = {};
-      allTabs.forEach((t, i) => { newCounts[t] = results[i]?.data?.length || 0; });
+      allTabs.forEach((t, i) => {
+        let items: any[] = results[i]?.data || [];
+        // 「待我审核」计数与列表保持一致：排除自己发起的
+        if (t === 'pending' && currentUser?.id) {
+          items = items.filter((item: any) => item.creator_id !== currentUser.id && item.created_by !== currentUser.id);
+        }
+        newCounts[t] = items.length;
+      });
       setCounts(newCounts as any);
     };
     fetchCounts();
-  }, []);
+  }, [currentUser?.id]);
 
   useEffect(() => { fetchTab(activeTab); }, [activeTab]);
 
@@ -173,7 +180,10 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
         fetchTab(activeTab);
         setSelectedTask(null);
         const refreshCounts = await fetch(`/api/workflows/pending`, { headers }).then(r=>r.json()).catch(()=>null);
-        if (refreshCounts) setCounts(prev => ({ ...prev, pending: refreshCounts.data?.length || 0 }));
+        if (refreshCounts) {
+          const filtered = (refreshCounts.data || []).filter((item: any) => item.creator_id !== currentUser?.id && item.created_by !== currentUser?.id);
+          setCounts(prev => ({ ...prev, pending: filtered.length }));
+        }
       } else {
         // 显示后端错误（包含越级/自审错误）
         setApprovalError(data.message || '操作失败');

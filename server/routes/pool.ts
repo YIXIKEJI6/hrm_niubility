@@ -520,11 +520,18 @@ router.post('/join-requests/:id/review', authMiddleware, (req: AuthRequest, res)
       }
     }
 
-    // 如果人数满了，更新任务状态
+    // 【风险2修复】如果人数满了，必须 A 角色已到位才能自动启动
     const newCount = (db.prepare('SELECT COUNT(*) as c FROM pool_participants WHERE pool_task_id = ?').get(joinReq.pool_task_id) as any)?.c || 0;
     if (task && newCount >= task.max_participants) {
-      db.prepare("UPDATE pool_tasks SET status = 'in_progress' WHERE id = ?").run(joinReq.pool_task_id);
+      const approvedA = db.prepare(
+        `SELECT id FROM pool_role_claims WHERE pool_task_id = ? AND role_name = 'A' AND status = 'approved'`
+      ).get(joinReq.pool_task_id);
+      if (approvedA) {
+        db.prepare("UPDATE pool_tasks SET status = 'in_progress' WHERE id = ?").run(joinReq.pool_task_id);
+      }
+      // 若 A 角色未到位，任务停留在 claiming，等 A 认领审批通过后再启动
     }
+
 
     // 通知申请人
     createNotification([joinReq.user_id], 'pool_join', '✅ 加入申请已通过', `您申请加入任务「${task?.title || ''}」已被批准`, '/goals');

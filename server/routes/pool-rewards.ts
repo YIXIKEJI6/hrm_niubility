@@ -55,7 +55,8 @@ router.post('/initiate/:taskId', authMiddleware, (req: AuthRequest, res) => {
   const task = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(taskId) as any;
   if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
 
-  if (!['completed', 'in_progress', 'terminated'].includes(task.status)) {
+  // 【风险1修复】仅允许 completed / terminated 状态发起奖励（删除 in_progress）
+  if (!['completed', 'terminated'].includes(task.status)) {
     return res.status(400).json({ code: 400, message: '任务尚未完成或终止，无法发起奖励分配' });
   }
 
@@ -331,6 +332,9 @@ router.post('/:id/admin-confirm', authMiddleware, async (req: AuthRequest, res) 
     WHERE id = ?
   `).run(userId, comment || '', now, payPeriod, now, planId);
 
+  // 【风险4修复】Admin 批准奖励 → 同步任务状态为 rewarded
+  db.prepare(`UPDATE pool_tasks SET status = 'rewarded' WHERE id = ?`).run(plan.pool_task_id);
+
   const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
   const distributions = db.prepare(
     `SELECT prd.*, u.name FROM pool_reward_distributions prd LEFT JOIN users u ON prd.user_id = u.id WHERE prd.reward_plan_id = ?`
@@ -350,6 +354,47 @@ router.post('/:id/admin-confirm', authMiddleware, async (req: AuthRequest, res) 
 
   return res.json({ code: 0, message: `奖励方案已批准，将于 ${payPeriod} 发放` });
 });
+
+// POST /api/pool/rewards/:id/mark-paid — 【风险6】HR/Admin 确认实际发放
+router.post('/:id/mark-paid', authMiddleware, async (req: AuthRequest, res) => {
+  const db = getDb();
+  const planId = parseInt(req.params.id);
+  const userId = req.userId!;
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as any;
+
+  if (!['hr', 'admin'].includes(user?.role)) {
+    return res.status(403).json({ code: 403, message: '仅 HR/Admin 可确认发放' });
+  }
+
+  const plan = db.prepare('SELECT * FROM pool_reward_plans WHERE id = ?').get(planId) as any;
+  if (!plan) return res.status(404).json({ code: 404, message: '方案不存在' });
+  if (plan.status !== 'approved') {
+    return res.status(400).json({ code: 400, message: '仅已批准的方案可标记发放' });
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE pool_reward_plans SET status = 'paid', paid_at = ?, updated_at = ? WHERE id = ?`).run(now, now, planId);
+  // 同步每人 paid_at
+  db.prepare(`UPDATE pool_reward_distributions SET paid_at = ? WHERE reward_plan_id = ?`).run(now, planId);
+
+  const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+  const distributions = db.prepare(
+    `SELECT prd.user_id, prd.bonus_amount, prd.perf_score FROM pool_reward_distributions prd WHERE prd.reward_plan_id = ?`
+  ).all(planId) as any[];
+
+  try {
+    for (const d of distributions) {
+      if (!d.user_id) continue;
+      let msg = `**✅ 任务奖励已确认发放**\n\n> **任务：**${task?.title}\n> **发放时间：**${now.slice(0, 10)}`;
+      if (d.bonus_amount > 0) msg += `\n> **奖金：**¥${d.bonus_amount}`;
+      if (d.perf_score > 0) msg += `\n> **绩效加分：**+${d.perf_score}分`;
+      await sendMarkdownMessage([d.user_id], msg);
+    }
+  } catch {}
+
+  return res.json({ code: 0, message: '已标记为已发放' });
+});
+
 
 // GET /api/pool/rewards — 台账列表（HR/Admin）
 router.get('/', authMiddleware, (req: AuthRequest, res) => {

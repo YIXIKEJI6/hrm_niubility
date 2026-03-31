@@ -183,15 +183,26 @@ router.post('/plans/:id/approve', authMiddleware, async (req: AuthRequest, res) 
       const dept = db.prepare('SELECT leader_user_id FROM departments WHERE id = ?').get(plan.department_id) as any;
       if (dept && dept.leader_user_id) deptHeadId = dept.leader_user_id;
     }
+    if (!deptHeadId && req.userId) {
+      // 尝试从员工所在部门取
+      const userDept = db.prepare('SELECT department_id FROM users WHERE id = ?').get(plan.creator_id) as any;
+      if (userDept?.department_id) {
+        const dept2 = db.prepare('SELECT leader_user_id FROM departments WHERE id = ?').get(userDept.department_id) as any;
+        if (dept2?.leader_user_id) deptHeadId = dept2.leader_user_id;
+      }
+    }
 
+    // 【风险8修复】dept_head 与当前审批人相同/就是发起人/为空时，跳过二审直接通过
     if (!deptHeadId || deptHeadId === req.userId || deptHeadId === plan.creator_id) {
       if (deptHeadId) db.prepare('UPDATE perf_plans SET dept_head_id = ? WHERE id = ?').run(deptHeadId, planId);
       const result = await transitionPlan(planId, 'approved', req.userId!);
       return res.json({ code: result.success ? 0 : 400, message: result.message });
     } else {
+      // dept_head 已明确且是他人：自动设置并进入二审
       db.prepare('UPDATE perf_plans SET dept_head_id = ? WHERE id = ?').run(deptHeadId, planId);
       const result = await transitionPlan(planId, 'pending_dept_review', req.userId!);
-      return res.json({ code: result.success ? 0 : 400, message: result.message });
+      const deptHeadName = (db.prepare('SELECT name FROM users WHERE id = ?').get(deptHeadId) as any)?.name || '部门负责人';
+      return res.json({ code: result.success ? 0 : 400, message: result.success ? `一审通过，已转交部门负责人「${deptHeadName}」二审` : result.message });
     }
   } else if (plan.status === 'pending_dept_review') {
     if (plan.dept_head_id !== req.userId && req.userRole !== 'admin') {
@@ -200,6 +211,7 @@ router.post('/plans/:id/approve', authMiddleware, async (req: AuthRequest, res) 
     const result = await transitionPlan(planId, 'approved', req.userId!);
     return res.json({ code: result.success ? 0 : 400, message: result.message });
   }
+
 
   const result = await transitionPlan(planId, 'approved', req.userId!);
   return res.json({ code: result.success ? 0 : 400, message: result.message });

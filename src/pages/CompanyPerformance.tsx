@@ -1286,25 +1286,48 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               ) : myProposals.map((p: any) => {
                 const [statusLabel, statusCls] = PROPOSAL_STATUS[p.proposal_status] || [p.proposal_status, 'bg-slate-100 text-slate-500'];
                 return (
-                  <div key={p.id} onClick={() => { setShowMyProposals(false); setViewingProposal(p); }} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate">{p.title}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusCls}`}>{statusLabel}</span>
-                    </div>
-                    {p.description && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{p.description}</p>}
-                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
-                      <span>奖金: ¥{p.bonus || 0}</span>
-                      <span>难度: {p.difficulty || '中'}</span>
-                      <span>{new Date(p.created_at).toLocaleDateString()}</span>
-                    </div>
-                    {p.reject_reason && (
-                      <div className="mt-2 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-1.5 text-xs text-red-600">
-                        <span className="font-bold">驳回原因：</span>{p.reject_reason}
+                  <div key={p.id} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 border border-slate-100 dark:border-slate-700">
+                    <div onClick={() => { setShowMyProposals(false); setViewingProposal(p); }} className="cursor-pointer hover:opacity-80 transition-opacity">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate">{p.title}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusCls}`}>{statusLabel}</span>
                       </div>
+                      {p.description && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{p.description}</p>}
+                      <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                        <span>奖金: ¥{p.bonus || 0}</span>
+                        <span>难度: {p.difficulty || '中'}</span>
+                        <span>{new Date(p.created_at).toLocaleDateString()}</span>
+                      </div>
+                      {p.reject_reason && (
+                        <div className="mt-2 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-1.5 text-xs text-red-600">
+                          <span className="font-bold">驳回原因：</span>{p.reject_reason}
+                        </div>
+                      )}
+                    </div>
+                    {p.proposal_status === 'rejected' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowMyProposals(false);
+                          setProposeForm({
+                            title: p.title || '',
+                            description: p.description || '',
+                            department: p.department || '',
+                            difficulty: p.difficulty || '中',
+                            bonus: String(p.bonus || ''),
+                            max_participants: String(p.max_participants || '5'),
+                          });
+                          setShowPropose(true);
+                        }}
+                        className="w-full mt-3 py-2 bg-violet-500 text-white rounded-xl text-xs font-bold hover:bg-violet-600 transition-colors"
+                      >
+                        ✏️ 修改后重新提案
+                      </button>
                     )}
                   </div>
                 );
               })}
+
             </div>
           </div>
         </div>
