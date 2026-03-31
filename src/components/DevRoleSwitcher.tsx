@@ -7,8 +7,8 @@ export default function DevRoleSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  // 生产环境隐藏测试账号切换器
-  const isDev = (import.meta as any).env?.DEV;
+  // 仅在开发模式或 localhost 环境显示
+  const isDev = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   if (!isDev) return null;
 
   const roles = [
