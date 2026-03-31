@@ -107,7 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else if (!token) {
           // No token and no code — need to login
-          const isDev = (import.meta as any).env?.DEV;
+          const isDev = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
           if (isDev) {
             setIsAuthenticating(false);
             return;
