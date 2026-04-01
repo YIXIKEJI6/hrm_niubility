@@ -779,7 +779,11 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                   </button>
                 )}
                 {/* 发起验收总结 (仅限 A 或 管理员) */}
-                {sp.status === 'in_progress' && (currentUser?.id === (sp as any).approver_id || currentUser?.role === 'admin' || currentUser?.role === 'gm') && (
+                {sp.status === 'in_progress' && (
+                  (typeof (sp as any).approver_id === 'string' && typeof currentUser?.id === 'string' && (sp as any).approver_id.toLowerCase() === currentUser.id.toLowerCase()) || 
+                  currentUser?.role === 'admin' || 
+                  currentUser?.role === 'gm'
+                ) && (
                   <button onClick={async () => {
                     if (!confirm('确定发起验收总结吗？发起后将流转至上级进行最终评级结案。')) return;
                     try {

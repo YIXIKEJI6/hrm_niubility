@@ -480,7 +480,7 @@ router.post('/plans/:id/review', authMiddleware, async (req: AuthRequest, res) =
       // 仅负责人A可发起验收（但评分操作是上级做的）
       if (plan4assess.status === 'in_progress') {
         // 发起验收总结 → 仅限A
-        if (req.userId !== plan4assess.approver_id && !isGM(req.userId) && !isSuperAdmin(req.userId)) {
+        if (String(req.userId).toLowerCase() !== String(plan4assess.approver_id).toLowerCase() && !isGM(req.userId) && !isSuperAdmin(req.userId)) {
           return res.status(403).json({ code: 403, message: '仅责任人(A)可发起验收总结' });
         }
         const step1 = await transitionPlan(planId, 'pending_assessment', req.userId!);
