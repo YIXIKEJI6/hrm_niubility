@@ -217,7 +217,10 @@ router.get('/:type/:id', authMiddleware, (req: AuthRequest, res) => {
       if (!plan) return res.status(404).json({ code: 404, message: '单据不存在' });
 
       const nodes = WorkflowEngine.resolveAssignees(WORKFLOWS.PERF_PLAN, { initiatorId: plan.creator_id });
-      const logs = db.prepare('SELECT * FROM perf_logs WHERE plan_id = ? ORDER BY created_at ASC').all(id) as any[];
+      const allLogs = db.prepare('SELECT * FROM perf_logs WHERE plan_id = ? ORDER BY created_at ASC').all(id) as any[];
+      const lastSubmitIndex = [...allLogs].reverse().findIndex(l => l.action === 'submit' || l.action === 'resubmit');
+      const logs = lastSubmitIndex >= 0 ? allLogs.slice(allLogs.length - 1 - lastSubmitIndex) : allLogs;
+      
       const currentStatus = plan.status;
 
       // Node 1: 发起人拟定计划

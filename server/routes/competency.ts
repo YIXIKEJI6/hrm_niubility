@@ -277,9 +277,9 @@ router.post('/evaluations/:id/score', authMiddleware, (req: any, res) => {
       
       // Update status
       if (evaluation.status === 'pending_self' && isSelf) {
-        db.prepare('UPDATE competency_evaluations SET status = "pending_manager" WHERE id = ?').run(eId);
+        db.prepare("UPDATE competency_evaluations SET status = 'pending_manager' WHERE id = ?").run(eId);
       } else if (evaluation.status === 'pending_manager' && isManager) {
-        db.prepare('UPDATE competency_evaluations SET status = "completed", finished_at = CURRENT_TIMESTAMP WHERE id = ?').run(eId);
+        db.prepare("UPDATE competency_evaluations SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?").run(eId);
       }
     })();
     
