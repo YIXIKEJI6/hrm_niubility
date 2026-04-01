@@ -101,6 +101,8 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
   // 奖励分配平台 state
   const [showStarModal, setShowStarModal] = useState<PoolTask | null>(null);
+  const [showCompleteModal, setShowCompleteModal] = useState<PoolTask | null>(null);
+  const [completeForm, setCompleteForm] = useState({ delivered_content: '' });
   const [showExtendModal, setShowExtendModal] = useState<PoolTask | null>(null);
   const [showTerminateModal, setShowTerminateModal] = useState<PoolTask | null>(null);
   const [showRewardModal, setShowRewardModal] = useState<PoolTask | null>(null);
@@ -988,6 +990,15 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                         申请延期
                       </button>
                     )}
+                    {/* 满分完结 — R/A 角色，任务进行中 */}
+                    {isRA && selectedTask?.status === 'in_progress' && (
+                      <button
+                        onClick={() => setShowCompleteModal(selectedTask!)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-colors">
+                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                        进度100%满分完结
+                      </button>
+                    )}
                     {/* 提前完结 — 仅 A 角色，任务进行中 */}
                     {isA && selectedTask?.status === 'in_progress' && (
                       <button
@@ -1682,6 +1693,95 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               }} disabled={actionLoading}
                 className="flex-1 py-2.5 bg-blue-500 text-white rounded-xl text-sm font-bold hover:bg-blue-600 disabled:opacity-50">
                 {actionLoading ? '提交中...' : '✅ 确认延期'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 满分完结弹窗 ─────────────────────────────────────────────── */}
+      {showCompleteModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCompleteModal(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 p-5 border-b border-slate-200/60 dark:border-slate-800">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center">
+                <span className="material-symbols-outlined text-emerald-500 text-[20px]">task_alt</span>
+              </div>
+              <div>
+                <h3 className="font-bold text-[15px] text-slate-800 dark:text-slate-100">100% 满分完结</h3>
+                <p className="text-[11px] text-slate-400 truncate w-48">{showCompleteModal.title}</p>
+              </div>
+            </div>
+            
+            <div className="p-5">
+              <div className="mb-4 text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                任务已完成，确认以 <span className="font-black text-emerald-600 text-lg">100%</span> 进度完结？<br/>
+                完结后将立即触发全员进入 STAR 绩效报告环节。
+              </div>
+
+              <div className="mb-4">
+                <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1.5 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">fact_check</span>交付验证说明（必填）
+                </label>
+                <textarea 
+                  value={completeForm.delivered_content}
+                  onChange={e => setCompleteForm(p => ({ ...p, delivered_content: e.target.value }))}
+                  placeholder="简单描述您最终交付的成果或测试通过情况..."
+                  rows={3}
+                  className="w-full text-sm px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              {actionMsg && (
+                <div className={`mt-2 p-2 rounded-lg text-[11px] font-bold text-center ${actionMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                  {actionMsg.text}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-200/60 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 rounded-b-2xl">
+              <button 
+                onClick={() => setShowCompleteModal(null)}
+                className="w-1/3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm rounded-xl hover:bg-slate-50 transition-colors"
+              >取消</button>
+              <button 
+                disabled={actionLoading}
+                onClick={async () => {
+                  if (!completeForm.delivered_content.trim()) {
+                    setActionMsg({ type: 'err', text: '请填写交付验证说明' });
+                    return;
+                  }
+                  setActionLoading(true); setActionMsg(null);
+                  try {
+                    const token = localStorage.getItem('token');
+                    const res = await fetch(`/api/pool/tasks/${showCompleteModal.id}/complete`, {
+                      method: 'POST',
+                      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ delivered_content: completeForm.delivered_content })
+                    });
+                    const data = await res.json();
+                    if (data.code === 0) {
+                      setActionMsg({ type: 'ok', text: '已触发完结，等待填写STAR！' });
+                      setTimeout(() => {
+                        setShowCompleteModal(null);
+                        setCompleteForm({ delivered_content: '' });
+                        setActionLoading(false);
+                        setActionMsg(null);
+                        fetchTasks();
+                      }, 1500);
+                    } else {
+                      setActionMsg({ type: 'err', text: data.message });
+                      setActionLoading(false);
+                    }
+                  } catch (e) {
+                    setActionMsg({ type: 'err', text: '网络请求失败' });
+                    setActionLoading(false);
+                  }
+                }}
+                className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2"
+              >
+                {actionLoading ? <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span> : <span className="material-symbols-outlined text-[16px]">task_alt</span>}
+                确认完结并触发 STAR
               </button>
             </div>
           </div>

@@ -401,6 +401,19 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
   const [isEditingMode, setIsEditingMode] = useState(false);
   const readonly = propReadonly && !isEditingMode;
 
+  const [allCompanyUsers, setAllCompanyUsers] = useState<{id: string, name: string, role?: string}[]>([]);
+  useEffect(() => {
+    if (isOpen && allCompanyUsers.length === 0) {
+      const token = localStorage.getItem('token');
+      fetch('/api/org/users', { headers: { Authorization: `Bearer ${token}` }})
+        .then(r => r.json())
+        .then(j => {
+          if (j.code === 0 && j.data) setAllCompanyUsers(j.data);
+        })
+        .catch(console.error);
+    }
+  }, [isOpen]);
+
   // Dynamically fetched logs for universal approval path display
   const [fetchedLogs, setFetchedLogs] = useState<any[]>([]);
 
@@ -850,7 +863,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                         label="C"
                         value={headerSelections.c}
                         onChange={v => setHeaderSelections({...headerSelections, c: v})}
-                        users={users}
+                        users={allCompanyUsers.length > 0 ? allCompanyUsers : users}
                         placeholder="咨询人"
                         readonly={readonly}
                       />
@@ -931,7 +944,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                       label="C 咨询人"
                       value={headerSelections.c}
                       onChange={v => setHeaderSelections({...headerSelections, c: v})}
-                      users={users}
+                      users={allCompanyUsers.length > 0 ? allCompanyUsers : users}
                       placeholder="选择咨询人"
                       readonly={readonly}
                     />
@@ -939,7 +952,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                       label="I 知情人"
                       value={headerSelections.i}
                       onChange={v => setHeaderSelections({...headerSelections, i: v})}
-                      users={users}
+                      users={allCompanyUsers.length > 0 ? allCompanyUsers : users}
                       placeholder="选择知情人"
                       readonly={readonly}
                     />
@@ -951,7 +964,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                       label="交付对象"
                       value={headerSelections.dt}
                       onChange={v => setHeaderSelections({...headerSelections, dt: v})}
-                      users={users}
+                      users={allCompanyUsers.length > 0 ? allCompanyUsers : users}
                       placeholder="选择交付对象"
                       readonly={readonly || title === '申请新任务' || type === 'personal'}
                     />
@@ -960,7 +973,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                       label="交付对象"
                       value={headerSelections.dt}
                       onChange={v => setHeaderSelections({...headerSelections, dt: v})}
-                      users={users}
+                      users={allCompanyUsers.length > 0 ? allCompanyUsers : users}
                       placeholder="强制必选: 指定交付"
                       readonly={readonly || !approverMode}
                     />

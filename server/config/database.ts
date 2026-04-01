@@ -476,6 +476,7 @@ export function initDatabase(): void {
     'ALTER TABLE pool_tasks ADD COLUMN star_phase_started_at DATETIME',
     // 流程3&6: 交付对象金主物理字段
     'ALTER TABLE pool_tasks ADD COLUMN delivery_target_id TEXT',
+    'ALTER TABLE pool_tasks ADD COLUMN updated_at DATETIME',
   ];
   for (const sql of poolMigrations) {
     try { db.prepare(sql).run(); } catch (e) {}

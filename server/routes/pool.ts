@@ -1185,23 +1185,33 @@ router.post('/tasks/:id/complete', authMiddleware, async (req: AuthRequest, res)
 
   const task = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(taskId) as any;
   if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
-  if (task.progress < 100) return res.status(400).json({ code: 400, message: '进度未达100%' });
+  
+  const { delivered_content } = req.body;
+  
+  // 验证：必须是认领了并且通过的 R角色或 A角色 才能触发满分完结
+  const isRA = db.prepare("SELECT id FROM pool_role_claims WHERE pool_task_id = ? AND user_id = ? AND role_name IN ('R', 'A') AND status = 'approved'").get(taskId, req.userId);
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
+  const isAdminOrHr = user && ['admin', 'hr'].includes(user.role);
+  if (!isRA && !isAdminOrHr) {
+    return res.status(403).json({ code: 403, message: '仅任务执行人(R)或负责人(A)可执行满分完结' });
+  }
 
   const now = new Date().toISOString();
-  db.prepare(`UPDATE pool_tasks SET status = 'completed', star_phase_started_at = ?, updated_at = ? WHERE id = ?`)
+  db.prepare(`UPDATE pool_tasks SET status = 'completed', progress = 100, star_phase_started_at = ?, updated_at = ? WHERE id = ?`)
     .run(now, now, taskId);
 
   const raMembers = db.prepare(
-    `SELECT prc.user_id FROM pool_role_claims prc WHERE prc.pool_task_id = ? AND prc.role_name IN ('R', 'A')`
+    `SELECT prc.user_id FROM pool_role_claims prc WHERE prc.pool_task_id = ? AND prc.role_name IN ('R', 'A') AND status = 'approved'`
   ).all(taskId) as any[];
 
   try {
     const { sendMarkdownMessage } = await import('../services/message');
+    const operator = db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId) as any;
     await sendMarkdownMessage(
       raMembers.map((m: any) => m.user_id),
-      `**任务已完成 — 请填写 STAR 报告**\n\n> 任务：${task.title}\n> 进度：100%\n\n恭喜！任务圆满完成！请填写 STAR 绩效报告来领取奖励！`
+      `**任务已满分完结 — 请填写 STAR 报告**\n\n> 任务：${task.title}\n> 进度：100%\n> 操作人：${operator?.name || '未知'}\n> 交付说明：${delivered_content || '未提供具体说明'}\n\n恭喜！任务圆满完成！请所有成员尽快填写 STAR 绩效报告以领取奖励！`
     );
   } catch {}
 
-  return res.json({ code: 0, message: '任务已完成，已进入 STAR 汇报阶段' });
+  return res.json({ code: 0, message: '任务已完结，已进入 STAR 汇报阶段' });
 });
