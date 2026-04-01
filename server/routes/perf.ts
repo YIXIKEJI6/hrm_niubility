@@ -84,13 +84,20 @@ router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
     `).all(userId) as any[];
 
     if (claims.length > 0) {
-      const virtualPlans = claims.map(c => ({
-        id: `pool_${c.id}`,
-        title: c.title,
-        description: c.description || '',
-        category: '专项任务',
-        status: (c.pt_status === 'published' || c.pt_status === 'pending') ? 'in_progress' : c.pt_status,
-        progress: c.pt_progress || 0,
+      const virtualPlans = claims.map(c => {
+        let mappedStatus = 'in_progress';
+        if (['open', 'published', 'pending', 'in_progress'].includes(c.pt_status)) mappedStatus = 'in_progress';
+        else if (['reviewing', 'completed', 'pending_assessment', 'pending_dept_review'].includes(c.pt_status)) mappedStatus = 'completed';
+        else if (['settled', 'closed', 'approved'].includes(c.pt_status)) mappedStatus = 'approved';
+        else mappedStatus = c.pt_status;
+
+        return {
+          id: `pool_${c.id}`,
+          title: c.title,
+          description: c.description || '',
+          category: '专项任务',
+          status: mappedStatus,
+          progress: c.pt_progress || 0,
         target_value: `赏金榜角色：${c.role_name}`,
         deadline: c.pt_deadline || '',
         quarter: '',
@@ -99,8 +106,9 @@ router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
         assignee_name: '',
         bonus: c.bonus || 0,
         created_at: c.created_at || c.pt_created_at,
-        is_pool: true
-      }));
+          is_pool: true
+        };
+      });
 
       plans.push(...virtualPlans);
       // 重新按时间倒序

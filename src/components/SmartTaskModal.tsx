@@ -838,6 +838,15 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         </div>
 
         {/* Output layout wrap */}
+        <div className="absolute top-16 left-4 z-50 bg-black/80 text-lime-400 p-2 text-[10px] whitespace-pre font-mono rounded overflow-auto max-h-32">
+          DEBUG_INFO:
+          - initialData.r: {String(initialData?.r)}
+          - initialData.assignee_id: {String(initialData?.assignee_id)}
+          - headerSelections.r: {String(headerSelections.r)}
+          - users.length: {users.length}
+          - first_user: {users[0]?.id} / {users[0]?.name}
+          - flowType: {resolvedFlowType}
+        </div>
         <div className="flex flex-1 overflow-hidden">
           
           <div className="flex-1 flex flex-col overflow-hidden relative border-r border-slate-200">
