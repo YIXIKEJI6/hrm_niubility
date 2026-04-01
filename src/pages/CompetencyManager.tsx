@@ -874,93 +874,99 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
 
                  <form id="scoreForm" onSubmit={submitScores} className="space-y-4 mt-6">
                     {(() => {
-                      const totalWeight = showScoreModal.scores?.reduce((acc: number, s: any) => acc + (Number(s.weight) || 0), 0) || 0;
-                      
-                      return showScoreModal.scores?.map((s: any, idx: number) => {
-                        const amIUser = String(showScoreModal.user_id) === String(currentUser?.id);
-                        const amIManager = isManagerOrAdmin && !amIUser; // simplify logic for view
+                        const totalWeight = showScoreModal.scores?.reduce((acc: number, cur: any) => acc + (Number(cur.weight) || 0), 0) || 1;
                         
-                        const canEdit = (showScoreModal.status === 'pending_self' && amIUser) ||
-                                        (showScoreModal.status === 'pending_manager' && amIManager);
-                                        
-                        // Initialize temporary form state on object for easy binding
-                        if (s._inputScore === undefined) {
-                           if (showScoreModal.status === 'pending_self') s._inputScore = s.self_score || s.max_score / 2;
-                           else if (showScoreModal.status === 'pending_manager') s._inputScore = s.manager_score || s.self_score || s.max_score / 2;
-                           else s._inputScore = s.manager_score; // readonly view
-                        }
-                        
-                        return (
-                          <div key={idx} className="bg-white border-2 border-slate-100 hover:border-indigo-100 dark:bg-slate-900 dark:border-slate-800 dark:hover:border-indigo-900 p-4 rounded-xl shadow-sm transition-colors">
-                             <div className="flex justify-between items-start mb-3">
-                                <div className="flex-1 pr-4">
-                                  <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100">{s.name}</h4>
-                                  <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-1.5 rounded mt-1 inline-flex items-center gap-1 font-mono">
-                                    占比: {totalWeight > 0 ? Math.round((Number(s.weight) / totalWeight) * 100) : 0}% 
-                                    <span className="text-slate-300">|</span> 
-                                    满分: {s.max_score}
-                                  </span>
-                                  {s.description && (
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg leading-relaxed whitespace-pre-wrap">
-                                      {s.description}
-                                    </p>
+                        return showScoreModal.scores?.map((s: any, idx: number) => {
+                          const amIUser = String(showScoreModal.user_id) === String(currentUser?.id);
+                          const amIManager = isManagerOrAdmin && !amIUser; // simplify logic for view
+                          
+                          const canEdit = (showScoreModal.status === 'pending_self' && amIUser) ||
+                                          (showScoreModal.status === 'pending_manager' && amIManager);
+                          
+                          const weightPercent = ((Number(s.weight) / totalWeight) * 100).toFixed(0) + '%';
+                          const displayMax = 5; // Force 5-point scale display as per user request
+                                          
+                          // Initialize temporary form state on object for easy binding
+                          if (s._inputScore === undefined) {
+                             if (showScoreModal.status === 'pending_self') s._inputScore = s.self_score || displayMax / 2;
+                             else if (showScoreModal.status === 'pending_manager') s._inputScore = s.manager_score || s.self_score || displayMax / 2;
+                             else s._inputScore = s.manager_score; // readonly view
+                          }
+                          
+                          return (
+                            <div key={idx} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm hover:border-indigo-200 transition-colors">
+                               <div className="flex justify-between items-start mb-3">
+                                  <div className="flex-1">
+                                    <h4 className="font-black text-slate-800 flex items-center gap-2">
+                                      {s.name}
+                                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full border border-indigo-100">权重 {weightPercent}</span>
+                                    </h4>
+                                    {s.description && (
+                                      <p className="text-xs text-slate-500 mt-2 leading-relaxed bg-slate-50 p-2 rounded-lg border border-dashed border-slate-200">
+                                        <span className="font-bold text-slate-400 mr-1">能力解读:</span>
+                                        {s.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                  
+                                  {canEdit ? (
+                                    <div className="flex flex-col items-end gap-1">
+                                      <div className="flex gap-2 items-center bg-indigo-600 px-3 py-2 rounded-xl shadow-lg shadow-indigo-200">
+                                        <span className="text-xs text-white font-bold">打分:</span>
+                                        <input 
+                                          type="number" 
+                                          value={s._inputScore} 
+                                          max={displayMax} min={0} step={0.5} 
+                                          onChange={(e) => {
+                                            const newModal = {...showScoreModal};
+                                            newModal.scores[idx]._inputScore = e.target.value;
+                                            setShowScoreModal(newModal);
+                                          }}
+                                          className="w-14 bg-white border-none rounded-lg text-center text-sm font-black text-indigo-700 outline-none p-1"
+                                          required
+                                        />
+                                        <span className="text-[10px] text-indigo-100">/ 5.0</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-right space-y-1">
+                                      <div className="flex flex-col">
+                                        <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">自评分</span>
+                                        <b className="text-slate-800 text-lg tabular-nums">{s.self_score || '-'}</b>
+                                      </div>
+                                      <div className="flex flex-col border-t border-slate-100 pt-1">
+                                        <span className="text-[9px] uppercase tracking-wider text-indigo-400 font-bold">主管评分</span>
+                                        <b className="text-indigo-600 text-xl tabular-nums">{s.manager_score || '-'}</b>
+                                      </div>
+                                    </div>
                                   )}
-                                </div>
-                                
-                                {canEdit ? (
-                                  <div className="flex gap-2 items-center bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-800">
-                                    <span className="text-xs text-indigo-700 dark:text-indigo-300 font-bold shrink-0">打分:</span>
-                                    <input 
-                                      type="number" 
-                                      value={s._inputScore} 
-                                      max={s.max_score} min={0} step={0.5} 
-                                      onChange={(e) => {
-                                        const newModal = {...showScoreModal};
-                                        newModal.scores[idx]._inputScore = e.target.value;
-                                        setShowScoreModal(newModal);
-                                      }}
-                                      className="w-14 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded text-center text-sm font-bold text-indigo-700 dark:text-indigo-300 outline-none p-1"
-                                      required
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="text-right shrink-0">
-                                    <span className="block text-[10px] text-slate-400">自评分: <b className="text-slate-700 dark:text-slate-300 text-xs">{s.self_score || '-'}</b></span>
-                                    <span className="block text-[10px] text-slate-400 mt-1">主管评分: <b className="text-indigo-600 dark:text-indigo-400 text-sm">{s.manager_score || '-'}</b></span>
-                                  </div>
-                                )}
-                             </div>
-                             
-                             {canEdit && (
-                               <textarea
-                                 placeholder={
-                                   showScoreModal.status === 'pending_self' 
-                                     ? "记录该维度表现的客观评价或典型事实依据..."
-                                     : "主管复评评价及反馈建议..."
-                                 }
-                                 value={s._inputComment || ''}
-                                 onChange={(e) => {
-                                    const newModal = {...showScoreModal};
-                                    newModal.scores[idx]._inputComment = e.target.value;
-                                    setShowScoreModal(newModal);
-                                 }}
-                                 className="w-full mt-2 text-xs p-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-300 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 transition-colors resize-none h-16"
-                               />
-                             )}
-                             
-                             {/* Show prev comment if any */}
-                             {!canEdit && s.comment && (
-                               <div className="bg-slate-50 dark:bg-slate-800/80 mt-3 p-2.5 rounded border-l-2 border-slate-300 dark:border-slate-600">
-                                 <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{s.comment}</p>
                                </div>
-                             )}
-                          </div>
-                        );
-                      });
+                           
+                           {canEdit && (
+                             <textarea 
+                               placeholder="记录该维度表现的客观评价或典型事实依据..."
+                               value={s._inputComment || ''}
+                               onChange={e => {
+                                  const newModal = {...showScoreModal};
+                                  newModal.scores[idx]._inputComment = e.target.value;
+                                  setShowScoreModal(newModal);
+                               }}
+                               className="w-full mt-2 text-xs p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-300 focus:bg-white resize-none h-16"
+                             />
+                           )}
+                           
+                           {/* Show prev comment if any */}
+                           {!canEdit && s.comment && (
+                             <div className="bg-slate-50 mt-2 p-2 rounded text-xs text-slate-500 border-l-2 border-slate-300">
+                               {s.comment}
+                             </div>
+                           )}
+                            </div>
+                          );
+                        });
                     })()}
                  </form>
               </div>
-              
               <div className="px-6 py-4 border-t border-slate-100 bg-white flex justify-end">
                 {showScoreModal.status !== 'completed' && (
                   <button type="submit" form="scoreForm" className="bg-indigo-600 text-white font-bold px-6 py-2 rounded-lg text-sm shadow-md hover:bg-indigo-700">提交评分问卷</button>

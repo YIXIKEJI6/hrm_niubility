@@ -516,6 +516,25 @@ export function initDatabase(): void {
       ON pool_star_reports(pool_task_id, user_id);
   `);
 
+  // ── STAR 绩效报告表 (个人/团队目标复盘)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS perf_star_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      role_name TEXT NOT NULL,
+      situation TEXT,
+      task_desc TEXT,
+      action TEXT,
+      result TEXT,
+      is_submitted INTEGER DEFAULT 0,
+      submitted_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_perf_star_plan_user
+      ON perf_star_reports(plan_id, user_id);
+  `);
+
   // ── 奖励分配主表
   db.exec(`
     CREATE TABLE IF NOT EXISTS pool_reward_plans (

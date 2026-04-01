@@ -1441,6 +1441,37 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                     删除草稿
                   </button>
                 )}
+                
+                {/* 发起验收总结 (Star) - 全局可用 */}
+                {initialData?.status === 'in_progress' && type !== 'pool_propose' && (
+                  <button 
+                    onClick={async () => {
+                      if (!confirm('确定发起验收总结吗？发起后将流转至上级进行最终评级结案。')) return;
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`/api/perf/plans/${initialData.id}/review`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                          body: JSON.stringify({ action: 'assess' })
+                        });
+                        const resData = await res.json();
+                        if (resData.code === 0) {
+                          alert('✅ 已成功发起验收！');
+                          onClose();
+                          setTimeout(() => window.location.reload(), 300);
+                        } else {
+                          alert(`操作失败: ${resData.message}`);
+                        }
+                      } catch(err: any) {
+                        alert(`发起失败: ${err.message}`);
+                      }
+                    }}
+                    className="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-md shadow-blue-500/30 flex items-center gap-2 hover:-translate-y-0.5 active:translate-y-0"
+                  >
+                    🚀 Start 验收
+                  </button>
+                )}
+
                 <div className="flex-1" />
                 <button onClick={onClose} className="px-6 py-2 text-sm font-bold text-white bg-[#005ea4] hover:bg-[#0077ce] rounded-xl transition-colors shadow-sm focus:outline-none">
                   关闭

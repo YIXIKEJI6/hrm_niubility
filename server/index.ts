@@ -41,6 +41,7 @@ import monthlyEvalRoutes from './routes/monthly-eval';
 import payrollExportRoutes from './routes/payroll-export';
 import teamScopeRoutes from './routes/team-scope';
 import poolStarRoutes from './routes/pool-star';
+import perfStarRoutes from './routes/perf-star';
 import poolRewardsRoutes from './routes/pool-rewards';
 import salaryRoutes from './routes/salary';
 import workflowTrajectoryRoutes from './routes/workflow-trajectory';
