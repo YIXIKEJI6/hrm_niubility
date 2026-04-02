@@ -1,4 +1,4 @@
-import { initDb, getDb } from '../server/config/database';
+import { getDb } from '../server/config/database';
 import WorkflowRoutes from '../server/routes/workflows';
 import express from 'express';
 import request from 'supertest';

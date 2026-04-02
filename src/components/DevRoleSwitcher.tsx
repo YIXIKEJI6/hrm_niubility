@@ -18,7 +18,24 @@ const ROLE_META: Record<string, { icon: string; color: string; label: string }> 
 };
 
 export default function DevRoleSwitcher() {
-  const { currentUser, loginWithMock, logout } = useAuth();
+  const { currentUser, logout } = useAuth();
+
+  const loginWithMock = async (userId: string) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 'mock_code', userId })
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        localStorage.setItem('token', data.data.token);
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [allUsers, setAllUsers] = useState<OrgUser[]>([]);

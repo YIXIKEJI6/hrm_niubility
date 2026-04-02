@@ -28,66 +28,70 @@ export default function App() {
   const [currentView, setCurrentView] = useState(() => localStorage.getItem('hrm_current_view') || 'company');
   const { isAuthenticating, currentUser } = useAuth();
   const isMobile = useIsMobile();
+  const isDev = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const isTestServer = window.location.port === '4001';
+  const showDevTools = isDev || isTestServer;
 
   const navigate = (view: string) => {
     setCurrentView(view);
     localStorage.setItem('hrm_current_view', view);
   };
 
+  // 正在认证中（AuthContext 在测试环境会自动 Mock 登录）
   if (isAuthenticating) {
     return (
-      <div className="flex h-screen items-center justify-center bg-surface">
+      <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-on-surface-variant font-bold mt-4">正在通过企业微信安全登录...</p>
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6"></div>
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] animate-pulse">
+            {showDevTools ? '正在自动进入测试环境...' : '正在通过企业微信安全登录...'}
+          </p>
         </div>
       </div>
     );
   }
 
-  // 若无用户身份：如果非微信环境，自动跳扫码登录。
+  // 若无用户身份
   if (!currentUser) {
-    const isWecom = navigator.userAgent.toLowerCase().includes('wxwork');
-    const isDev = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isTestServer = window.location.port === '4001';
+    // 测试/开发环境：AuthContext 应该已经自动登录了，如果到这里说明登录失败
+    if (showDevTools) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-slate-50 flex-col">
+          <div className="w-16 h-16 bg-amber-100 rounded-3xl mb-6 flex items-center justify-center">
+            <span className="material-symbols-outlined text-amber-600 text-3xl">warning</span>
+          </div>
+          <h2 className="text-lg font-black text-slate-800 mb-2">自动登录失败</h2>
+          <p className="text-slate-400 text-xs mb-8">请确认后端服务 (3001端口) 已启动</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all active:scale-95"
+          >
+            重新尝试
+          </button>
+        </div>
+      );
+    }
 
-    // 只有在生产环境且非微信浏览器时，才自动跳转兜底
-    if (!isDev && !isTestServer && !isWecom) {
+    // 正式生产环境：跳转企微扫码
+    const isWecom = navigator.userAgent.toLowerCase().includes('wxwork');
+    if (!isWecom) {
       setTimeout(() => {
         if (!localStorage.getItem('token')) {
           window.location.href = '/api/auth/wecom-qr-url';
         }
       }, 1500);
-      return (
-        <div className="flex h-screen flex-col items-center justify-center bg-surface">
-          <div className="flex flex-col items-center mb-6">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-on-surface-variant font-bold mt-4">正在跳转扫码登录...</p>
-          </div>
-          <p className="text-on-surface-variant text-sm mb-6">请在企业微信客户端内打开，或浏览器刷新弹出登陆二维码。</p>
-          <DevRoleSwitcher />
-        </div>
-      );
     }
-
-    // 在企业微信内，但依旧没token或获取不到user（比如刚进入授权流程）
     return (
-      <div className="flex h-screen items-center justify-center bg-surface text-on-surface flex-col">
-        <div className="w-16 h-16 bg-surface-container rounded-full mb-4 flex items-center justify-center">
-          <span className="material-symbols-outlined text-outline text-3xl">sentiment_dissatisfied</span>
+      <div className="flex h-screen flex-col items-center justify-center bg-surface">
+        <div className="flex flex-col items-center mb-6">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+          <p className="text-on-surface-variant font-bold mt-4">正在跳转扫码登录...</p>
         </div>
-        <h2 className="text-xl font-bold mb-2">未检测到企业微信登录身份</h2>
         <p className="text-on-surface-variant text-sm mb-6">请在企业微信客户端内打开，或浏览器刷新弹出登陆二维码。</p>
-        <button 
-          onClick={() => window.location.href = '/api/auth/wecom-qr-url'}
-          className="px-6 py-2 bg-primary text-on-primary rounded-full font-bold shadow-lg shadow-primary/30 hover:opacity-90 transition-opacity mb-4"
-        >
-          立即进行扫码登录
-        </button>
-        <DevRoleSwitcher />
       </div>
     );
   }
+
 
   const renderView = () => {
     if (currentView.startsWith('competency')) {
@@ -148,10 +152,10 @@ export default function App() {
           {renderView()}
         </Suspense>
       </div>
-      <DevRoleSwitcher />
       <Watermark text={currentUser.name} />
       <FloatingAiChat />
       <GlobalToast />
+      <DevRoleSwitcher />
     </>
   );
 }

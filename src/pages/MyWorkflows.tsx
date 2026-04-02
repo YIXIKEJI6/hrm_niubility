@@ -286,7 +286,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                     let fullData = item;
                     let mappedData = { ...fullData };
                     if (flowType === 'pool_join') {
-                      // Fetch pool task details for the join request
                       const r = await fetch(`/api/pool/tasks/${item.pool_task_id}`, { headers });
                       const j = await r.json();
                       if (j.code === 0) {
@@ -313,7 +312,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                       });
                       return;
                     } else if (flowType === 'reward_plan') {
-                      // 奖励方案：直接用 item 数据展示，type=reward_plan
                       setSelectedTask({
                         type: 'reward_plan',
                         data: { ...item, flow_type: 'reward_plan' },
@@ -321,14 +319,17 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                         originalStatus: item.status,
                       });
                       return;
-                    } else if (flowType === 'perf_plan') {
-                      const r = await fetch(`/api/perf/plans/${item.id}`, { headers });
+                    } else if (flowType === 'perf_plan' || flowType === 'proposal') {
+                      const endpoint = flowType === 'perf_plan' ? `/api/perf/plans/${item.id}` : `/api/pool/proposals/${item.id}`;
+                      const r = await fetch(endpoint, { headers });
                       const j = await r.json();
                       if (j.code === 0) {
                         fullData = { ...j.data, logs: item.logs };
+                      }
+                      
+                      if (flowType === 'perf_plan') {
                         const tv = fullData.target_value || '';
                         const desc = fullData.description || '';
-                        // Safely parse attachments
                         let parsedAttachments: any[] = [];
                         try {
                           if (Array.isArray(fullData.attachments)) {
@@ -343,7 +344,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                           s: tv.match(/S:\s*(.*?)(?=\nM:|$)/s)?.[1] || '',
                           m: tv.match(/M:\s*(.*?)(?=\nT:|$)/s)?.[1] || '',
                           t: tv.match(/T:\s*(.*)/s)?.[1] || '',
-                          // 兼容两种格式：英文 [Resource]: 和中文【所需资源】/「所需资源」
                           a_smart: desc.match(/\[Resource\]:\s*(.*?)(?=\n\[Relevance\]:|$)/s)?.[1]
                             || desc.match(/[【「]所需资源[】」]\n([\s\S]*?)(?=\n\n[【「]|$)/)?.[1]
                             || '',
@@ -356,11 +356,8 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                           actTime: desc.match(/\[PDCA-Act\]:\s*(.*)/s)?.[1] || '',
                           attachments: parsedAttachments,
                         };
-                      }
-                    } else if (flowType === 'proposal') {
-                      const desc = fullData.description || fullData.content || '';
-                      if (desc.includes('【目标 S】')) {
-                        // Safely parse attachments
+                      } else {
+                        const desc = fullData.description || fullData.content || '';
                         let parsedAttachments: any[] = [];
                         try {
                           if (Array.isArray(fullData.attachments)) {
@@ -369,37 +366,40 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                             parsedAttachments = JSON.parse(fullData.attachments);
                           }
                         } catch { parsedAttachments = []; }
-                        mappedData = {
-                          ...fullData,
-                          status: fullData.proposal_status,
-                          summary: fullData.title,
-                          rewardType: fullData.reward_type || 'money',
-                          maxParticipants: fullData.max_participants || 5,
-                          s: desc.match(/【目标 S】(.*?)(\n【指标 M】|$)/s)?.[1] || '',
-                          m: desc.match(/【指标 M】(.*?)(\n【方案 A】|$)/s)?.[1] || '',
-                          a_smart: desc.match(/【方案 A】(.*?)(\n【相关 R】|$)/s)?.[1] || '',
-                          r_smart: desc.match(/【相关 R】(.*?)(\n【时限 T】|$)/s)?.[1] || '',
-                          t: desc.match(/【时限 T】(.*?)(\n【PDCA】|$)/s)?.[1] || '',
-                          attachments: parsedAttachments,
-                        };
-                        const pdca = desc.match(/【PDCA】\n(.*)/s)?.[1] || '';
-                        if (pdca) {
-                          mappedData.planTime = pdca.match(/Plan: (.*?)( \| |$)/)?.[1] || '';
-                          mappedData.doTime = pdca.match(/Do: (.*?)( \| |$)/)?.[1] || '';
-                          mappedData.checkTime = pdca.match(/Check: (.*?)( \| |$)/)?.[1] || '';
-                          mappedData.actTime = pdca.match(/Act: (.*?)( \| |$)/)?.[1] || '';
+
+                        if (desc.includes('【目标 S】')) {
+                          mappedData = {
+                            ...fullData,
+                            status: fullData.proposal_status,
+                            summary: fullData.title,
+                            rewardType: fullData.reward_type || 'money',
+                            maxParticipants: fullData.max_participants || 5,
+                            s: desc.match(/【目标 S】(.*?)(\n【指标 M】|$)/s)?.[1] || '',
+                            m: desc.match(/【指标 M】(.*?)(\n【方案 A】|$)/s)?.[1] || '',
+                            a_smart: desc.match(/【方案 A】(.*?)(\n【相关 R】|$)/s)?.[1] || '',
+                            r_smart: desc.match(/【相关 R】(.*?)(\n【时限 T】|$)/s)?.[1] || '',
+                            t: desc.match(/【时限 T】(.*?)(\n【PDCA】|$)/s)?.[1] || '',
+                            attachments: parsedAttachments,
+                          };
+                          const pdca = desc.match(/【PDCA】\n(.*)/s)?.[1] || '';
+                          if (pdca) {
+                            mappedData.planTime = pdca.match(/Plan: (.*?)( \| |$)/)?.[1] || '';
+                            mappedData.doTime = pdca.match(/Do: (.*?)( \| |$)/)?.[1] || '';
+                            mappedData.checkTime = pdca.match(/Check: (.*?)( \| |$)/)?.[1] || '';
+                            mappedData.actTime = pdca.match(/Act: (.*?)( \| |$)/)?.[1] || '';
+                          }
+                        } else {
+                          mappedData = {
+                            ...fullData,
+                            status: fullData.proposal_status,
+                            summary: fullData.title,
+                            rewardType: fullData.reward_type || 'money',
+                            maxParticipants: fullData.max_participants || 5,
+                            taskType: fullData.department,
+                            attachments: parsedAttachments,
+                            s: desc
+                          };
                         }
-                      } else {
-                        mappedData = {
-                          ...fullData,
-                          status: fullData.proposal_status,
-                          summary: fullData.title,
-                          rewardType: fullData.reward_type || 'money',
-                          maxParticipants: fullData.max_participants || 5,
-                          taskType: fullData.department,
-                          attachments: fullData.attachments ? JSON.parse(fullData.attachments) : [],
-                          s: desc
-                        };
                       }
                     }
                     

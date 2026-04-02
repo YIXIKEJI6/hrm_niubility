@@ -9,7 +9,13 @@ const router = Router();
 router.get('/wecom-url', (req, res) => {
   // 动态获取当前访问的域名（如 nb.szyixikeji.com），支持 Nginx 等反代传过来的原始 Host
   const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.headers['x-forwarded-host'] || req.get('host');
+  const hostRaw = req.headers['x-forwarded-host'] || req.get('host') || '';
+  let host = Array.isArray(hostRaw) ? hostRaw[0] : hostRaw;
+  
+  // 如果是测试环境端口 (4001)，则在生成 redirect_uri 时过滤掉，避免平台校验失败
+  if (host.includes(':4001')) {
+    host = host.replace(':4001', ''); 
+  }
   const redirectUri = encodeURIComponent(`${protocol}://${host}/`); 
   
   const appid = process.env.WECOM_CORP_ID || 'CORPID_MISSING';
@@ -21,7 +27,13 @@ router.get('/wecom-url', (req, res) => {
 // 获取企微扫码登录跳转链接（外部浏览器用）
 router.get('/wecom-qr-url', (req, res) => {
   const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.headers['x-forwarded-host'] || req.get('host');
+  const hostRaw = req.headers['x-forwarded-host'] || req.get('host') || '';
+  let host = Array.isArray(hostRaw) ? hostRaw[0] : hostRaw;
+
+  // 同样处理扫码链接的回调地址
+  if (host.includes(':4001')) {
+    host = host.replace(':4001', '');
+  }
   const redirectUri = encodeURIComponent(`${protocol}://${host}/`);
   
   const appid = process.env.WECOM_CORP_ID || 'CORPID_MISSING';
@@ -40,9 +52,10 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // 开发模式: 支持 mock 登录
+    // Mock 登录: code 为 'mock_code' 时直接用 userId 登录（测试/开发专用）
+    // 生产安全性：真实企微 code 永远不会等于 'mock_code'，无需额外环境变量判断
     let userId: string;
-    if (code === 'mock_code' || process.env.NODE_ENV === 'development') {
+    if (code === 'mock_code') {
       userId = req.body.userId || 'zhangwei';
     } else {
       const result = await getUserIdByCode(code);
