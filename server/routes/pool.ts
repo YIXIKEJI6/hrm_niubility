@@ -11,7 +11,8 @@ const router = Router();
 try {
   const db0 = getDb();
   db0.exec("ALTER TABLE pool_tasks ADD COLUMN deleted_at DATETIME");
-} catch(e) { /* column already exists */ }
+  db0.exec("ALTER TABLE pool_tasks ADD COLUMN category TEXT");
+} catch(e) { /* columns already exist */ }
 
 // 绩效池任务列表 (新状态: proposing/claiming/in_progress/rewarded)
 // proposing 状态仅 HR/Admin 可见
@@ -129,7 +130,7 @@ router.get('/leaderboard', authMiddleware, (req, res) => {
 
 // 新建任务(提案)
 router.post('/tasks/propose', authMiddleware, async (req: AuthRequest, res) => {
-  const { title, description, reward_type, bonus, difficulty, max_participants, is_draft, attachments } = req.body;
+  const { title, description, reward_type, bonus, difficulty, max_participants, is_draft, attachments, category } = req.body;
   
   if (!title) return res.status(400).json({ code: 400, message: '悬赏标题不能为空' });
   
@@ -193,9 +194,9 @@ router.post('/tasks/propose', authMiddleware, async (req: AuthRequest, res) => {
   const finalDept = topDeptRow ? topDeptRow.name : '全部部门';
 
   const result = db.prepare(
-    `INSERT INTO pool_tasks (title, description, department, difficulty, reward_type, bonus, max_participants, created_by, status, proposal_status, attachments) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(title, description || null, finalDept, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId, taskStatus, proposalStatus, attachmentsStr);
+    `INSERT INTO pool_tasks (title, description, department, difficulty, reward_type, bonus, max_participants, created_by, status, proposal_status, attachments, category) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(title, description || null, finalDept, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId, taskStatus, proposalStatus, attachmentsStr, category || null);
 
   const { createNotification } = await import('./notifications');
 
@@ -227,7 +228,7 @@ router.put('/tasks/:id', authMiddleware, (req: AuthRequest, res) => {
   if (!task) return res.status(404).json({ code: 404, message: '提案不存在' });
   if (task.created_by !== req.userId) return res.status(403).json({ code: 403, message: '无权编辑' });
   
-  const { title, description, department, difficulty, reward_type, bonus, proposal_status, attachments } = req.body;
+  const { title, description, department, difficulty, reward_type, bonus, proposal_status, attachments, category } = req.body;
   const sets: string[] = [];
   const vals: any[] = [];
   if (title !== undefined) { sets.push('title = ?'); vals.push(title); }
@@ -238,6 +239,7 @@ router.put('/tasks/:id', authMiddleware, (req: AuthRequest, res) => {
   if (bonus !== undefined) { sets.push('bonus = ?'); vals.push(bonus); }
   if (proposal_status !== undefined) { sets.push('proposal_status = ?'); vals.push(proposal_status); }
   if (attachments !== undefined) { sets.push('attachments = ?'); vals.push(typeof attachments === 'string' ? attachments : JSON.stringify(attachments)); }
+  if (category !== undefined) { sets.push('category = ?'); vals.push(category); }
   
   if (sets.length === 0) return res.json({ code: 0, message: '无更新' });
   vals.push(id);
@@ -247,7 +249,7 @@ router.put('/tasks/:id', authMiddleware, (req: AuthRequest, res) => {
 
 // 授权用户直接发布任务
 router.post('/tasks/publish', authMiddleware, (req: AuthRequest, res) => {
-  const { title, description, department, difficulty, reward_type, bonus, max_participants, attachments } = req.body;
+  const { title, description, department, difficulty, reward_type, bonus, max_participants, attachments, category } = req.body;
   if (!title) return res.status(400).json({ code: 400, message: '任务标题不能为空' });
   const db = getDb();
 
@@ -282,9 +284,9 @@ router.post('/tasks/publish', authMiddleware, (req: AuthRequest, res) => {
   const finalDept = topDeptRow ? topDeptRow.name : '全部部门';
 
   const result = db.prepare(
-    `INSERT INTO pool_tasks (title, description, department, difficulty, reward_type, bonus, max_participants, created_by, status, proposal_status, attachments) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', 'approved', ?)`
-  ).run(title, description || null, finalDept, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId, attachmentsStr);
+    `INSERT INTO pool_tasks (title, description, department, difficulty, reward_type, bonus, max_participants, created_by, status, proposal_status, attachments, category) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', 'approved', ?, ?)`
+  ).run(title, description || null, finalDept, difficulty || 'normal', reward_type || 'money', bonus || 0, max_participants || 5, req.userId, attachmentsStr, category || null);
 
   // 全员通知新任务
   const allUserIds = (db.prepare("SELECT id FROM users").all() as any[]).map(u => u.id);

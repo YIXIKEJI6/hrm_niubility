@@ -474,6 +474,17 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     }
   }, [isOpen, initialData]);
 
+  const { isRecording, startRecording, stopRecording, error: voiceError } = useRTASR({
+    onResult: (text, isFinal) => {
+      if (isFinal) {
+        setFormData(prev => ({ ...prev, summary: prev.summary + text }));
+        setTempVoice('');
+      } else {
+        setTempVoice(text);
+      }
+    }
+  });
+
   if (!isOpen) return null;
 
   const handleUpdate = (field: keyof typeof formData, value: any) => {
@@ -487,17 +498,6 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     { id: 'r_smart', letter: 'R', title: '岗位相关性', color: 'text-indigo-500', bg: 'bg-indigo-50', placeholder: '岗位相关性...' },
     { id: 't', letter: 'T', title: '时限要求', color: 'text-red-500', bg: 'bg-red-50', placeholder: '完成截止时间...' }
   ];
-
-  const { isRecording, startRecording, stopRecording, error: voiceError } = useRTASR({
-    onResult: (text, isFinal) => {
-      if (isFinal) {
-        setFormData(prev => ({ ...prev, summary: prev.summary + text }));
-        setTempVoice('');
-      } else {
-        setTempVoice(text);
-      }
-    }
-  });
 
   const handleAIAssist = async () => {
     if (!formData.summary.trim()) { alert('请先填写目标简述'); return; }

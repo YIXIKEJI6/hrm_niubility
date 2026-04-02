@@ -105,6 +105,13 @@ router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, re
   }
 });
 
+// 获取所有部门列表
+router.get('/departments', authMiddleware, (_req, res) => {
+  const db = getDb();
+  const departments = db.prepare('SELECT * FROM departments ORDER BY sort_order').all();
+  return res.json({ code: 0, data: departments });
+});
+
 // 获取组织树
 router.get('/tree', authMiddleware, (_req, res) => {
   const db = getDb();
