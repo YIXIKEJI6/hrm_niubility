@@ -317,6 +317,28 @@ router.get('/my-proposals', authMiddleware, (req: AuthRequest, res) => {
   return res.json({ code: 0, data: proposals });
 });
 
+// 单个提案详情 (审批、查看用)
+router.get('/proposals/:id', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const proposal = db.prepare(
+    `SELECT pt.*, u.name as creator_name
+     FROM pool_tasks pt
+     LEFT JOIN users u ON pt.created_by = u.id
+     WHERE pt.id = ? AND pt.deleted_at IS NULL`
+  ).get(req.params.id) as any;
+  if (!proposal) return res.status(404).json({ code: 404, message: '提案不存在' });
+
+  // 附加审批轨迹
+  try {
+    const logs = db.prepare(
+      `SELECT al.*, u.name as actor_name FROM audit_logs al LEFT JOIN users u ON al.actor_id = u.id WHERE al.business_type = 'proposal' AND al.business_id = ? ORDER BY al.created_at ASC`
+    ).all(proposal.id);
+    proposal.logs = logs;
+  } catch { proposal.logs = []; }
+
+  return res.json({ code: 0, data: proposal });
+});
+
 // 撤回提案：在 HR 未审核前，发起人可以撤回
 router.post('/proposals/:id/withdraw', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
@@ -1035,7 +1057,31 @@ router.post('/tasks/:id/start-project', authMiddleware, (req: AuthRequest, res) 
     return res.status(403).json({ code: 403, message: '仅责任验收者(A)或HR可启动项目' });
   }
 
-  // [ENH-2] 启动前检查 R 和 A 角色是否已有人认领通过
+  // [FIX] HR 通过面板直接选人时 (r/a/c/i 字段传入)，
+  // 将这些用户直接 upsert 为 approved 的 role_claims，
+  // 避免"员工未主动申请 → 数据库无记录 → 校验报缺角色"的假警报
+  const roleFieldMap: Record<string, string> = { r: 'R', a: 'A', c: 'C', i: 'I' };
+  for (const [field, roleName] of Object.entries(roleFieldMap)) {
+    const idStr: string = req.body[field] || '';
+    const ids = idStr.split(',').filter(Boolean);
+    for (const userId of ids) {
+      // 先检查是否已有记录
+      const existing = db.prepare(
+        'SELECT id, status FROM pool_role_claims WHERE pool_task_id = ? AND user_id = ? AND role_name = ?'
+      ).get(taskId, userId, roleName) as any;
+      if (existing) {
+        if (existing.status !== 'approved') {
+          db.prepare("UPDATE pool_role_claims SET status = 'approved' WHERE id = ?").run(existing.id);
+        }
+      } else {
+        db.prepare(
+          "INSERT INTO pool_role_claims (pool_task_id, user_id, role_name, status, reason) VALUES (?, ?, ?, 'approved', 'HR直接分配')"
+        ).run(taskId, userId, roleName);
+      }
+    }
+  }
+
+
   let rolesConfig: any[] = [];
   try { rolesConfig = JSON.parse(task.roles_config || '[]'); } catch {}
   const missingRoles: string[] = [];

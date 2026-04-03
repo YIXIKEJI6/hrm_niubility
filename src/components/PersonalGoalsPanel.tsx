@@ -105,8 +105,8 @@ export default function PersonalGoalsPanel() {
           deadline: data.t,
           quarter: data.quarter || undefined,
           collaborators: data.c,
-          assignee_id: currentUser?.id,
-          approver_id: approverId
+          assignee_id: data.r || currentUser?.id,
+          approver_id: data.a || approverId
         })
       });
 
@@ -445,8 +445,8 @@ export default function PersonalGoalsPanel() {
                 target_value: targetValue,
                 deadline: data.t,
                 collaborators: data.c,
-                assignee_id: currentUser?.id,
-                approver_id: approverId,
+                assignee_id: data.r || currentUser?.id,
+                approver_id: data.a || approverId,
               })
             });
             const json = await res.json();
@@ -465,7 +465,8 @@ export default function PersonalGoalsPanel() {
           r_smart: '',
           t: '',
           taskType: '重点项目',
-          r: currentUser?.id
+          r: currentUser?.id,
+          a: currentUser?.id
         }}
       />
 
@@ -529,6 +530,8 @@ export default function PersonalGoalsPanel() {
             doTime: decoded.doTime,
             checkTime: decoded.checkTime,
             actTime: decoded.actTime,
+            r: editingPlan.assignee_id || currentUser?.id || '',
+            a: editingPlan.approver_id || '',
             attachments: parsedAttachments
           };
         })()}
@@ -567,8 +570,8 @@ export default function PersonalGoalsPanel() {
             r_smart: decoded.relevance,
             taskType: selectedPlan.category,
             c: selectedPlan.collaborators || '',
-            a: currentUser?.id,
-            r: currentUser?.id,
+            a: selectedPlan.approver_id || currentUser?.id,
+            r: selectedPlan.assignee_id || currentUser?.id,
             planTime: decoded.planTime,
             doTime: decoded.doTime,
             checkTime: decoded.checkTime,
@@ -704,10 +707,6 @@ export default function PersonalGoalsPanel() {
                       退回
                     </button>
                   )}
-                  <button onClick={() => setSelectedPlan(null)}
-                    className="px-6 py-2.5 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-200 transition-colors">
-                    关闭
-                  </button>
                 </div>
               </div>
             </div>

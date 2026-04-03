@@ -216,13 +216,59 @@ router.get('/:type/:id', authMiddleware, (req: AuthRequest, res) => {
       const plan = db.prepare(`SELECT p.*, u.name as initiator_name FROM perf_plans p JOIN users u ON p.creator_id = u.id WHERE p.id = ?`).get(id) as any;
       if (!plan) return res.status(404).json({ code: 404, message: '单据不存在' });
 
-      const nodes = WorkflowEngine.resolveAssignees(WORKFLOWS.PERF_PLAN, { initiatorId: plan.creator_id });
+      const currentStatus = plan.status;
       const allLogs = db.prepare('SELECT * FROM perf_logs WHERE plan_id = ? ORDER BY created_at ASC').all(id) as any[];
+
+      // ==========================================
+      // 3.1 下发派发流 (DISPATCH FLOW)
+      // ==========================================
+      if (plan.receipt_status || currentStatus === 'pending_receipt') {
+        const receiptStatusMap: Record<string, string> = JSON.parse(plan.receipt_status || '{}');
+        const userIds = Object.keys(receiptStatusMap);
+        const userMap = getUsersMap(userIds);
+        const totalCount = userIds.length;
+        const confirmedCount = Object.values(receiptStatusMap).filter(s => s === 'confirmed').length;
+
+        // Node 1: 主管下发
+        const dispatchLog = allLogs.find(l => l.action === 'dispatch');
+        trajectory.push({
+          seq: 1,
+          name: '主管下发任务',
+          status: 'past',
+          assignees: [{ id: plan.creator_id, name: plan.initiator_name }],
+          timestamp: dispatchLog?.created_at
+        });
+
+        // Node 2: 全员签收
+        const isAllConfirmed = totalCount > 0 && confirmedCount === totalCount;
+        trajectory.push({
+          seq: 2,
+          name: `全员签收回复 (${confirmedCount}/${totalCount})`,
+          status: isAllConfirmed ? 'past' : 'current',
+          assignees: userIds.map(uid => ({ id: uid, name: userMap[uid] || uid })),
+          is_auto_skipped: false
+        });
+
+        // Node 3: 启动执行
+        const startLog = allLogs.find(l => l.action === 'start_task');
+        trajectory.push({
+          seq: 3,
+          name: '启动执行 (负责人发起)',
+          status: currentStatus === 'in_progress' || currentStatus === 'completed' || currentStatus === 'assessed' ? 'past' : (isAllConfirmed ? 'current' : 'future'),
+          assignees: plan.approver_id ? [{ id: plan.approver_id, name: (db.prepare('SELECT name FROM users WHERE id = ?').get(plan.approver_id) as any)?.name || plan.approver_id }] : [],
+          timestamp: startLog?.created_at
+        });
+
+        return res.json({ code: 0, data: trajectory });
+      }
+
+      // ==========================================
+      // 3.2 正常审批流 (APPROVAL FLOW)
+      // ==========================================
+      const nodes = WorkflowEngine.resolveAssignees(WORKFLOWS.PERF_PLAN, { initiatorId: plan.creator_id });
       const lastSubmitIndex = [...allLogs].reverse().findIndex(l => l.action === 'submit' || l.action === 'resubmit');
       const logs = lastSubmitIndex >= 0 ? allLogs.slice(allLogs.length - 1 - lastSubmitIndex) : allLogs;
       
-      const currentStatus = plan.status;
-
       // Node 1: 发起人拟定计划
       const submitLog = logs.find(l => l.action === 'submit' || l.action === 'resubmit');
       trajectory.push({

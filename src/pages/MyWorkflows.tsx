@@ -176,7 +176,11 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           ...(updatedData?.maxParticipants ? { max_participants: updatedData.maxParticipants } : {}),
           ...(updatedData?.taskType ? { department: updatedData.taskType } : {}),
           ...(updatedData?.attachments ? { attachments: updatedData.attachments } : {}),
+          ...(updatedData?.r ? { r: updatedData.r } : {}),
           ...(updatedData?.a ? { a: updatedData.a } : {}),
+          ...(updatedData?.c ? { c: updatedData.c } : {}),
+          ...(updatedData?.i ? { i: updatedData.i } : {}),
+          ...(updatedData?.dt ? { dt: updatedData.dt } : {}),
           ...(updatedData?.s !== undefined ? { s: updatedData.s, m: updatedData.m, a_smart: updatedData.a_smart, r_smart: updatedData.r_smart, t: updatedData.t, summary: updatedData.summary } : {})
         };
       }
@@ -340,6 +344,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                         } catch { parsedAttachments = []; }
                         mappedData = {
                           ...fullData,
+                          flow_type: 'perf_plan',
                           summary: fullData.title,
                           s: tv.match(/S:\s*(.*?)(?=\nM:|$)/s)?.[1] || '',
                           m: tv.match(/M:\s*(.*?)(?=\nT:|$)/s)?.[1] || '',
@@ -564,6 +569,89 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           </div>
         ) : undefined;
 
+        // ── 签收专用弹窗（主管下派任务，员工待签收）──
+        if (selectedTask.originalStatus === 'pending_receipt') {
+          const plan = selectedTask.data;
+          const handleReceipt = async (action: 'confirm' | 'reject') => {
+            const reason = action === 'reject' ? window.prompt('请填写拒签原因：') : null;
+            if (action === 'reject' && reason === null) return; // 取消
+            setSubmittingApprovals(true);
+            try {
+              const token = localStorage.getItem('token');
+              const endpoint = action === 'confirm' ? 'confirm-receipt' : 'reject-receipt';
+              const res = await fetch(`/api/perf/plans/${plan.id}/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reason })
+              });
+              const data = await res.json();
+              if (data.code === 0) {
+                fetchTab(activeTab);
+                setSelectedTask(null);
+              } else {
+                setApprovalError(data.message || '操作失败');
+              }
+            } catch { setApprovalError('网络错误，请重试'); }
+            finally { setSubmittingApprovals(false); }
+          };
+
+          return (
+            <SmartTaskModal
+              isOpen={true}
+              title="新任务待查收"
+              type={selectedTask.type as any}
+              initialData={{
+                id: plan.id,
+                status: plan.status || 'pending_receipt',
+                flow_type: 'perf_plan',
+                summary: plan.title || '',
+                // ── RACI 字段映射：DB列名 → SmartTaskData接口 ──
+                r: plan.r || plan.assignee_id || '',
+                a: plan.a || plan.approver_id || '',
+                c: plan.c || plan.collaborators || '',
+                i: plan.i || '',
+                dt: plan.dt || '',
+                // ── 签收与负责人信息 ──
+                receipt_status: plan.receipt_status || '{}',
+                approver_id: plan.approver_id || '',
+                creator_id: plan.creator_id || '',
+                assignee_id: plan.assignee_id || '',
+                // ── 任务属性 ──
+                taskType: plan.taskType || plan.category || '常规任务',
+                bonus: plan.bonus || '0',
+                rewardType: plan.rewardType || plan.reward_type || 'money',
+                maxParticipants: plan.maxParticipants || String(plan.max_participants || '5'),
+                quarter: plan.quarter || '',
+                // ── SMART 字段 ──
+                s: plan.s || (String(plan.target_value || '').split('\n')[0]?.replace('S: ', '') ?? ''),
+                m: plan.m || (String(plan.target_value || '').split('\n')[1]?.replace('M: ', '') ?? ''),
+                t: plan.t || plan.deadline || (String(plan.target_value || '').split('\n')[2]?.replace('T: ', '') ?? ''),
+                a_smart: plan.a_smart || plan.description || '',
+                r_smart: plan.r_smart || '',
+                planTime: plan.planTime || '',
+                doTime: plan.doTime || '',
+                checkTime: plan.checkTime || '',
+                actTime: plan.actTime || '',
+                attachments: (() => {
+                  try {
+                    if (Array.isArray(plan.attachments)) return plan.attachments;
+                    if (typeof plan.attachments === 'string' && plan.attachments) return JSON.parse(plan.attachments);
+                  } catch {}
+                  return [];
+                })(),
+                logs: plan.logs || [],
+              }}
+              readonly={true}
+              approverMode={false}
+              users={users}
+              submitting={submittingApprovals}
+              onClose={() => { setSelectedTask(null); setApprovalError(null); }}
+              onSubmit={() => {}}
+            />
+          );
+
+        }
+
         // ── 奖励分配方案专用审批弹窗 ──
         if (selectedTask.type === 'reward_plan') {
           const plan = selectedTask.data;
@@ -699,7 +787,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
             readonly={!isEditableByCreator}
             approverMode={selectedTask.isPending}
             customFooter={withdrawFooter}
-            onApprove={(comment, updatedData, customAction, targetUser) => { setApprovalError(null); handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), customAction || 'approve', comment, updatedData, targetUser); }}
+            onApprove={(comment, updatedData, customAction, targetUser) => { setApprovalError(null); const safeAction = (customAction === 'publish' ? 'approve' : customAction) || 'approve'; handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), safeAction as 'approve'|'transfer', comment, updatedData, targetUser); }}
             onReject={(comment) => { setApprovalError(null); handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'reject', comment); }}
             onDelete={isEditableByCreator ? handleDelete : undefined}
             submitting={submittingApprovals}
@@ -715,6 +803,10 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
 }
 
 function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick: () => void }) {
+  const handleCodeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClick();
+  };
   const isCC = tab === 'cc';
   const isMobile = useIsMobile();
 
@@ -729,7 +821,7 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between mb-1">
               <p className="text-sm font-bold text-slate-800 dark:text-white truncate">
-                <span className="font-mono text-xs text-slate-400 mr-2 bg-slate-100 dark:bg-slate-800 px-1 rounded">{item.flow_type === 'proposal' ? 'PL' : 'PF'}-{String(item.id).padStart(6, '0')}</span>
+                <span onClick={handleCodeClick} className="font-mono text-xs text-blue-500 hover:text-blue-700 hover:underline mr-2 bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="点击打开任务卡">{item.flow_type === 'proposal' ? 'PL' : 'PF'}-{String(item.id).padStart(6, '0')}</span>
                 {item.title}
               </p>
               <span className="text-[10px] text-slate-400 flex-shrink-0 ml-2">{formatDate(item.created_at)}</span>
@@ -776,7 +868,7 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded shadow-sm">
+            <span onClick={handleCodeClick} className="font-mono text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 px-1.5 py-0.5 rounded shadow-sm cursor-pointer transition-colors" title="点击打开任务卡">
               {codePrefix}-{String(item.id).padStart(6, '0')}
             </span>
             <FlowTypeTag type={flowType} />

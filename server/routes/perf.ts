@@ -18,14 +18,30 @@ router.post('/plans', authMiddleware, async (req: AuthRequest, res) => {
 
   const attachmentsStr = attachments ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : '[]';
 
-  // 流程2: 员工自主申报时，本人必须是A（负责人）
-  // 判断逻辑：当 assignee_id 为空或等于创建者时，视为个人目标
-  const isPersonalGoal = !assignee_id || assignee_id === req.userId;
-  const finalApproverId = isPersonalGoal ? req.userId : (approver_id || req.userId);
+  // 流程说明：
+  // - 个人目标（R=自己）：创建者就是执行人，审批人由 approver_id 指定（直属上级）
+  // - 团队任务（R=别人）：assignee_id 存执行者，approver_id 存负责人
+  // 共同规则：approver_id 必须由前端明确传入，后端不做隐式替换，避免 A=R 的错误
+  const finalAssigneeId = assignee_id || req.userId;
+  // approver_id 优先取前端传入值；若为空则查组织架构找直属上级；最终兜底为创建者本人
+  let finalApproverId = approver_id || '';
+  if (!finalApproverId) {
+    try {
+      const u = db.prepare('SELECT department_id FROM users WHERE id = ?').get(req.userId) as any;
+      if (u?.department_id) {
+        const dept = db.prepare('SELECT leader_user_id FROM departments WHERE id = ?').get(u.department_id) as any;
+        if (dept?.leader_user_id && dept.leader_user_id !== req.userId) {
+          finalApproverId = dept.leader_user_id;
+        }
+      }
+    } catch {}
+    if (!finalApproverId) finalApproverId = req.userId; // 最终兜底
+  }
 
   const result = db.prepare(
     `INSERT INTO perf_plans (title, description, category, creator_id, assignee_id, approver_id, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(title, description, category, req.userId, assignee_id || req.userId, finalApproverId, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators || null, attachmentsStr);
+  ).run(title, description, category, req.userId, finalAssigneeId, finalApproverId, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators || null, attachmentsStr);
+
 
   // 流程异常检测：创建时缺少审批人则通知HR
   const issues: string[] = [];

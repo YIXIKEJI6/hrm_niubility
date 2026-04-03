@@ -254,7 +254,11 @@ function NotificationsModule({ navigate, data }: ModuleProps) {
           {recentNotifs.map((n: any) => (
             <div key={n.id} className={`p-3 rounded-xl transition-all cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${!n.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
               onClick={() => {
+                if (!n.is_read) {
+                  fetch(`/api/notifications/${n.id}/read`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }).catch(() => {});
+                }
                 if (n.title.includes('评测')) navigate('competency');
+                else if (n.type === 'workflow_pending' || n.title.includes('待查收') || n.title.includes('下发')) navigate('workflows?tab=pending');
                 else navigate('dashboard');
               }}>
               <div className="flex items-start gap-3">
@@ -493,6 +497,7 @@ function NotificationsDetail({ data, navigate, onClose }: { data: DashData; navi
           <div key={n.id} onClick={() => {
               if (!n.is_read) markRead(n.id);
               if (n.title.includes('评测')) { onClose(); navigate('competency?tab=my_tests'); }
+              else if (n.type === 'workflow_pending' || n.title.includes('待查收') || n.title.includes('下发')) { onClose(); navigate('workflows?tab=pending'); }
             }}
             className={`p-4 rounded-xl transition-all border border-slate-100 dark:border-slate-800 ${!n.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10 cursor-pointer hover:bg-blue-50' : 'cursor-pointer hover:bg-slate-50'}`}>
             <div className="flex items-start gap-3">

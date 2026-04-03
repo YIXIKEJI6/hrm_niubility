@@ -5,22 +5,22 @@ import SmartGoalDisplay from '../components/SmartGoalDisplay';
 import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
 import { decodeSmartDescription } from '../components/SmartFormInputs';
 import { useIsMobile } from '../hooks/useIsMobile';
-import STARReportModal from '../components/STARReportModal';
+
 import RewardDistributionModal from '../components/RewardDistributionModal';
 
-interface PoolTask {
+export interface PoolTask {
   id: number;
-  status: 'proposing' | 'published' | 'claiming' | 'in_progress' | 'rewarded';
   title: string;
-  department: string;
-  difficulty: string;
-  reward_type?: 'money' | 'score';
+  description: string | null;
+  department: string | null;
+  difficulty: 'low' | 'normal' | 'high' | 'expert';
+  reward_type: 'score' | 'money';
   bonus: number;
   max_participants: number;
   current_participants: number;
-  description?: string;
+  status: 'proposing' | 'published' | 'approved' | 'claiming' | 'in_progress' | 'assessed' | 'rewarded' | 'completed';
+  created_at: string;
   deadline?: string;
-  created_at?: string;
   creator_name?: string;
   participant_names?: string[];
   proposal_status?: string;
@@ -55,7 +55,7 @@ interface ConfirmDialog {
   onConfirm: () => void;
 }
 
-type ModalStep = 'detail' | 'apply' | 'success';
+type ModalStep = 'detail' | 'apply' | 'success' | 'star_space';
 
 export default function CompanyPerformance({ navigate }: { navigate: (view: string) => void }) {
   const [tasks, setTasks] = useState<PoolTask[]>([]);
@@ -96,11 +96,10 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
 
   // Publish Task state
-  const [showPublish, setShowPublish] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+
 
   // 奖励分配平台 state
-  const [showStarModal, setShowStarModal] = useState<PoolTask | null>(null);
+
   const [showCompleteModal, setShowCompleteModal] = useState<PoolTask | null>(null);
   const [completeForm, setCompleteForm] = useState({ delivered_content: '' });
   const [showExtendModal, setShowExtendModal] = useState<PoolTask | null>(null);
@@ -221,46 +220,6 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
     setProposing(false);
   };
 
-  const handlePublishTask = async (data: SmartTaskData) => {
-    if (!data.summary.trim()) return;
-    setPublishing(true);
-    try {
-      const token = localStorage.getItem('token');
-      const pdcaStr = [
-        data.planTime ? `Plan: ${data.planTime}` : '',
-        data.doTime ? `Do: ${data.doTime}` : '',
-        data.checkTime ? `Check: ${data.checkTime}` : '',
-        data.actTime ? `Act: ${data.actTime}` : ''
-      ].filter(Boolean).join(' | ');
-      
-      const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}${pdcaStr ? `\n【PDCA】\n${pdcaStr}` : ''}`;
-      
-      const res = await fetch('/api/pool/tasks/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          title: data.summary || '新任务',
-          description: smartDescription,
-          department: data.taskType || '全部部门',
-          difficulty: '中',
-          reward_type: data.rewardType,
-          bonus: Number(data.bonus) || 0,
-          max_participants: Number(data.maxParticipants) || 5,
-          attachments: data.attachments || []
-        }),
-      });
-      const json = await res.json();
-      if (json.code === 0) {
-        fetchTasks();
-        setTimeout(() => setShowPublish(false), 1500);
-      } else {
-        alert(json.message);
-      }
-    } catch { 
-      alert('网络错误');
-    }
-    setPublishing(false);
-  };
 
   const PROPOSAL_STATUS: Record<string, [string, string]> = {
     pending_hr: ['⏳ 待人事审核', 'bg-amber-100 text-amber-700'],
@@ -416,10 +375,10 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
   const statusBtns: { key: StatusFilter; label: string }[] = [
     { key: 'all', label: '全部' },
-    ...(canManagePool ? [{ key: 'published' as StatusFilter, label: '发布' }] : []),
+    ...(canManagePool ? [{ key: 'approved' as StatusFilter, label: '待发布' }] : []),
     { key: 'claiming', label: '认领中' },
     { key: 'in_progress', label: '进行中' },
-    { key: 'rewarded', label: '已发赏' },
+    { key: 'rewarded', label: '已提奖' },
   ];
   const bonusBtns: { key: BonusFilter; label: string }[] = [
     { key: 'all', label: '全部奖金' }, { key: 'low', label: '¥0–5k' }, { key: 'mid', label: '¥5k–20k' }, { key: 'high', label: '¥20k+' },
@@ -429,14 +388,149 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const isJoined = false; // TODO: track per user
 
   const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-    published: { label: '发布', cls: 'bg-sky-100 text-sky-700' },
-    claiming: { label: '认领中', cls: 'bg-blue-100 text-blue-700' },
-    in_progress: { label: '进行中', cls: 'bg-emerald-100 text-emerald-700' },
-    rewarded: { label: '已发赏', cls: 'bg-purple-100 text-purple-700' },
+    approved: { label: '待一键发布', cls: 'bg-amber-50 text-amber-600 border border-amber-200/60' },
+    claiming: { label: '火热招募中', cls: 'bg-indigo-50 text-indigo-700 border border-indigo-200/60' },
+    in_progress: { label: '🚀 执行保障中', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' },
+    rewarded: { label: '💰 已发赏', cls: 'bg-purple-50 text-purple-700 border border-purple-200/60' },
+    completed: { label: '🎉 已结案', cls: 'bg-slate-50 text-slate-600 border border-slate-200/60' },
+    assessed: { label: '⭐ 已评级', cls: 'bg-purple-50 text-purple-700 border border-purple-200/60' },
   };
-  const getBadge = (t: PoolTask) => STATUS_BADGE[t.status] || { label: t.status, cls: 'bg-slate-100 text-slate-500' };
+  const getBadge = (t: PoolTask) => STATUS_BADGE[t.status] || { label: t.status, cls: 'bg-slate-50 text-slate-500 border border-slate-200/60' };
 
   const detail = selectedTask ? (MOCK_DETAILS[selectedTask.id] || MOCK_DETAILS.default) : MOCK_DETAILS.default;
+
+  const handlePublishTaskPool = (taskId: number) => {
+    setDialog({
+      title: '发布认领任务',
+      description: '确认发布认领？发布后所有员工可于系统中报名加入此项任务。',
+      confirmLabel: '📢 一键发榜',
+      confirmClass: 'bg-sky-600 hover:bg-sky-700 text-white',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/pool/tasks/${taskId}/start-claiming`, { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+          const json = await res.json();
+          if (json.code === 0) {
+            fetchTasks();
+            if (selectedTask?.id === taskId) setSelectedTask(null);
+          } else { alert(json.message); }
+        } catch { alert('网络错误'); }
+        setDialog(null);
+      }
+    });
+  };
+
+  const handleApproveRole = async (claimId: number, role: string) => {
+    if (role === 'A') {
+      const hasA = (selectedTask?.role_claims || []).some((c: any) => c.status === 'approved' && c.role_name === 'A');
+      if (hasA) {
+        alert('该任务的 [A 负责人] 只能分配 1 人，请先撤销当前 A 角色后再分配！');
+        return;
+      }
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/pool/role-claims/${claimId}/review`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', role_name: role }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        const taskRes = await fetch(`/api/pool/tasks/${selectedTask?.id}`, { headers: { Authorization: `Bearer ${token}` } });
+        const taskJson = await taskRes.json();
+        if (taskJson.code === 0) setSelectedTask(taskJson.data);
+        fetchTasks();
+      } else alert(json.message);
+    } catch { alert('网络异常'); }
+  };
+
+  const handleRevokeRole = (claimId: number) => {
+    setDialog({
+      title: '撤销成员分派',
+      description: '确定撤销该成员的分派，并将其打回海选待审批列表吗？',
+      confirmLabel: '确定撤销',
+      confirmClass: 'bg-rose-500 hover:bg-rose-600 text-white',
+      onConfirm: async () => {
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch(`/api/pool/role-claims/${claimId}/review`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'revoke' }),
+          });
+          const json = await res.json();
+          if (json.code === 0) {
+            const taskRes = await fetch(`/api/pool/tasks/${selectedTask?.id}`, { headers: { Authorization: `Bearer ${token}` } });
+            const taskJson = await taskRes.json();
+            if (taskJson.code === 0) setSelectedTask(taskJson.data);
+            fetchTasks();
+            setDialog(null);
+          } else {
+            alert(json.message);
+            setDialog(null);
+          }
+        } catch {
+          alert('网络异常');
+          setDialog(null);
+        }
+      }
+    });
+  };
+
+  const handleStartProject = (extraData?: any) => {
+    if (!selectedTask) return;
+    setDialog({
+      title: '正式启动项目',
+      description: '确认完成全员 RACI 角色分派并正式启动？\n系统将自动通过当前在面板选中的成员，并驳回未入选的人员。项目一旦启动，核心执行者（R/A）将不再支持随意更换。',
+      confirmLabel: '确认启动',
+      confirmClass: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+      onConfirm: async () => {
+        try {
+          const token = localStorage.getItem('token');
+          // Batch process claims!
+          if (extraData && (selectedTask as any).role_claims) {
+             const pendingClaims = ((selectedTask as any).role_claims || []).filter((c: any) => c.status === 'pending');
+             const approvedUids = [
+                 ...(extraData.r || '').split(','),
+                 ...(extraData.a || '').split(',')
+             ].filter(Boolean);
+             
+             for (const c of pendingClaims) {
+                 if (!approvedUids.includes(String(c.user_id))) {
+                    await fetch(`/api/pool/role-claims/${c.id}/review`, {
+                      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'reject', comment: '经综合评估，暂不分配此职位，感谢支持。' })
+                    });
+                 } else {
+                    await fetch(`/api/pool/role-claims/${c.id}/review`, {
+                      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'approve', role_name: c.role_name })
+                    });
+                 }
+             }
+          }
+
+          const res = await fetch(`/api/pool/tasks/${selectedTask.id}/start-project`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: extraData ? JSON.stringify(extraData) : undefined
+          });
+          const json = await res.json();
+          if (json.code === 0) {
+            fetchTasks();
+            setSelectedTask(null);
+            setDialog(null);
+          } else {
+            alert(json.message);
+            setDialog(null);
+          }
+        } catch {
+          alert('网络异常');
+          setDialog(null);
+        }
+      }
+    });
+  };
 
   return (
     <div className="bg-background text-on-background min-h-screen">
@@ -492,18 +586,21 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   )}
                 </button>
               )}
-              {canManagePool && (
-                <button onClick={() => setShowPublish(true)}
-                  className={`flex items-center gap-1 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10 bg-surface-container-low ${isMobile ? 'p-2' : 'px-3 py-2 text-xs font-medium'}`}>
-                  <span className={`material-symbols-outlined ${isMobile ? 'text-[18px]' : 'text-[16px]'}`}>publish</span>
-                  {!isMobile && '发布任务'}
-                </button>
-              )}
+
               <button onClick={() => setShowPropose(true)} title="发现公司改进点，有机会获得奖励"
-                className={`relative flex items-center gap-1 bg-amber-50 rounded-lg font-bold text-amber-700 hover:bg-amber-100 transition-all border border-amber-200/60 shadow-sm shadow-amber-100/50 ${isMobile ? 'p-2 ml-auto' : 'px-3 py-2 text-xs'}`}>
-                <span className={`material-symbols-outlined ${isMobile ? 'text-[18px]' : 'text-[16px]'}`}>add_task</span>
-                {isMobile ? '提案' : '申请提案'}
-                <span className={`absolute -top-1.5 -right-1.5 px-1 py-0.5 bg-gradient-to-r from-amber-400 to-orange-400 text-white font-black rounded-full shadow-sm ${isMobile ? 'text-[8px]' : 'text-[9px]'}`}>奖</span>
+                className={`flex flex-col items-center justify-center gap-1 bg-rose-50 rounded-2xl font-bold text-rose-600 hover:bg-rose-100/80 transition-all border border-rose-100 shadow-sm ${isMobile ? 'p-2 flex-1 ml-auto' : 'px-5 py-2 hover:scale-105 active:scale-95'}`}>
+                <span className="material-symbols-outlined text-[22px] md:text-[26px]">warning</span>
+                <span className={isMobile ? 'text-[10px]' : 'text-xs'}>发现问题</span>
+              </button>
+              <button onClick={() => setShowPropose(true)} title="需要系统或流程上的支持"
+                className={`flex flex-col items-center justify-center gap-1 bg-[#fffbeb] rounded-2xl font-bold text-[#b45309] hover:bg-amber-100/80 transition-all border border-[#fef3c7] shadow-sm ${isMobile ? 'p-2 flex-1' : 'px-5 py-2 hover:scale-105 active:scale-95'}`}>
+                <span className="material-symbols-outlined text-[22px] md:text-[26px]">handshake</span>
+                <span className={isMobile ? 'text-[10px]' : 'text-xs'}>帮我解决</span>
+              </button>
+              <button onClick={() => setShowPropose(true)} title="提出建设性的改进意见"
+                className={`flex flex-col items-center justify-center gap-1 bg-sky-50 rounded-2xl font-bold text-sky-700 hover:bg-sky-100/80 transition-all border border-sky-100 shadow-sm ${isMobile ? 'p-2 flex-1' : 'px-5 py-2 hover:scale-105 active:scale-95'}`}>
+                <span className="material-symbols-outlined text-[22px] md:text-[26px]">lightbulb</span>
+                <span className={isMobile ? 'text-[10px]' : 'text-xs'}>我有建议</span>
               </button>
               <button onClick={() => setShowMyProposals(!showMyProposals)}
                 className={`relative flex items-center gap-1 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10 bg-surface-container-low ${isMobile ? 'p-2' : 'px-3 py-2 text-xs font-medium'}`}>
@@ -645,21 +742,42 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                             );
                           })()}
                           {/* 进度条 (内联迷你) */}
-                          <div className="flex-1 flex items-center gap-1 ml-auto">
-                            <div className="flex-1 max-w-[60px] bg-surface-container-highest h-1 rounded-full overflow-hidden">
-                              <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${pct}%` }}></div>
+                          {task.status !== 'in_progress' && !['rewarded','completed','assessed'].includes(task.status) && (
+                            <div className="flex-1 flex items-center gap-1 ml-auto">
+                              <div className="flex-1 max-w-[60px] bg-surface-container-highest h-1 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-red-400' : 'bg-primary'}`} style={{ width: `${pct}%` }}></div>
+                              </div>
+                              <span className="text-[10px] text-on-surface-variant whitespace-nowrap">{task.current_participants}/{task.max_participants}</span>
                             </div>
-                            <span className="text-[10px] text-on-surface-variant whitespace-nowrap">{task.current_participants}/{task.max_participants}</span>
-                          </div>
-                          {/* 操作按钮 */}
-                          {full ? (
-                            <span className="text-[10px] text-on-surface-variant bg-surface-container-lowest px-2 py-0.5 rounded font-medium shrink-0">已满</span>
-                          ) : (
-                            <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }}
-                              className="text-[10px] text-primary bg-primary/5 border border-primary/20 px-2.5 py-0.5 rounded-md font-bold shrink-0 hover:bg-primary hover:text-white transition-colors">
-                              加入
-                            </button>
                           )}
+                          {/* 操作按钮 */}
+                          {(task.status === 'approved' || task.status === 'published') ? (
+                            canManagePool ? (
+                              <button onClick={(e) => { e.stopPropagation(); handlePublishTaskPool(task.id); }} 
+                                className="text-[10px] text-slate-500 border border-slate-200 px-2.5 py-0.5 rounded-md font-medium shrink-0 hover:text-blue-600 hover:border-blue-300 transition-colors ml-auto">
+                                等待发布
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-0.5 rounded-md font-bold shrink-0 ml-auto flex items-center gap-0.5">
+                                <span className="material-symbols-outlined text-[10px]">hourglass_top</span>筹备中
+                              </span>
+                            )
+                          ) : task.status === 'claiming' ? (
+                            full ? (
+                              <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }} 
+                                className="text-[10px] text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-md font-bold shrink-0 ml-auto hover:bg-slate-200 transition-colors">满员选拔</button>
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }}
+                                className="text-[10px] text-primary bg-primary/5 border border-primary/20 px-2.5 py-0.5 rounded-md font-bold shrink-0 hover:bg-primary hover:text-white transition-colors ml-auto">
+                                加入
+                              </button>
+                            )
+                          ) : ['in_progress', 'assessed', 'rewarded', 'completed'].includes(task.status) ? (
+                            <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }} 
+                              className="text-[10px] text-slate-600 bg-surface-container border border-outline-variant/30 px-2.5 py-0.5 rounded-md font-bold shrink-0 hover:bg-slate-200 transition-colors ml-auto">
+                              详情
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -667,8 +785,8 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                 ) : (
                   /* ── 桌面端原始卡片 ── */
                   <div key={task.id}
-                    className="group bg-surface-container-low rounded-2xl p-5 border border-outline-variant/10 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 flex flex-col cursor-pointer"
-                    onClick={() => !full && openTaskDetail(task)}
+                    className={`group bg-surface-container-low rounded-2xl p-5 border border-outline-variant/10 hover:shadow-2xl hover:shadow-primary/5 transition-all duration-300 flex flex-col cursor-pointer ${['rewarded','completed','assessed'].includes(task.status) ? 'opacity-80 grayscale-[20%]' : ''}`}
+                    onClick={() => openTaskDetail(task)}
                   >
                     <div className="flex justify-between items-start mb-3">
                       <span className={`${badge.cls} text-[10px] font-bold px-2.5 py-1 rounded-full uppercase label-font`}>{badge.label}</span>
@@ -710,20 +828,67 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       })()}
                     </div>
                     <div className="mt-auto">
-                      <div className="flex justify-between items-center text-[10px] text-on-surface-variant mb-1.5">
-                        <span>{task.current_participants}/{task.max_participants} 人参与</span>
-                        <span className="font-bold text-primary">{pct}%</span>
+                      <div className="flex items-center text-[10px] text-on-surface-variant mb-1.5 w-full">
+                        <span className="mr-2 shrink-0">{task.current_participants}/{task.max_participants} 人参与</span>
+                        {(() => {
+                           const participants = task.role_claims?.filter(rc => rc.status === 'approved').map(rc => rc.user_name) || task.participant_names || [];
+                           if (participants.length === 0) return null;
+                           return (
+                             <div className="flex -space-x-1.5 opacity-90 shrink-0">
+                               {participants.slice(0, 3).map((name, idx) => (
+                                 <div key={idx} className="w-4 h-4 rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-400 text-white flex items-center justify-center text-[8px] font-bold border border-white shadow-sm z-10 relative" title={name} style={{ zIndex: 10 - idx }}>
+                                   {name?.charAt(0)}
+                                 </div>
+                               ))}
+                               {participants.length > 3 && (
+                                 <div className="w-4 h-4 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[8px] font-bold border border-white shadow-sm z-0 relative">
+                                   +{participants.length - 3}
+                                 </div>
+                               )}
+                             </div>
+                           );
+                        })()}
+                        <span className="font-bold text-primary ml-auto">{pct}%</span>
                       </div>
-                      <div className="w-full bg-surface-container-highest h-1.5 rounded-full overflow-hidden mb-4">
-                        <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${pct}%` }}></div>
-                      </div>
-                      {full ? (
-                        <button disabled className={`w-full text-xs bg-surface-container-lowest text-on-surface-variant font-bold rounded-lg border border-outline-variant/20 cursor-not-allowed ${isMobile ? 'py-1.5' : 'py-2.5 rounded-xl'}`}>已满</button>
+                      {task.status !== 'in_progress' && !['rewarded','completed','assessed'].includes(task.status) && (
+                        <div className="w-full bg-surface-container-highest h-1.5 rounded-full overflow-hidden mb-4">
+                          <div className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-red-400 animate-pulse' : 'bg-primary'}`} style={{ width: `${pct}%` }}></div>
+                        </div>
+                      )}
+                      
+                      {(task.status === 'approved' || task.status === 'published') ? (
+                         canManagePool ? (
+                           <button onClick={(e) => { e.stopPropagation(); handlePublishTaskPool(task.id); }} 
+                             className="w-full text-xs text-slate-500 font-medium py-2.5 rounded-xl border border-slate-200 hover:border-blue-300 hover:text-blue-600 transition-all flex items-center justify-center gap-1.5">
+                             <span className="material-symbols-outlined text-[16px]">schedule</span> 等待发布
+                           </button>
+                         ) : (
+                           <button disabled className="w-full text-xs bg-slate-100 text-slate-400 font-bold py-2.5 rounded-xl cursor-not-allowed flex items-center justify-center gap-1.5">
+                             <span className="material-symbols-outlined text-[16px]">hourglass_top</span> 筹备中...
+                           </button>
+                         )
+                      ) : task.status === 'claiming' ? (
+                         full ? (
+                           <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }} 
+                             className="w-full text-xs bg-slate-100 text-slate-500 font-bold border border-slate-200 py-2.5 rounded-xl hover:bg-slate-200 transition-all flex justify-center items-center gap-1">
+                             满员选拔中
+                           </button>
+                         ) : (
+                           <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }}
+                             className="w-full text-xs bg-surface-container-lowest text-primary font-bold rounded-xl border border-primary/20 hover:bg-primary hover:text-white transition-all py-2.5 flex justify-center items-center gap-1">
+                             <span className="material-symbols-outlined text-[16px]">rocket_launch</span> 立即加入
+                           </button>
+                         )
+                      ) : ['in_progress'].includes(task.status) ? (
+                         <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }}
+                           className="w-full text-xs bg-emerald-50 text-emerald-700 font-bold rounded-xl border border-emerald-200 hover:bg-emerald-100 transition-all py-2.5 flex justify-center items-center gap-1">
+                           <span className="material-symbols-outlined text-[16px]">visibility</span> 查看执行详情
+                         </button>
                       ) : (
-                        <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }}
-                          className={`w-full text-xs bg-surface-container-lowest text-primary font-bold rounded-lg border border-primary/20 hover:bg-primary hover:text-white transition-all ${isMobile ? 'py-1.5' : 'py-2.5 rounded-xl'}`}>
-                          立即加入
-                        </button>
+                         <button onClick={(e) => { e.stopPropagation(); openTaskDetail(task); }}
+                           className="w-full text-xs bg-slate-50 text-slate-600 font-bold rounded-xl border border-slate-200 hover:bg-slate-100 transition-all py-2.5 flex justify-center items-center gap-1">
+                           <span className="material-symbols-outlined text-[16px]">military_tech</span> 战功汇报
+                         </button>
                       )}
                     </div>
                   </div>
@@ -851,9 +1016,15 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
       {/* ── Task Detail Modal (Readonly SmartTaskModal) ───────────────────────── */}
       <SmartTaskModal
-        isOpen={!!selectedTask && modalStep === 'detail'}
+        isOpen={!!selectedTask && (modalStep === 'detail' || modalStep === 'star_space')}
+        initialTab={modalStep === 'star_space' ? 'star_space' : 'details'}
         onClose={() => setSelectedTask(null)}
         onSubmit={() => {}}
+        onApprove={async (action, data) => {
+          if (action === 'batch_approve_and_start') {
+            handleStartProject(data);
+          }
+        }}
         title="任务详情"
         type="pool_publish"
         users={users}
@@ -880,172 +1051,89 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             bonus: String(selectedTask.bonus),
             rewardType: selectedTask.reward_type,
             maxParticipants: String(selectedTask.max_participants),
-            attachments: (selectedTask as any).attachments ? JSON.parse((selectedTask as any).attachments) : []
+            attachments: (selectedTask as any).attachments ? JSON.parse((selectedTask as any).attachments) : [],
+            role_claims: selectedTask.role_claims,
+            // 从已审核通过的 role_claims 中提取 RACI 人员 ID，供弹窗头部属性栏展示
+            r: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'R' && c.status === 'approved').map((c: any) => c.user_id).join(','),
+            a: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'A' && c.status === 'approved').map((c: any) => c.user_id).join(','),
+            c: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(','),
+            i: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(','),
           };
         })()}
-        customFooter={
-          <div className="w-full">
-            {/* ── 已认领成员展示 ── */}
-            {(() => {
-              const approvedClaims = (selectedTask?.role_claims || []).filter((c: any) => c.status === 'approved');
-              if (approvedClaims.length === 0 || !['claiming', 'in_progress', 'rewarded'].includes(selectedTask?.status || '')) return null;
-              
-              const ROLE_LABELS: Record<string, string> = { R: '执行者', A: '责任验收者', C: '被咨询者', I: '被告知者' };
-              const ROLE_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-                A: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-400' },
-                R: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-400' },
-                C: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-400' },
-                I: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' },
-              };
-              // Group by role
-              const grouped: Record<string, typeof approvedClaims> = {};
-              approvedClaims.forEach((c: any) => {
-                if (!grouped[c.role_name]) grouped[c.role_name] = [];
-                grouped[c.role_name].push(c);
-              });
-              const roleOrder = ['A', 'R', 'C', 'I'];
-
-              return (
-                <div className="mb-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <span className="material-symbols-outlined text-[16px] text-emerald-500">group</span>
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">项目成员</span>
-                    <span className="text-[10px] text-slate-400 ml-auto">{approvedClaims.length}人已加入</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {roleOrder.filter(r => grouped[r]).map(role => {
-                      const colors = ROLE_COLORS[role] || ROLE_COLORS.I;
-                      return (
-                        <div key={role} className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${colors.bg} ${colors.text} border ${colors.border}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`}></span>
-                            {role} {ROLE_LABELS[role]}
-                          </span>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {grouped[role].map((c: any) => (
-                              <span key={c.id} className="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
-                                <span className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white text-[9px] font-bold flex items-center justify-center shadow-sm">
-                                  {(c.user_name || '?')[0]}
-                                </span>
-                                {c.user_name}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-
-
-
-            {/* ── 操作按钮 ── */}
-            <div className="flex gap-3 w-full flex-wrap">
+        headerActions={
+          <div className="flex items-center gap-2">
             {selectedTask?.status === 'claiming' ? (
               <>
-                <button onClick={() => setSelectedTask(null)}
-                  className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  暂不参与
-                </button>
                 <button onClick={() => setModalStep('apply')}
-                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white primary-gradient shadow-md hover:opacity-90 transition-opacity">
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${canManagePool ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-white text-violet-700 hover:bg-slate-50 shadow-sm'}`}>
                   认领角色
                 </button>
+                {canManagePool && (
+                  <button onClick={() => document.dispatchEvent(new CustomEvent('TRIGGER_TASK_FINISH_ALLOCATION'))}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-violet-700 bg-white shadow-sm hover:bg-slate-50 transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">verified</span>
+                    分配一键启动
+                  </button>
+                )}
               </>
-            ) : selectedTask?.status === 'published' && canManagePool ? (
-              <button onClick={async () => {
-                if (!confirm('确认发布认领？发布后所有员工可认领角色')) return;
-                const token = localStorage.getItem('token');
-                const res = await fetch(`/api/pool/tasks/${selectedTask.id}/start-claiming`, {
-                  method: 'POST', headers: { Authorization: `Bearer ${token}` }
-                });
-                const json = await res.json();
-                if (json.code === 0) {
-                  fetchTasks();
-                  setSelectedTask(null);
-                } else {
-                  alert(json.message);
-                }
-              }}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-sky-600 shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
-                发布认领
+            ) : (selectedTask?.status === 'approved' || selectedTask?.status === 'published') && canManagePool ? (
+              <button onClick={() => handlePublishTaskPool(selectedTask.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white/90 border border-white/30 bg-white/10 hover:bg-white/20 hover:text-white transition-colors shrink-0">
+                <span className="material-symbols-outlined text-[14px]">schedule</span>
+                等待发布
               </button>
             ) : selectedTask?.status === 'proposing' && canManagePool ? (
               <button onClick={() => { setSelectedTask(null); navigate('workflows'); }}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-amber-500 shadow-md hover:opacity-90 transition-opacity">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-white shadow-sm hover:bg-slate-50 transition-colors shrink-0">
+                <span className="material-symbols-outlined text-[14px]">fact_check</span>
                 前往审核
               </button>
-            ) : (
-              <button onClick={() => setSelectedTask(null)}
-                className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                关闭
-              </button>
-            )}
-            </div>
+            ) : null}
 
-            {/* ── 赏金榜专用操作（in_progress / completed / terminated）── */}
             {['in_progress', 'completed', 'terminated'].includes(selectedTask?.status || '') && (() => {
               const myClaim = (selectedTask?.role_claims || []).find((c: any) => c.user_id === currentUser?.id && c.status === 'approved');
               const myRole = myClaim?.role_name;
+              if (!myClaim) return null;
               const isA = myRole === 'A';
               const isRA = myRole === 'R' || myRole === 'A';
-              if (!myClaim) return null;
+              
               return (
-                <div className="w-full border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                    我的操作（{myRole}·{myRole === 'A' ? '负责人' : '执行人'}）
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {/* STAR 填写 — R/A 均可 */}
-                    {isRA && (
-                      <button
-                        onClick={() => setShowStarModal(selectedTask!)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-violet-50 border border-violet-200 text-violet-700 rounded-xl text-xs font-bold hover:bg-violet-100 transition-colors">
-                        <span className="material-symbols-outlined text-[14px]">star</span>
-                        填写我的 STAR
-                      </button>
-                    )}
-                    {/* 延期 — 仅 A 角色，任务进行中 */}
-                    {isA && selectedTask?.status === 'in_progress' && (
-                      <button
-                        onClick={() => setShowExtendModal(selectedTask!)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors">
-                        <span className="material-symbols-outlined text-[14px]">schedule</span>
-                        申请延期
-                      </button>
-                    )}
-                    {/* 满分完结 — R/A 角色，任务进行中 */}
-                    {isRA && selectedTask?.status === 'in_progress' && (
-                      <button
-                        onClick={() => setShowCompleteModal(selectedTask!)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-colors">
-                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
-                        进度100%满分完结
-                      </button>
-                    )}
-                    {/* 提前完结 — 仅 A 角色，任务进行中 */}
-                    {isA && selectedTask?.status === 'in_progress' && (
-                      <button
-                        onClick={() => setShowTerminateModal(selectedTask!)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-xs font-bold hover:bg-amber-100 transition-colors">
-                        <span className="material-symbols-outlined text-[14px]">stop_circle</span>
-                        提前完结
-                      </button>
-                    )}
-                    {/* 发起奖励分配 — 仅 A 角色，100% 或已终止 */}
-                    {isA && ['completed', 'terminated'].includes(selectedTask?.status || '') && (
-                      <button
-                        onClick={() => setShowRewardModal(selectedTask!)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-orange-400 to-amber-500 text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity shadow-sm">
-                        <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
-                        发起奖励分配
-                      </button>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2 pl-2 border-l border-white/20 ml-1">
+                  {isRA && (
+                    <button onClick={() => setModalStep('star_space')}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">star</span>
+                      写STAR
+                    </button>
+                  )}
+                  {isA && selectedTask?.status === 'in_progress' && (
+                    <button onClick={() => setShowExtendModal(selectedTask!)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-500/80 hover:bg-blue-500 shadow-sm transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">schedule</span>
+                      延期
+                    </button>
+                  )}
+                  {isRA && selectedTask?.status === 'in_progress' && (
+                    <button onClick={() => setShowCompleteModal(selectedTask!)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                      100%完结
+                    </button>
+                  )}
+                  {isA && selectedTask?.status === 'in_progress' && (
+                    <button onClick={() => setShowTerminateModal(selectedTask!)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                      提前终止
+                    </button>
+                  )}
+                  {isA && ['completed', 'terminated'].includes(selectedTask?.status || '') && (
+                    <button onClick={() => setShowRewardModal(selectedTask!)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-orange-400 to-amber-500 shadow-sm hover:opacity-90 transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
+                      发奖金
+                    </button>
+                  )}
                 </div>
               );
             })()}
@@ -1054,7 +1142,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       />
 
       {/* ── Task Apply / Success Modal ─────────────────────────────────────────── */}
-      {selectedTask && modalStep !== 'detail' && (
+      {selectedTask && modalStep !== 'detail' && modalStep !== 'star_space' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setSelectedTask(null)} />
           <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 fade-in duration-200">
@@ -1302,28 +1390,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         }}
       />
 
-      {/* ── Publish Task Modal ─────────────────────────────────────────────── */}
-      <SmartTaskModal
-        isOpen={showPublish}
-        onClose={() => setShowPublish(false)}
-        onSubmit={handlePublishTask}
-        title="发布公司级任务"
-        type="pool_publish"
-        users={users}
-        submitting={publishing}
-        initialData={{
-          summary: '',
-          s: '',
-          m: '',
-          a_smart: '',
-          r_smart: '',
-          t: '',
-          taskType: '重点项目',
-          bonus: '0',
-          rewardType: 'money',
-          r: currentUser?.id
-        }}
-      />
+
 
       {/* ── My Proposals Panel ─────────────────────────────────────────────── */}
       {showMyProposals && (
@@ -1363,20 +1430,34 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                     {p.proposal_status === 'rejected' && (
                       <div className="flex gap-2 mt-3 w-full">
                         <button
-                          onClick={async (e) => {
+                          onClick={(e) => {
                             e.stopPropagation();
-                            if (!window.confirm('确认永久删除该被驳回的提案？操作将不可撤销。')) return;
-                            try {
-                              const token = localStorage.getItem('token');
-                              const res = await fetch(`/api/pool/tasks/${p.id}`, {
-                                method: 'DELETE',
-                                headers: { Authorization: `Bearer ${token}` }
-                              });
-                              const data = await res.json();
-                              if (data.code === 0 || data.success) {
-                                fetchMyProposals();
-                              } else { alert(data.message || '删除失败'); }
-                            } catch { alert('删除失败'); }
+                            setDialog({
+                              title: '删除提案',
+                              description: '确认永久删除该被驳回的提案？操作将不可撤销。',
+                              confirmLabel: '永久删除',
+                              confirmClass: 'bg-red-600 hover:bg-red-700 text-white',
+                              onConfirm: async () => {
+                                try {
+                                  const token = localStorage.getItem('token');
+                                  const res = await fetch(`/api/pool/tasks/${p.id}`, {
+                                    method: 'DELETE',
+                                    headers: { Authorization: `Bearer ${token}` }
+                                  });
+                                  const data = await res.json();
+                                  if (data.code === 0 || data.success) {
+                                    fetchMyProposals();
+                                    setDialog(null);
+                                  } else {
+                                    alert(data.message || '删除失败');
+                                    setDialog(null);
+                                  }
+                                } catch {
+                                  alert('网络异常，删除失败');
+                                  setDialog(null);
+                                }
+                              }
+                            });
                           }}
                           className="px-3 py-2 bg-rose-50 text-rose-500 rounded-xl text-[12px] font-bold border border-rose-200 hover:bg-rose-100 transition-colors shrink-0 flex items-center justify-center group"
                           title="删除被驳回提案"
@@ -1644,16 +1725,6 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         </div>
       )}
 
-      {/* ── STAR 报告弹窗 ─────────────────────────────────────────────── */}
-      {showStarModal && (
-        <STARReportModal
-          taskId={showStarModal.id}
-          taskTitle={showStarModal.title}
-          roleName={(showStarModal.role_claims || []).find((c: any) => c.user_id === currentUser?.id)?.role_name || 'R'}
-          onClose={() => setShowStarModal(null)}
-          onSubmitted={() => { setShowStarModal(null); fetchTasks(); }}
-        />
-      )}
 
       {/* ── 延期申请弹窗 ─────────────────────────────────────────────── */}
       {showExtendModal && (

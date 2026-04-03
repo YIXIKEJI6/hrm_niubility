@@ -1,196 +1,381 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Link2, ExternalLink, RefreshCw, Layers } from 'lucide-react';
+import { Send, Paperclip, File, X, Loader2, MessageSquare, Trash2, ExternalLink } from 'lucide-react';
+import MDEditor from '@uiw/react-md-editor';
+
+function formatTimeAgo(dateString: string) {
+  const safeDate = dateString.includes('T') ? dateString : dateString.replace(' ', 'T') + 'Z';
+  const date = new Date(safeDate);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (seconds < 60) return '刚刚';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}天前`;
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
 
 interface SharedSTARPanelProps {
   taskId: number;
   taskType: string;
   taskTitle: string;
-  initialData: any;
+  initialData?: any;
   currentUser: any;
 }
 
+interface Attachment {
+  name: string;
+  size: string;
+  url: string;
+  filename: string;
+}
+
+interface Discussion {
+  id: number;
+  user_id: string;
+  user_name: string;
+  avatar_url: string;
+  content: string;
+  attachments: Attachment[];
+  created_at: string;
+}
+
 export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialData, currentUser }: SharedSTARPanelProps) {
-  const [docUrl, setDocUrl] = useState<string | null>(null);
+  const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [inputUrl, setInputUrl] = useState('');
-  const [linking, setLinking] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [content, setContent] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const targetType = taskType === 'pool_propose' ? 'proposal' : 'perf_plan';
+  let targetType = 'perf_plan';
+  if (taskType === 'pool_propose' || taskType === 'pool_publish' || taskType === 'proposal') {
+    targetType = 'proposal';
+  } else if (initialData?.flow_type === 'proposal') {
+    targetType = 'proposal';
+  }
 
-  const fetchDoc = async () => {
-    setLoading(true);
+  const fetchDiscussions = async () => {
     try {
-      const res = await fetch(`/api/wecom/docs/${targetType}/${taskId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/task-discussions/${targetType}/${taskId}`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.code === 0 && data.data) {
-        setDocUrl(data.data.doc_url);
-        setInputUrl(data.data.doc_url);
-      } else {
-        setDocUrl(null);
+      if (data.code === 0) {
+        setDiscussions(data.data);
       }
     } catch (err) {
-      console.error('Failed to fetch doc link:', err);
+      console.error('Failed to fetch discussions:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDoc();
+    fetchDiscussions();
   }, [taskId, targetType]);
 
-  const handleLink = async () => {
-    if (!inputUrl.trim()) return;
-    setLinking(true);
+  useEffect(() => {
+    // Auto scroll to bottom when new discussions arrive
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [discussions]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+
+    setIsUploading(true);
     try {
-      const res = await fetch('/api/wecom/docs/link', {
+      const res = await fetch('/api/uploads/files', {
         method: 'POST',
-        headers: { 
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (data.code === 0 && data.data) {
+        setAttachments(prev => [...prev, ...data.data]);
+      } else {
+        alert(data.message || '上传失败');
+      }
+    } catch (err) {
+      console.error('Upload failed', err);
+      alert('上传发生了错误');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    if (!content.trim() && attachments.length === 0) return;
+    
+    setIsPublishing(true);
+    try {
+      const res = await fetch(`/api/task-discussions/${targetType}/${taskId}`, {
+        method: 'POST',
+        headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          targetType,
-          targetId: taskId,
-          docUrl: inputUrl,
-          docTitle: taskTitle
+          content: content.trim(),
+          attachments
         })
       });
       const data = await res.json();
       if (data.code === 0) {
-        setDocUrl(inputUrl);
-        setIsEditing(false);
+        setContent('');
+        setAttachments([]);
+        fetchDiscussions();
       } else {
-        alert(data.message || '关联失败');
+        alert(data.message || '发布失败');
+      }
+    } catch (err) {
+      console.error('Submit failed', err);
+      alert('发布遇到了网络错误');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('确定要删除这条复盘跟帖吗？')) return;
+    try {
+      const res = await fetch(`/api/task-discussions/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setDiscussions(prev => prev.filter(d => d.id !== id));
+      } else {
+        alert(data.message || '删除失败');
       }
     } catch (err) {
       alert('网络错误');
-    } finally {
-      setLinking(false);
     }
   };
 
   if (loading) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-50/50">
-        <RefreshCw className="animate-spin text-blue-500" size={32} />
+        <Loader2 className="animate-spin text-blue-500" size={32} />
       </div>
     );
   }
 
-  // 如果没有关联文档，或者处于编辑模式
-  if (!docUrl || isEditing) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-slate-50 p-6">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center"
-        >
-          <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <Link2 size={32} />
-          </div>
-          <h3 className="text-xl font-black text-slate-800 mb-2">关联团队协作文档</h3>
-          <p className="text-sm text-slate-500 mb-8 leading-relaxed">
-            将本任务关联至一个企业微信/飞书/腾讯协同文档，实现在页面内实时共同编辑、复盘与沉淀。
-          </p>
-
-          <div className="space-y-4">
-            <div className="text-left">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">协同文档分享链接</label>
-              <input 
-                type="text" 
-                value={inputUrl}
-                onChange={e => setInputUrl(e.target.value)}
-                placeholder="https://docs.qq.com/doc/..."
-                className="w-full mt-1.5 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all font-mono text-xs"
-              />
-            </div>
-            
-            <div className="flex gap-3">
-              {isEditing && (
-                <button 
-                  onClick={() => setIsEditing(false)}
-                  className="flex-1 px-4 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-all"
-                >
-                  返回
-                </button>
-              )}
-              <button 
-                onClick={handleLink}
-                disabled={linking || !inputUrl}
-                className="flex-[2] px-6 py-3 bg-[#005ea4] text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 hover:bg-[#0077ce] active:scale-[0.98] transition-all disabled:opacity-50"
-              >
-                {linking ? '正在关联...' : '立即关联并开始协作'}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between">
-             <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
-               <Layers size={14} />
-               <span>支持企微、飞书、腾讯文档嵌入</span>
-             </div>
-             <a href="https://docs.qq.com" target="_blank" className="text-blue-600 text-xs font-bold hover:underline flex items-center gap-1">
-               去创建 <ExternalLink size={12} />
-             </a>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
-  // 渲染嵌入式文档
   return (
     <div className="w-full h-full flex flex-col bg-white">
-      {/* 顶部工具条 */}
-      <div className="px-4 py-2 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-2 py-1 bg-green-50 text-green-700 text-[10px] font-black rounded border border-green-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            已接入协同文档
+      {/* 顶部标题条 */}
+      <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
+            <MessageSquare size={16} />
           </div>
-          <p className="text-xs font-bold text-slate-500 truncate max-w-[300px]">
-             {taskTitle} - 协作空间
-          </p>
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">{taskTitle}</h3>
+            <p className="text-xs text-slate-500 font-medium tracking-wide">STAR广场 - 沉淀复盘探讨与文档</p>
+          </div>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setIsEditing(true)}
-            className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors"
-            title="更换文档链接"
-          >
-            <Link2 size={16} />
-          </button>
-          <a 
-            href={docUrl} 
-            target="_blank" 
-            className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors"
-            title="新窗口打开"
-          >
-            <ExternalLink size={16} />
-          </a>
+        <div className="text-xs font-bold text-slate-400 bg-white px-2 py-1 rounded shadow-sm border border-slate-100">
+          共 {discussions.length} 条记录
         </div>
       </div>
 
-      {/* 文档嵌入区 */}
-      <div className="flex-1 bg-slate-50 relative overflow-hidden">
-        <iframe 
-          src={docUrl}
-          className="w-full h-full border-none"
-          title="Collaborative Workspace"
-          allow="autoplay; clipboard-read; clipboard-write; fullscreen"
-        />
-        
-        {/* 指引条 */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-900/80 backdrop-blur-sm text-white rounded-full text-[10px] font-bold shadow-2xl pointer-events-none opacity-0 hover:opacity-100 transition-opacity flex items-center gap-2 border border-white/10">
-           <span className="material-symbols-outlined text-[14px]">info</span>
-           本页面已自动启用文档免密嵌入，如无法显示请检查链接权限
+      {/* 跟帖 Feed 流 */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-50/30">
+        {discussions.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-400">
+            <MessageSquare size={48} className="mb-4 opacity-20" />
+            <p className="font-medium text-sm">暂无复盘记录</p>
+            <p className="text-xs mt-1">在下方发表您的任务总结或附上成果文档吧</p>
+          </div>
+        ) : (
+          discussions.map(disc => {
+            const isMe = disc.user_id === currentUser?.id;
+            const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
+            
+            return (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                key={disc.id} 
+                className={`flex gap-4 ${isMe ? 'flex-row-reverse' : ''}`}
+              >
+                {/* 头像 */}
+                <div className="shrink-0 pt-1">
+                  {disc.avatar_url ? (
+                    <img src={disc.avatar_url} alt={disc.user_name} className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold border-2 border-white shadow-sm">
+                      {disc.user_name?.[0]}
+                    </div>
+                  )}
+                </div>
+
+                {/* 消息体 */}
+                <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%]`}>
+                  <div className={`flex items-center gap-2 mb-1 text-xs ${isMe ? 'flex-row-reverse' : ''}`}>
+                    <span className="font-bold text-slate-700">{disc.user_name}</span>
+                    <span className="text-slate-400 text-[11px]">{formatTimeAgo(disc.created_at)}</span>
+                    {/* Admin or owner delete button */}
+                    {(isMe || currentUser?.is_super_admin) && (
+                      <button onClick={() => handleDelete(disc.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* 文字内容 */}
+                  {disc.content && (
+                    <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
+                      isMe 
+                        ? 'bg-violet-50 border border-violet-100 text-slate-800 rounded-tr-sm' 
+                        : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm'
+                    }`} data-color-mode="light">
+                      <MDEditor.Markdown source={disc.content} style={{ backgroundColor: 'transparent', color: 'inherit', fontSize: '14px' }} />
+                    </div>
+                  )}
+
+                  {/* 附件渲染 */}
+                  {disc.attachments && disc.attachments.length > 0 && (
+                    <div className={`flex flex-wrap gap-2 mt-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      {disc.attachments.map((att, i) => (
+                        <a 
+                          key={i} 
+                          href={att.url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className={`group relative overflow-hidden rounded-xl border flex items-center gap-2 transition-all ${
+                            isImage(att.url) 
+                              ? 'w-32 h-32 bg-slate-100 hover:shadow-md border-slate-200' 
+                              : 'px-3 py-2 bg-white hover:bg-slate-50 border-slate-200 shadow-sm'
+                          }`}
+                        >
+                          {isImage(att.url) ? (
+                            <img src={att.url} alt={att.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                          ) : (
+                            <>
+                              <div className="w-8 h-8 rounded bg-blue-50 text-blue-500 flex items-center justify-center shrink-0">
+                                <File size={16} />
+                              </div>
+                              <div className="flex flex-col overflow-hidden">
+                                <span className="text-xs font-bold text-slate-700 truncate">{att.name}</span>
+                                <span className="text-[10px] text-slate-400">{att.size}</span>
+                              </div>
+                            </>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                             <ExternalLink size={20} className="text-white drop-shadow-md" />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })
+        )}
+      </div>
+
+      {/* 发表区（输入框 + 附件） */}
+      <div className="shrink-0 p-4 bg-white border-t border-slate-100">
+        {/* 已选择附件预览 */}
+        <AnimatePresence>
+          {attachments.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex flex-wrap gap-2 mb-3"
+            >
+              {attachments.map((att, index) => (
+                <div key={index} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg pl-2 pr-1 py-1 max-w-[200px]">
+                  <File size={12} className="text-slate-400 shrink-0" />
+                  <span className="text-xs text-slate-600 truncate flex-1">{att.name}</span>
+                  <button 
+                    onClick={() => handleRemoveAttachment(index)}
+                    className="p-1 hover:bg-slate-200 rounded text-slate-500 transition-colors"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm focus-within:ring-2 focus-within:ring-violet-200 transition-all overflow-hidden rounded-b-xl relative z-10">
+          <div data-color-mode="light" className="w-full relative z-20">
+            <MDEditor 
+              value={content}
+              onChange={v => setContent(v || '')}
+              height={180}
+              preview="edit"
+              className="border-none shadow-none !bg-transparent w-full"
+              textareaProps={{
+                placeholder: '输入复盘总结或讨论重点... (支持 Markdown, Ctrl+Enter 快捷发送)',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  handleSubmit();
+                }
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between bg-slate-50 border-t border-slate-100 px-3 py-2 z-10 relative">
+             <div className="flex items-center gap-2">
+                <input 
+                  type="file" 
+                  multiple 
+                  className="hidden" 
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-all disabled:opacity-50"
+                  title="添加附件"
+                >
+                  {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+                  <span>上传附件或截图</span>
+                </button>
+             </div>
+             
+             <button 
+                onClick={handleSubmit}
+                disabled={isPublishing || (!content.trim() && attachments.length === 0)}
+                className="px-5 py-1.5 text-sm font-bold text-white bg-gradient-to-r from-violet-600 to-fuchsia-500 hover:opacity-90 active:scale-95 rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-md shadow-violet-500/20"
+                title="发布 (Ctrl+Enter)"
+              >
+                {isPublishing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                发送
+              </button>
+          </div>
+        </div>
+        <div className="text-center mt-2">
+          <span className="text-[10px] text-slate-400 font-medium">支持上传相关文档、截图凭证。单文件限 50MB</span>
         </div>
       </div>
     </div>

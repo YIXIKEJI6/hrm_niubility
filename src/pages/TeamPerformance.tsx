@@ -201,12 +201,20 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       
       if (createData.code === 0 && createData.data?.id) {
         const planId = createData.data.id;
-        // 下发任务不自动 approve，保持 pending_review 状态，员工需确认接收，主管再审批
-        await fetch(`/api/perf/plans/${planId}/submit`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+        // 使用签收流程：dispatch → pending_receipt，员工在「我的流程」待处理中看到并签收
+        const dispatchRes = await fetch(`/api/perf/plans/${planId}/dispatch`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const dispatchData = await dispatchRes.json();
         
         setIsAssignModalOpen(false);
         fetchTeamStatus();
-        alert('任务已下发，等待员工确认接收后，请在「待我审批」中审批通过。');
+        if (dispatchData.code === 0) {
+          alert('任务已下发，员工将收到签收通知，签收完成后任务自动启动。');
+        } else {
+          alert(`任务已创建，但下发失败：${dispatchData.message || '请检查是否已设置执行人'}`);
+        }
       } else {
         alert(createData.message || '创建任务失败，请重试');
       }

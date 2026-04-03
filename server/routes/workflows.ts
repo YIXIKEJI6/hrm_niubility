@@ -212,6 +212,31 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     }
   }
 
+  // 5. 待我签收的绩效任务（主管下发，员工尚未签收）
+  try {
+    const receiptPending = db.prepare(
+      `SELECT pp.*, cu.name as creator_name, 'perf_plan' as flow_type, 'pending_receipt' as original_status
+       FROM perf_plans pp
+       LEFT JOIN users cu ON pp.creator_id = cu.id
+       WHERE pp.status = 'pending_receipt'
+       ORDER BY pp.updated_at DESC`
+    ).all() as any[];
+    // 过滤：仅保留当前用户在 receipt_status 中且尚未签收的
+    const myPendingReceipt = receiptPending.filter((p: any) => {
+      try {
+        const rs = JSON.parse(p.receipt_status || '{}');
+        return rs[userId!] === 'pending';
+      } catch { return false; }
+    });
+    myPendingReceipt.forEach((p: any) => {
+      p.pending_reviewer_name = currentUserName;
+      p.source_type = 'assigned';
+    });
+    items.push(...myPendingReceipt);
+  } catch (e) {
+    console.warn('[workflows/pending] pending_receipt查询跳过:', (e as any)?.message);
+  }
+
   items.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return res.json({ code: 0, data: items });
 });

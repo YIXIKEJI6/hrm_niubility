@@ -9,20 +9,65 @@ import WorkflowTrajectory from './WorkflowTrajectory';
 import AuditTimeline from './AuditTimeline';
 import SharedSTARPanel from './SharedSTARPanel';
 
+const SMART_TEMPLATE_WITH_HINT = `【目标 S】
+> 🎯 *说明 (Specific): 请描述具体明确的产出是什么？*
+
+【指标 M】
+> 📊 *说明 (Measurable): 请描述如何衡量完成度与验收标准？*
+
+【方案 A】
+> 🚀 *说明 (Attainable): 请描述实现该目标的具体行动和所需资源？*
+
+【相关 R】
+> 🔗 *说明 (Relevant): 请描述该任务与岗位及大目标的关联性和意义？*
+
+【时限 T】
+> ⏰ *说明 (Time-bound): 请描述关键的时间节点与进度安排？*`;
+
+const SMART_TEMPLATE_CLEAN = `【目标 S】
+
+【指标 M】
+
+【方案 A】
+
+【相关 R】
+
+【时限 T】`;
+
+const getInitialS = (initial?: Partial<SmartTaskData>) => {
+  if (!initial) return SMART_TEMPLATE_WITH_HINT;
+  const initialS = initial.s || '';
+  const initialM = initial.m || '';
+  const initialA = initial.a_smart || '';
+  const initialR = initial.r_smart || '';
+  const initialT = initial.t || '';
+  
+  if (initial.id) {
+     if (initialS && initialS.includes('【目标 S】')) return initialS;
+     if (initialS || initialM || initialA || initialR || initialT) {
+       return `【目标 S】\n${initialS}\n\n【指标 M】\n${initialM}\n\n【方案 A】\n${initialA}\n\n【相关 R】\n${initialR}\n\n【时限 T】\n${initialT}`;
+     }
+     return SMART_TEMPLATE_WITH_HINT;
+  }
+  return SMART_TEMPLATE_WITH_HINT;
+};
+
 const SearchableUserDropdown = ({ 
   label, 
   value, 
   onChange, 
   users, 
   placeholder,
-  readonly 
+  readonly,
+  receiptStatus
 }: { 
   label: string, 
   value: string, 
   onChange: (v: string) => void, 
   users: {id: string, name: string}[], 
   placeholder: string,
-  readonly?: boolean 
+  readonly?: boolean,
+  receiptStatus?: Record<string, string>
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -49,18 +94,29 @@ const SearchableUserDropdown = ({
     setIsOpen(!isOpen);
   };
 
-  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
-  const selectedUser = users.find(u => u.id === value);
+  const safeUsers = users || [];
+  const filteredUsers = safeUsers.filter(u => (u.name || '').toLowerCase().includes(search.toLowerCase()));
+  const selectedUser = safeUsers.find(u => u.id === value);
 
   return (
     <>
-      <div ref={triggerRef} className={`flex items-center bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-2 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 hover:border-white/30 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
-        <span className="text-[11px] font-black text-white/70 mr-2 tracking-wider uppercase">{label}</span>
-        <div className="flex items-center gap-1 select-none">
-          <span className={`text-sm tracking-wide font-semibold ${selectedUser ? 'text-white' : 'text-white/50'}`}>
-            {selectedUser ? selectedUser.name : placeholder.replace('选择', '')}
-          </span>
-          {!readonly && <ChevronDown size={13} className={`text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
+      <div ref={triggerRef} className={`flex items-center rounded-md px-1 py-1 border border-transparent ${readonly ? '' : 'hover:bg-slate-100 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
+        <span className="text-[12px] font-bold text-slate-400/80 tracking-wider mr-1" style={{ display: selectedUser ? 'none' : 'inline' }}>{label}</span>
+        <div className="flex items-center gap-0.5 select-none">
+          {selectedUser ? (
+            <span className="text-[13px] tracking-wide font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1 relative">
+              <div className="w-4 h-4 rounded bg-slate-200 text-slate-500 flex items-center justify-center text-[10px] shrink-0 font-black">{selectedUser.name[0]}</div>
+              {selectedUser.name}
+              {receiptStatus && (
+                receiptStatus[String(selectedUser.id)] === 'confirmed'
+                  ? <span className="ml-0.5 text-emerald-500 text-[11px] font-black" title="已签收">✓</span>
+                  : <span className="ml-0.5 text-amber-400 text-[11px] font-black" title="待签收">○</span>
+              )}
+            </span>
+          ) : (
+            <span className="text-sm font-semibold text-slate-300 hidden"></span>
+          )}
+          {!readonly && <ChevronDown size={14} className={`text-slate-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} style={{ display: selectedUser ? 'none' : 'block' }} />}
         </div>
       </div>
 
@@ -128,14 +184,16 @@ const MultiSelectUserDropdown = ({
   onChange, 
   users, 
   placeholder,
-  readonly 
+  readonly,
+  receiptStatus
 }: { 
   label: string, 
   value: string, 
   onChange: (v: string) => void, 
   users: {id: string, name: string}[], 
   placeholder: string,
-  readonly?: boolean 
+  readonly?: boolean,
+  receiptStatus?: Record<string, string>
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -164,8 +222,9 @@ const MultiSelectUserDropdown = ({
     setIsOpen(!isOpen);
   };
 
-  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
-  const selectedNames = selectedIds.map(id => users.find(u => u.id === id)?.name).filter(Boolean);
+  const safeUsers = users || [];
+  const filteredUsers = safeUsers.filter(u => (u.name || '').toLowerCase().includes(search.toLowerCase()));
+  const selectedNames = selectedIds.map(id => safeUsers.find(u => u.id === id)?.name).filter(Boolean);
 
   const toggleUser = (id: string) => {
     const newIds = selectedIds.includes(id)
@@ -182,16 +241,30 @@ const MultiSelectUserDropdown = ({
 
   return (
     <>
-      <div ref={triggerRef} className={`flex items-center bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-2 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 hover:border-white/30 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
-        <span className="text-[11px] font-black text-white/70 mr-2 tracking-wider uppercase">{label}</span>
+      <div ref={triggerRef} className={`flex items-center rounded-md px-1 py-1 border border-transparent ${readonly ? '' : 'hover:bg-slate-100 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
+        <span className="text-[12px] font-bold text-slate-400/80 tracking-wider mr-1" style={{ display: selectedNames.length > 0 ? 'none' : 'inline' }}>{label}</span>
         <div className="flex items-center gap-1 select-none">
-          <span className={`text-sm tracking-wide font-semibold ${selectedNames.length > 0 ? 'text-white' : 'text-white/50'}`}>
-            {displayText}
-          </span>
-          {selectedNames.length > 0 && (
-            <span className="ml-1 text-[10px] font-bold bg-white/20 text-white/80 rounded-full w-4 h-4 flex items-center justify-center">{selectedNames.length}</span>
+          {selectedNames.length > 0 ? (
+            <div className="flex gap-1">
+             {selectedNames.map((name, idx) => {
+               const uid = selectedIds[idx];
+               const rStatus = receiptStatus?.[String(uid)];
+               return (
+                 <span key={name} className="text-[13px] tracking-wide font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
+                   {name}
+                   {receiptStatus && (
+                     rStatus === 'confirmed'
+                       ? <span className="text-emerald-500 text-[11px] font-black" title="已签收">✓</span>
+                       : <span className="text-amber-400 text-[11px] font-black" title="待签收">○</span>
+                   )}
+                 </span>
+               );
+             })}
+            </div>
+          ) : (
+            <span className="text-sm font-semibold text-slate-300 hidden"></span>
           )}
-          {!readonly && <ChevronDown size={13} className={`text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
+          {!readonly && <ChevronDown size={14} className={`text-slate-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} style={{ display: selectedNames.length > 0 ? 'none' : 'block' }} />}
         </div>
       </div>
 
@@ -290,11 +363,10 @@ const TaskTypeDropdown = ({ value, onChange, readonly }: { value: string; onChan
 
   return (
     <>
-      <div ref={triggerRef} className={`flex items-center bg-white/10 backdrop-blur-sm rounded-lg px-3.5 py-2 border border-white/20 ${readonly ? '' : 'hover:bg-white/20 hover:border-white/30 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
-        <span className="text-[11px] font-black text-white/70 mr-2 tracking-wider uppercase">任务属性</span>
-        <div className="flex items-center gap-1 select-none">
-          <span className={`text-sm tracking-wide font-semibold ${value ? 'text-white' : 'text-white/50'}`}>{value || '选择属性'}</span>
-          {!readonly && <ChevronDown size={13} className={`text-white/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
+      <div ref={triggerRef} className={`flex items-center rounded-md px-1 py-1 border border-transparent ${readonly ? '' : 'hover:bg-slate-100 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
+        <div className="flex items-center gap-0.5 select-none">
+          <span className={`text-[13px] tracking-wide font-bold px-2 py-0.5 rounded flex items-center ${value ? 'text-slate-700 bg-slate-100' : 'text-slate-400/80 bg-transparent'}`}>{value || '选择属性'}</span>
+          {!readonly && <ChevronDown size={14} className={`text-slate-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
         </div>
       </div>
 
@@ -363,8 +435,13 @@ export interface SmartTaskData {
   logs?: any[];
   status?: string;
   approver_name?: string;
+  creator_id?: string;
+  receipt_status?: string;
   quarter?: string;
   current_participants?: number;
+  proposal_status?: string;
+  role_claims?: any[];
+  roles_config?: any;
 }
 
 export interface SmartTaskModalProps {
@@ -378,27 +455,32 @@ export interface SmartTaskModalProps {
   submitting?: boolean;
   readonly?: boolean;
   customFooter?: React.ReactNode;
+  headerActions?: React.ReactNode;
   approverMode?: boolean;
-  onApprove?: (comment: string, updatedData?: any, action?: 'approve' | 'transfer', targetUser?: string) => void;
+  onApprove?: (comment: string, updatedData?: any, action?: 'approve' | 'transfer' | 'publish', targetUser?: string) => void;
   onReject?: (comment: string) => void;
   onDraft?: (data: SmartTaskData) => void;
   onDelete?: () => void;
+  proposalCategory?: 'problem' | 'help' | 'suggestion' | null;
+  initialTab?: 'details' | 'star_space';
 }
 
-export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type, users, initialData, submitting, readonly: propReadonly, customFooter, approverMode, onApprove, onReject, onDraft, onDelete }: SmartTaskModalProps) {
+export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type, users = [], initialData, submitting, readonly: propReadonly, customFooter, headerActions, approverMode, onApprove, onReject, onDraft, onDelete, proposalCategory, initialTab }: SmartTaskModalProps) {
   const { currentUser } = useAuth();
   const isMobile = useIsMobile();
   const [activeSection, setActiveSection] = useState<SectionId>(null);
-  const [activeTab, setActiveTab] = useState<'details' | 'star_space'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'star_space'>(initialTab || 'details');
   const [aiActivating, setAiActivating] = useState<'full' | null>(null);
   const [tempVoice, setTempVoice] = useState('');
   const [draftSaving, setDraftSaving] = useState(false);
-  const [isFocusMode, setIsFocusMode] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferUserId, setTransferUserId] = useState('');
   const [isEditingMode, setIsEditingMode] = useState(false);
+  const [propsExpanded, setPropsExpanded] = useState(false);
+  const prevOpenRef = React.useRef(false);
   
   const readonly = propReadonly && !isEditingMode;
+  const isHeaderEditable = !readonly || approverMode || (initialData?.status === 'claiming' && !!headerActions);
 
   const [allCompanyUsers, setAllCompanyUsers] = useState<{id: string, name: string, role?: string}[]>([]);
   useEffect(() => {
@@ -426,10 +508,12 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     maxParticipants: initialData?.maxParticipants || '5',
     quarter: initialData?.quarter || ''
   });
+  
+  const isSimplifiedMode = type === 'pool_propose' && (!!proposalCategory || !!initialData?.category);
 
   const [formData, setFormData] = useState({
     summary: initialData?.summary || '',
-    s: initialData?.s || '',
+    s: getInitialS(initialData),
     m: initialData?.m || '',
     a_smart: initialData?.a_smart || '',
     r_smart: initialData?.r_smart || '',
@@ -442,13 +526,54 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
   });
 
   useEffect(() => {
-    if (isOpen) {
+    const handleTrigger = () => {
+      onApprove?.('batch_approve_and_start', { ...formData, ...headerSelections, summary: formData.summary || formData.s?.substring(0, 30) });
+    };
+    document.addEventListener('TRIGGER_TASK_FINISH_ALLOCATION', handleTrigger);
+    return () => document.removeEventListener('TRIGGER_TASK_FINISH_ALLOCATION', handleTrigger);
+  }, [headerSelections, formData, onApprove]);
+
+  useEffect(() => {
+    // 仅在 isOpen 从 false → true 时初始化数据，防止父组件 re-render 导致用户选择被重置
+    const justOpened = isOpen && !prevOpenRef.current;
+    prevOpenRef.current = isOpen;
+
+    if (justOpened) {
+      let r = initialData?.r || initialData?.assignee_id || '';
+      let a = (title === '申请新任务' || type === 'personal') ? (initialData?.a || initialData?.approver_id || '') : (initialData?.a || initialData?.approver_id || '');
+      let c = initialData?.c || initialData?.collaborators || '';
+      let i = initialData?.i || '';
+      let dt = initialData?.dt || '';
+
+      // 解析 roles_config 中的 RACI 信息以保留流转内容
+      if (initialData?.roles_config) {
+        try {
+          const rc = typeof initialData.roles_config === 'string' ? JSON.parse(initialData.roles_config) : initialData.roles_config;
+          if (Array.isArray(rc)) {
+            const getIdsFromRole = (roleName: string) => rc.find((role: any) => role.name === roleName)?.users?.map((u: any) => u.id).join(',') || '';
+            const rcR = getIdsFromRole('R');
+            const rcA = getIdsFromRole('A');
+            const rcC = getIdsFromRole('C');
+            const rcI = getIdsFromRole('I');
+            const rcDt = getIdsFromRole('交付对象');
+
+            if (rcR && !r) r = rcR;
+            if (rcA && !a) a = rcA;
+            if (rcC && !c) c = rcC;
+            if (rcI && !i) i = rcI;
+            if (rcDt && !dt) dt = rcDt;
+          }
+        } catch (e) {
+          console.warn("[SmartTaskModal] Failed to auto-parse roles_config:", e);
+        }
+      }
+
       setHeaderSelections({
-        r: initialData?.r || initialData?.assignee_id || '',
-        a: (title === '申请新任务' || type === 'personal') ? (initialData?.a || initialData?.approver_id || currentUser?.id || '') : (initialData?.a || initialData?.approver_id || ''),
-        c: initialData?.c || initialData?.collaborators || '',
-        i: initialData?.i || '',
-        dt: initialData?.dt || '',
+        r,
+        a,
+        c,
+        i,
+        dt,
         bonus: initialData?.bonus || '0',
         rewardType: initialData?.rewardType || 'money',
         taskType: initialData?.taskType || initialData?.department || '常规任务',
@@ -457,7 +582,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
       });
       setFormData({
         summary: initialData?.summary || '',
-        s: initialData?.s || '',
+        s: getInitialS(initialData),
         m: initialData?.m || '',
         a_smart: initialData?.a_smart || '',
         r_smart: initialData?.r_smart || '',
@@ -468,11 +593,35 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         actTime: initialData?.actTime || '',
         attachments: Array.isArray(initialData?.attachments) ? initialData.attachments : []
       });
-      setIsFocusMode(false);
       setShowTransfer(false);
       setIsEditingMode(false);
+
+      // 个人目标模式下，如果 A (负责人/审批人) 为空或等于自己，异步查找直属上级
+      if ((title === '申请新任务' || type === 'personal') && (!a || a === currentUser?.id)) {
+        const token = localStorage.getItem('token');
+        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.json())
+          .then(meData => {
+            const deptId = meData?.data?.department_id;
+            if (deptId) {
+              return fetch(`/api/org/departments/${deptId}`, { headers: { Authorization: `Bearer ${token}` } })
+                .then(r => r.json())
+                .then(deptData => {
+                  const leaderId = deptData?.data?.leader_user_id;
+                  if (leaderId && leaderId !== currentUser?.id) {
+                    setHeaderSelections(prev => ({ ...prev, a: leaderId }));
+                  }
+                });
+            }
+          })
+          .catch(() => {});
+      }
+
+      setActiveTab(initialTab || 'details');
     }
-  }, [isOpen, initialData]);
+  }, [isOpen]);
+
+
 
   const { isRecording, startRecording, stopRecording, error: voiceError } = useRTASR({
     onResult: (text, isFinal) => {
@@ -524,7 +673,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
       alert('该任务参与人数已满，无法领取。');
       return;
     }
-    onSubmit({ ...headerSelections, ...formData, summary: formData.summary || formData.s?.substring(0, 30) });
+    onSubmit({ ...formData, ...headerSelections, summary: formData.summary || formData.s?.substring(0, 30) });
   };
 
   return (
@@ -532,21 +681,23 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
       
       <div className={`bg-slate-50 shadow-2xl w-full flex flex-col relative z-10 overflow-hidden ring-1 ring-slate-900/5 transition-all duration-300 ${isMobile ? 'h-full rounded-none' : `rounded-2xl ${approverMode ? 'max-w-5xl' : 'max-w-4xl'} h-[90vh]`}`}>
-        {/* Header */}
-        <div className="bg-[#005ea4] text-white flex items-center justify-between shrink-0 shadow-md z-20 px-6 py-4">
-          <div className="flex items-center gap-3">
+        <div className="bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white flex flex-wrap items-center justify-between shrink-0 shadow-md z-20 px-6 py-4 gap-4">
+          <div className="flex items-center gap-6">
              <h2 className="font-black tracking-wide text-lg flex items-center gap-2">
                 {title || 'SMART 目标卡'}
                 {initialData?.id && <span className="text-xs font-mono bg-white/20 px-2 py-0.5 rounded">{codePrefix}-{String(initialData.id).padStart(6, '0')}</span>}
              </h2>
+             {!isSimplifiedMode && (
+               <div className="hidden sm:flex items-center gap-4 ml-2 pl-6 border-l border-white/20">
+                 <button onClick={() => setActiveTab('details')} className={`text-sm font-bold transition-all ${activeTab === 'details' ? 'text-white' : 'text-white/60 hover:text-white'}`}>任务详情</button>
+                 <button onClick={() => setActiveTab('star_space')} className={`text-sm font-bold transition-all ${activeTab === 'star_space' ? 'text-white' : 'text-white/60 hover:text-white'}`}>STAR广场</button>
+               </div>
+             )}
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/80 hover:text-white"><X size={20} /></button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-50 shrink-0 px-6 gap-6 pt-3 z-10">
-          <button onClick={() => setActiveTab('details')} className={`pb-2.5 text-sm font-black border-b-[3px] transition-all ${activeTab === 'details' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>任务详情</button>
-          <button onClick={() => setActiveTab('star_space')} className={`pb-2.5 text-sm font-black border-b-[3px] transition-all ${activeTab === 'star_space' ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-violet-600'}`}>团队复盘广场</button>
+           <div className="flex items-center gap-3">
+             {headerActions && <div className="flex items-center gap-2 mr-2">{headerActions}</div>}
+             <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/80 hover:text-white"><X size={20} /></button>
+           </div>
         </div>
 
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -554,73 +705,258 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
             <SharedSTARPanel taskId={Number(initialData?.id)} taskType={type} taskTitle={initialData?.title} initialData={initialData} currentUser={currentUser} />
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden relative bg-white">
-              {/* Focus Toggle */}
-              {!isMobile && (
-                <div className="absolute top-4 right-6 z-[60]">
-                  <button onClick={() => setIsFocusMode(!isFocusMode)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all shadow-lg ${isFocusMode ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:text-blue-600'}`}>
-                    <span className="material-symbols-outlined text-[18px]">{isFocusMode ? 'fullscreen_exit' : 'fullscreen'}</span>
-                    <span className="text-xs font-bold">{isFocusMode ? '退出专注' : '专注模式'}</span>
-                  </button>
-                </div>
-              )}
-
               <div className="flex-1 flex flex-col overflow-hidden">
                 <AnimatePresence>
-                  {!isFocusMode && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-[#005ea4] text-white">
-                       <div className="p-4 sm:px-6 flex flex-wrap items-center gap-3">
-                         <MultiSelectUserDropdown label="R 执行人" value={headerSelections.r} onChange={v => setHeaderSelections({...headerSelections, r: v})} users={users} placeholder="执行人" readonly={readonly} />
-                         <SearchableUserDropdown label="A 负责人" value={headerSelections.a} onChange={v => setHeaderSelections({...headerSelections, a: v})} users={users} placeholder="负责人" readonly={readonly || title === '申请新任务'} />
-                         <TaskTypeDropdown value={headerSelections.taskType} onChange={v => setHeaderSelections({...headerSelections, taskType: v})} readonly={readonly} />
-                       </div>
-                    </motion.div>
-                  )}
+                  {!isSimplifiedMode && (() => {
+                    const isClaimingPhase = initialData?.status === 'claiming';
+                    const validApplicants = (initialData?.role_claims || []).filter((c: any) => c.status === 'pending' || c.status === 'approved');
+                    const applicantIds = validApplicants.map((c: any) => String(c.user_id));
+                    
+                    const safeUsers = users || [];
+                    const filteredUsersRAndA = isClaimingPhase ? safeUsers.filter(u => applicantIds.includes(String(u.id))).map(u => {
+                      const claim = validApplicants.find((c: any) => String(c.user_id) === String(u.id));
+                      return { ...u, name: `${u.name} (意向${claim?.role_name || ''})` };
+                    }) : safeUsers;
+
+                    return (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="bg-white border-b border-slate-100 z-20 shrink-0">
+                        <div className="px-6 pt-4 pb-3 relative group">
+                          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                             {/* R */}
+                             <div className="flex items-center text-sm gap-1.5 shrink-0">
+                               <span className="text-slate-400 text-xs font-medium flex items-center">执行人 <span className="ml-1 px-1 py-0.5 bg-blue-50 text-blue-600 rounded text-[9px] font-black leading-none">R</span></span>
+                               <MultiSelectUserDropdown label="+ 添加" value={headerSelections.r} onChange={v => setHeaderSelections({...headerSelections, r: v})} users={filteredUsersRAndA} placeholder="添加" readonly={!isHeaderEditable}
+                                 receiptStatus={initialData?.status === 'pending_receipt' ? (() => { try { return JSON.parse(initialData.receipt_status || '{}'); } catch { return undefined; } })() : undefined} />
+                             </div>
+                             
+                             {/* A */}
+                             <div className="flex items-center text-sm gap-1.5 shrink-0">
+                               <span className="text-slate-400 text-xs font-medium flex items-center">负责人 <span className="ml-1 px-1 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px] font-black leading-none">A</span></span>
+                               <SearchableUserDropdown label="+ 添加" value={headerSelections.a} onChange={v => setHeaderSelections({...headerSelections, a: v})} users={filteredUsersRAndA} placeholder="添加" readonly={!isHeaderEditable || title === '申请新任务'}
+                                 receiptStatus={initialData?.status === 'pending_receipt' ? (() => { try { return JSON.parse(initialData.receipt_status || '{}'); } catch { return undefined; } })() : undefined} />
+                             </div>
+
+                             {/* Expanded items all flow inline with the rest */}
+                             <AnimatePresence>
+                               {propsExpanded && (
+                                 <>
+                                   <div className="flex items-center text-sm gap-1.5 shrink-0 animate-in fade-in zoom-in-95 duration-200">
+                                     <span className="text-slate-400 text-xs font-medium flex items-center">向谁咨询 <span className="ml-1 px-1 py-0.5 bg-purple-50 text-purple-600 rounded text-[9px] font-black leading-none">C</span></span>
+                                     <MultiSelectUserDropdown label="+ 添加" value={headerSelections.c} onChange={v => setHeaderSelections({...headerSelections, c: v})} users={safeUsers} placeholder="添加" readonly={!isHeaderEditable} />
+                                   </div>
+                                   <div className="flex items-center text-sm gap-1.5 shrink-0 animate-in fade-in zoom-in-95 duration-200 delay-75">
+                                     <span className="text-slate-400 text-xs font-medium flex items-center">需要知会 <span className="ml-1 px-1 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px] font-black leading-none">I</span></span>
+                                     <MultiSelectUserDropdown label="+ 添加" value={headerSelections.i} onChange={v => setHeaderSelections({...headerSelections, i: v})} users={safeUsers} placeholder="添加" readonly={!isHeaderEditable} />
+                                   </div>
+                                   <div className="flex items-center text-sm gap-1.5 shrink-0 animate-in fade-in zoom-in-95 duration-200 delay-100">
+                                     <span className="text-slate-400 text-xs font-medium">任务属性</span>
+                                     <TaskTypeDropdown value={headerSelections.taskType} onChange={v => setHeaderSelections({...headerSelections, taskType: v})} readonly={!isHeaderEditable} />
+                                   </div>
+                                   <div className="flex items-center text-sm gap-1 shrink-0 group/bonus animate-in fade-in zoom-in-95 duration-200 delay-150">
+                                     <span className="text-slate-400 text-xs font-medium mr-1">任务奖金</span>
+                                     <span className="text-slate-400 text-xs font-black">¥</span>
+                                     <input type="number" min="0" value={headerSelections.bonus} onChange={e => setHeaderSelections({...headerSelections, bonus: e.target.value})} disabled={!isHeaderEditable} className="w-16 outline-none text-slate-700 font-bold bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 transition-colors disabled:hover:border-transparent" placeholder="0" />
+                                   </div>
+                                   <div className="flex items-center text-sm gap-1 shrink-0 group/limit animate-in fade-in zoom-in-95 duration-200 delay-200">
+                                     <span className="text-slate-400 text-xs font-medium mr-1">人数上限</span>
+                                     <input type="number" min="1" max="20" value={headerSelections.maxParticipants} onChange={e => setHeaderSelections({...headerSelections, maxParticipants: e.target.value})} disabled={!isHeaderEditable} className="w-10 outline-none text-slate-700 font-bold text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 transition-colors disabled:hover:border-transparent mr-0.5" placeholder="1" />
+                                     <span className="text-xs text-slate-500 leading-none">人</span>
+                                   </div>
+                                 </>
+                               )}
+                             </AnimatePresence>
+                          </div>
+                          
+                          {/* Toggle Button centered below properties (Floating to save space) */}
+                          <div className="absolute left-1/2 -translate-x-1/2 -bottom-2.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <button onClick={() => setPropsExpanded(!propsExpanded)} className="text-[10px] bg-white border border-slate-200 hover:bg-blue-50 text-slate-400 hover:text-blue-600 px-3 py-0.5 rounded-full flex items-center gap-1 shadow-sm transition-colors">
+                               {propsExpanded ? '收起' : '展开'}
+                               <span className="material-symbols-outlined text-[14px]">{propsExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</span>
+                             </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })()}
                 </AnimatePresence>
 
-                <div className={`flex-1 overflow-y-auto bg-[#f8f9fb] transition-all duration-300 ${isFocusMode ? 'p-8 animate-in fade-in zoom-in-95' : 'p-5'}`}>
+                <div className="flex-1 overflow-y-auto bg-[#f8f9fb] transition-all duration-300 p-5">
                   <div className="max-w-4xl mx-auto space-y-4">
+                     {/* Applicant List Widget (Inline Dashboard) */}
+                     {!isSimplifiedMode && initialData?.status === 'claiming' && (() => {
+                       const pendingClaims = (initialData?.role_claims || []).filter((c: any) => c.status === 'pending');
+                       if (pendingClaims.length === 0) return null;
+                       return (
+                         <div className="flex items-start md:items-center flex-col md:flex-row gap-2 md:gap-4 p-3 bg-blue-50/50 border border-blue-100/50 rounded-xl relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                           <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b from-blue-400 to-indigo-500"></div>
+                           <div className="text-blue-700 font-black flex items-center shrink-0 ml-1">
+                             <span className="material-symbols-outlined text-[18px] mr-1.5 opacity-80">waving_hand</span>
+                             <span className="text-xs tracking-wider">当前报名海选池 ({pendingClaims.length}人) : </span>
+                           </div>
+                           <div className="flex flex-wrap gap-2">
+                             {pendingClaims.map((claim: any) => {
+                               const isA = claim.role_name === 'A';
+                               return (
+                                 <div key={claim.id} className="flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200/60 rounded-md shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                                   <span className={`w-4 h-4 rounded shadow-sm flex items-center justify-center text-[9px] font-black text-white ${isA ? 'bg-gradient-to-br from-amber-400 to-orange-400' : 'bg-gradient-to-br from-blue-400 to-indigo-400'}`}>
+                                     {(claim.user_name || '?')[0]}
+                                   </span>
+                                   <span className="text-[11px] font-bold text-slate-700">{claim.user_name}</span>
+                                   <span className={`text-[9px] font-black px-1 rounded flex items-center h-4 ${isA ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                     意向 {claim.role_name}
+                                   </span>
+                                 </div>
+                               );
+                             })}
+                           </div>
+                         </div>
+                       );
+                     })()}
+
                      {/* Summary */}
                      <div className="relative">
                         {readonly ? (
-                          <div className="w-full px-4 py-3 font-bold bg-white border border-gray-200 rounded-lg shadow-sm">{formData.summary}</div>
+                          <div className="w-full px-4 py-3 font-bold bg-white rounded-lg shadow-sm border-0">{formData.summary}</div>
                         ) : (
                           <>
-                            <input type="text" value={formData.summary + (isRecording ? tempVoice : '')} onChange={e => !isRecording && handleUpdate('summary', e.target.value)} placeholder="目标简述..." className="w-full pl-4 pr-32 py-3 font-bold bg-white border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-blue-500" />
+                            <input type="text" value={formData.summary + (isRecording ? tempVoice : '')} onChange={e => !isRecording && handleUpdate('summary', e.target.value)} placeholder="目标简述..." className="w-full pl-4 pr-32 py-3 font-bold bg-white rounded-lg outline-none focus:ring-2 focus:ring-blue-100 shadow-sm border-0 transition-all" />
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                               <button onClick={isRecording ? stopRecording : startRecording} className={`p-1.5 rounded-full ${isRecording ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-100 text-slate-500'}`}><span className="material-symbols-outlined text-[20px]">mic</span></button>
-                              <button onClick={handleAIAssist} disabled={aiActivating === 'full'} className="px-2 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded border border-indigo-200">AI 智能拆解</button>
+                              <button onClick={handleAIAssist} disabled={aiActivating === 'full'} className="px-2 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded shadow-sm">AI 智能拆解</button>
                             </div>
                           </>
                         )}
                      </div>
-                     {/* SMART Sections */}
-                     <div className="space-y-3">
-                        {sections.map(s => (
-                          <div key={s.id} className="bg-white border rounded-lg overflow-hidden shadow-sm">
-                             <div className="p-3 bg-gray-50 border-b flex items-center gap-2">
-                                <div className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${s.color} ${s.bg}`}>{s.letter}</div>
-                                <h4 className="font-bold text-gray-900 text-sm">{s.title}</h4>
-                             </div>
-                             <div className="p-3">
-                                <MDEditor value={formData[s.id as keyof typeof formData] as string} onChange={readonly ? undefined : v => handleUpdate(s.id as keyof typeof formData, v || '')} height={isFocusMode ? 240 : 120} preview={readonly ? "preview" : "edit"} hideToolbar={readonly} />
-                             </div>
-                          </div>
-                        ))}
-                     </div>
+                     {/* Unified SMART Content */}
+                        <div className="space-y-4">
+                           <div className="bg-white rounded-xl overflow-hidden shadow-sm flex flex-col border-0">
+                              <div className="bg-slate-50/50 px-4 py-3 flex items-center justify-between border-0">
+                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">详情与验收标准 (SMART)</label>
+                              </div>
+                              <div className="p-4 bg-white smart-task-editor" data-color-mode="light">
+                                <style>{`
+                                  .smart-task-editor .w-md-editor-text-pre .token.italic {
+                                    opacity: 0.4;
+                                    transition: opacity 0.2s;
+                                  }
+                                  .smart-task-editor .wmde-markdown blockquote {
+                                    opacity: 0.5;
+                                    background: transparent !important;
+                                    border-left: 3px solid #e2e8f0 !important;
+                                  }
+                                `}</style>
+                                <MDEditor 
+                                  value={formData.s} 
+                                  onChange={readonly ? undefined : (v, ev) => {
+                                    if (!v) {
+                                      handleUpdate('s', '');
+                                      return;
+                                    }
+                                    let lines = v.split('\n');
+                                    let linesNew = lines.map(line => {
+                                      if (line.includes('*说明 (')) {
+                                        const stripped = line.replace(/>?\s*[\s\S]{0,4}\s*\*说明 \([a-zA-Z-]+\):[^*]+\*?\s*/g, '').trim();
+                                        const isPristine = 
+                                          line.includes('请描述具体明确的产出是什么') ||
+                                          line.includes('请描述如何衡量完成度与验收标准') ||
+                                          line.includes('请描述实现该目标的具体行动和所需资源') ||
+                                          line.includes('请描述该任务与岗位及大目标的关联性和意义') ||
+                                          line.includes('请描述关键的时间节点与进度安排');
+
+                                        if (isPristine && stripped === '') {
+                                          return line;
+                                        }
+                                        return stripped;
+                                      }
+                                      if (/^>?\s*(🎯|📊|🚀|🔗|⏰)\s*$/.test(line.trim())) {
+                                        return '';
+                                      }
+                                      return line;
+                                    });
+                                    const newV = linesNew.join('\n');
+                                    
+                                    // Handle cursor restoration if we performed a magic strip
+                                    if (newV !== v && ev?.target) {
+                                      const diff = v.length - newV.length;
+                                      const cursor = ev.target.selectionStart;
+                                      handleUpdate('s', newV);
+                                      if (diff > 0 && typeof cursor === 'number') {
+                                        setTimeout(() => {
+                                          if (ev.target) {
+                                            const newCursor = Math.max(0, cursor - diff);
+                                            ev.target.setSelectionRange(newCursor, newCursor);
+                                          }
+                                        }, 0);
+                                      }
+                                    } else {
+                                      handleUpdate('s', newV);
+                                    }
+                                  }}
+                                  height={380} 
+                                  preview={readonly ? "preview" : "edit"} 
+                                  hideToolbar={readonly} 
+                                />
+                              </div>
+                           </div>
+                           <div className="bg-white border-0 rounded-xl overflow-hidden shadow-sm p-4">
+                              <label className="text-[11px] font-black text-blue-600 uppercase tracking-widest block mb-3 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-[18px]">attachment</span>
+                                附件资料 (可选)
+                              </label>
+                              <div className="space-y-3">
+                                <div className="flex flex-wrap gap-2">
+                                  {formData.attachments.map((file, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 bg-slate-50 border-0 shadow-sm px-3 py-1.5 rounded-lg">
+                                      <span className="material-symbols-outlined text-slate-400 text-[18px]">description</span>
+                                      <span className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{file.name}</span>
+                                      {!readonly && (
+                                        <button onClick={() => setFormData({...formData, attachments: formData.attachments.filter((_, i) => i !== idx)})} className="text-slate-400 hover:text-red-500 transition-colors">
+                                          <X size={14} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {!readonly && (
+                                    <label className="flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-lg cursor-pointer hover:bg-blue-100 transition-all border-0 shadow-sm">
+                                      <span className="material-symbols-outlined text-[18px]">add</span>
+                                      <input type="file" multiple className="hidden" onChange={async (e) => {
+                                        if (e.target.files) {
+                                          const files = Array.from(e.target.files);
+                                          const newAttachments = files.map(f => ({ name: f.name, size: (f.size / 1024).toFixed(1) + 'KB', url: URL.createObjectURL(f) }));
+                                          setFormData({...formData, attachments: [...formData.attachments, ...newAttachments]});
+                                        }
+                                      }} />
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                           </div>
+                        </div>
                      
-                     <AnimatePresence>
-                       {!isFocusMode && initialData?.id && (
-                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-6 border-t space-y-4">
-                             <WorkflowTrajectory businessType={resolvedFlowType as any} businessId={initialData.id} codePrefix={codePrefix} />
-                             <AuditTimeline businessType={resolvedFlowType === 'proposal' ? 'proposal' : 'perf_plan'} businessId={initialData.id} />
-                          </motion.div>
-                       )}
-                     </AnimatePresence>
+                     {customFooter && (
+                       <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800">
+                         {customFooter}
+                       </div>
+                     )}
+                     
+                     {/* Audit & Trajectory moved to Footer */}
                   </div>
                 </div>
 
-                {/* Footer */}
-                <div className="p-4 bg-white border-t flex justify-end gap-2 shrink-0">
+                {/* Footer - Single Row Integration */}
+                <div className="px-6 py-3 bg-white border-t shrink-0 flex items-center justify-between gap-6 shadow-[0_-4px_12px_rgba(0,0,0,0.03)] selection:bg-transparent min-h-[64px]">
+                  {initialData?.id ? (
+                    <div className="flex-1 flex items-center gap-4 min-w-0">
+                       <div className="flex-1 min-w-0 scale-90 origin-left">
+                          <WorkflowTrajectory businessType={resolvedFlowType as any} businessId={initialData.id} codePrefix={codePrefix} />
+                       </div>
+                       <div className="shrink-0 opacity-60 scale-90 origin-right">
+                          <AuditTimeline businessType={resolvedFlowType === 'proposal' ? 'proposal' : 'perf_plan'} businessId={initialData.id} />
+                       </div>
+                    </div>
+                  ) : <div className="flex-1" />}
+                  
+                  <div className="flex items-center gap-2 shrink-0">
                   {approverMode ? (
                     showTransfer ? (
                       <div className="flex w-full items-center justify-between">
@@ -636,24 +972,129 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                            <button onClick={() => onApprove?.('转办', null, 'transfer', transferUserId)} disabled={!transferUserId} className="px-4 py-2 bg-purple-600 text-white rounded-lg">确认转办</button>
                          </div>
                       </div>
+                    ) : initialData?.proposal_status === 'pending_publish' ? (
+                       <button onClick={() => onApprove?.('一键发布', null, 'publish')} className="px-8 py-2 bg-sky-600 shadow-md hover:opacity-90 transition-opacity text-white font-bold rounded-lg flex items-center justify-center gap-2 w-full sm:w-auto">
+                         <span className="material-symbols-outlined text-[18px]">campaign</span> 一键发榜
+                       </button>
                     ) : (
                       <>
                         <button onClick={() => setIsEditingMode(!isEditingMode)} className="px-4 py-2 border text-blue-600 rounded-lg">{isEditingMode ? '取消修改' : '修改内容'}</button>
-                        <div className="flex-1" />
-                        <button onClick={() => setShowTransfer(true)} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-lg">转办</button>
-                        <button onClick={() => onReject?.('驳回')} className="px-4 py-2 text-rose-500">驳回</button>
-                        <button onClick={() => onApprove?.('同意')} className="px-8 py-2 bg-emerald-600 text-white font-bold rounded-lg shadow-sm">同意</button>
+                        <div className="flex-1 flex items-center justify-end pr-3 gap-3">
+                          {/* 签收按钮已移至 header，此处仅保留其他操作 */}
+                          <button onClick={() => setShowTransfer(true)} className="px-4 py-2 bg-purple-50 text-purple-600 rounded-lg">转办</button>
+                          <button onClick={() => onReject?.('驳回')} className="px-4 py-2 text-rose-500">驳回</button>
+                          <button onClick={() => {
+                            const submitData = (readonly && !approverMode && !isEditingMode) ? null : { ...formData, ...headerSelections, summary: formData.summary || formData.s?.substring(0, 30) };
+                            onApprove?.('同意', submitData);
+                          }} className="px-8 py-2 bg-emerald-600 text-white font-bold rounded-lg shadow-sm">同意</button>
+                        </div>
                       </>
                     )
                   ) : (
                     readonly ? (
-                      <div className="flex flex-1 items-center justify-between">
+                      <div className="flex flex-1 items-center justify-between gap-3">
+                        {/* 左侧：草稿删除 */}
                         {onDelete && (initialData as any)?.status === 'draft' && (
-                          <button onClick={() => { if (window.confirm('确认删除草稿？')) onDelete(); }} className="px-4 py-2 text-rose-600 border border-rose-300 rounded-xl hover:bg-rose-50">删除草稿</button>
+                          <button
+                            onClick={() => { if (window.confirm('确认删除草稿？')) onDelete(); }}
+                            className="px-4 py-2 text-sm font-bold text-rose-600 border border-rose-200 rounded-xl hover:bg-rose-50 transition-all"
+                          >
+                            删除草稿
+                          </button>
                         )}
-                        <div className="flex-1 flex justify-end pr-3">
+
+                        {/* 右侧动作区 */}
+                        <div className="flex-1 flex items-center justify-end gap-3">
+
+                          {/* ── 派发签收流程动作 (pending_receipt) ── */}
+                          {initialData?.status === 'pending_receipt' && (() => {
+                            const receiptStatus: Record<string, string> = JSON.parse(initialData.receipt_status || '{}');
+                            const myStatus = receiptStatus[currentUser?.id || ''];
+                            const total = Object.keys(receiptStatus).length;
+                            const confirmed = Object.values(receiptStatus).filter(s => s === 'confirmed').length;
+                            const allConfirmed = total > 0 && confirmed === total;
+                            const isA = initialData.approver_id === currentUser?.id;
+
+                            const handleReceiptAction = async (action: 'confirm' | 'reject') => {
+                              const reason = action === 'reject' ? window.prompt('请输入拒签理由：') : '同意签收';
+                              if (action === 'reject' && reason === null) return;
+                              try {
+                                const res = await fetch(
+                                  `/api/perf/plans/${initialData.id}/${action === 'confirm' ? 'confirm-receipt' : 'reject-receipt'}`,
+                                  {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+                                    body: JSON.stringify({ reason })
+                                  }
+                                );
+                                const data = await res.json();
+                                if (data.code === 0) {
+                                  alert(action === 'confirm' ? '✅ 签收成功！' : '🔴 已拒签，任务将退回给主管。');
+                                  onClose();
+                                  setTimeout(() => window.location.reload(), 300);
+                                } else alert(data.message);
+                              } catch { alert('服务异常'); }
+                            };
+
+                            const handleStartTask = async () => {
+                              try {
+                                const res = await fetch(`/api/perf/plans/${initialData.id}/start-task`, {
+                                  method: 'POST',
+                                  headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                                });
+                                const data = await res.json();
+                                if (data.code === 0) {
+                                  alert('🚀 任务已启动，进入执行阶段！');
+                                  onClose();
+                                  setTimeout(() => window.location.reload(), 300);
+                                } else alert(data.message);
+                              } catch { alert('服务异常'); }
+                            };
+
+                            return (
+                              <div className="flex items-center gap-3">
+                                {/* 签收进度指示 */}
+                                <div className="flex flex-col items-end">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-0.5">查收进度</span>
+                                  <span className="text-xs font-bold text-slate-700">{confirmed} / {total} {allConfirmed && <span className="text-emerald-500">✓ 全员已签</span>}</span>
+                                </div>
+
+                                {/* 员工：待签收操作 */}
+                                {myStatus === 'pending' && (
+                                  <>
+                                    {/* 次要危险按钮 */}
+                                    <button
+                                      onClick={() => handleReceiptAction('reject')}
+                                      className="px-4 py-2 text-sm font-bold text-rose-500 border border-rose-200 rounded-xl hover:bg-rose-50 transition-all"
+                                    >
+                                      拒签
+                                    </button>
+                                    {/* 主要确认按钮 */}
+                                    <button
+                                      onClick={() => handleReceiptAction('confirm')}
+                                      className="px-6 py-2 text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-400 rounded-xl shadow-md hover:shadow-emerald-200/60 transition-all"
+                                    >
+                                      确认查收
+                                    </button>
+                                  </>
+                                )}
+
+                                {/* 主管(A)：全员签收后显示发车按钮 */}
+                                {allConfirmed && isA && (
+                                  <button
+                                    onClick={handleStartTask}
+                                    className="px-8 py-2 text-sm font-black text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-lg hover:shadow-blue-200/60 transition-all"
+                                  >
+                                    🚀 发起任务
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* ── 已完成赏金任务：线下清算 ── */}
                           {initialData?.status === 'completed' && type === 'pool_propose' && (currentUser?.role === 'admin' || currentUser?.role === 'gm' || currentUser?.role === 'hrbp') && (
-                            <button 
+                            <button
                               onClick={async () => {
                                 const amountStr = window.prompt(`【线下奖金签批结案】\n请填入针对该赏金任务最终发放决议的奖金/积分数额：\n（录入后该订单即核销结案，直接计入台账）`);
                                 if (!amountStr) return;
@@ -662,7 +1103,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                 try {
                                   const res = await fetch(`/api/pool/rewards/offline-distribution/${initialData.id}`, {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
                                     body: JSON.stringify({ amount })
                                   });
                                   const data = await res.json();
@@ -679,22 +1120,35 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                             </button>
                           )}
                         </div>
-                        <button onClick={onClose} className="px-8 py-2 bg-[#005ea4] text-white font-bold rounded-xl">关闭</button>
+                        {/* 默认关闭按钮 */}
+                        <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors font-bold rounded-xl">关闭</button>
                       </div>
+
                     ) : (
                       <>
-                        <button onClick={onClose} className="px-4 py-2 text-gray-500">取消</button>
-                        <button onClick={() => onDraft?.({...headerSelections, ...formData})} className="px-4 py-2 border border-blue-200 text-blue-600 rounded-xl">存为草稿</button>
+                        {onDelete ? (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); onDelete(); }} 
+                            className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-xl transition-all hover:scale-110 active:scale-95 flex items-center justify-center mr-2 group"
+                            title="删除/撤回"
+                          >
+                            <span className="material-symbols-outlined text-xl">delete</span>
+                          </button>
+                        ) : (
+                          <button onClick={onClose} className="px-4 py-2 text-gray-500">取消</button>
+                        )}
+                        <button onClick={() => onDraft?.({...formData, ...headerSelections})} className="px-4 py-2 border border-violet-200 text-violet-600 rounded-xl">存为草稿</button>
                         <button 
                           onClick={handleSubmit} 
                           disabled={submitting || (isTaskFull && title.includes('领取'))} 
-                          className={`px-8 py-2 text-white font-bold rounded-xl shadow-sm ${isTaskFull && title.includes('领取') ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#005ea4] hover:bg-[#0077ce]'}`}
+                          className={`px-8 py-2 text-white font-bold rounded-xl shadow-sm transition-opacity ${isTaskFull && title.includes('领取') ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-violet-600 to-fuchsia-500 hover:opacity-90'}`}
                         >
                           {isTaskFull && title.includes('领取') ? '人数已满' : title === '申请新任务' ? '发起申请' : title.includes('领取') ? '领取角色' : '提交修改'}
                         </button>
                       </>
                     )
                   )}
+                  </div>
                 </div>
               </div>
             </div>

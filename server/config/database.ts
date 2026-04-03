@@ -351,6 +351,18 @@ export function initDatabase(): void {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- ============ 复盘跟帖讨论 ============
+    CREATE TABLE IF NOT EXISTS task_discussions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_type TEXT NOT NULL,
+      target_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT,
+      attachments TEXT DEFAULT '[]',
+      parent_id INTEGER DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- ============ 题库与在线评测 ============
     CREATE TABLE IF NOT EXISTS test_banks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

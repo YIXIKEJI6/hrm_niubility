@@ -19,6 +19,7 @@ interface PerfPlan {
   collaborators?: string;
   creator_id: string;
   assignee_id: string;
+  approver_id?: string;
 }
 
 const statusMap: Record<string, { label: string, color: string, bg: string }> = {
@@ -121,7 +122,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
     try {
       const token = localStorage.getItem('token');
       // 1. 创建草稿
-      const approverId = myManagerId || currentUser?.id || '';
+      const approverId = data.a || myManagerId || currentUser?.id || '';
       const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
@@ -135,8 +136,8 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           target_value: targetValue,
           deadline: data.t,
           collaborators: [data.c, data.i].filter(Boolean).join(','),
-          assignee_id: data.r,
-          approver_id: data.a,
+          assignee_id: data.r || currentUser?.id,
+          approver_id: approverId,
           creator_id: currentUser?.id
         })
       });
@@ -473,7 +474,8 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           setSubmitting(true);
           try {
             const token = localStorage.getItem('token');
-            const approverId = myManagerId || currentUser?.id || '';
+            const finalApproverId = data.a || myManagerId || currentUser?.id || '';
+            const finalAssigneeId = data.r || currentUser?.id || '';
             const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
             const res = await fetch('/api/perf/plans', {
               method: 'POST',
@@ -487,8 +489,8 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                 target_value: targetValue,
                 deadline: data.t,
                 collaborators: [data.c, data.i].filter(Boolean).join(','),
-                assignee_id: data.r,
-                approver_id: data.a,
+                assignee_id: finalAssigneeId,
+                approver_id: finalApproverId,
                 creator_id: currentUser?.id,
               })
             });
@@ -508,11 +510,12 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           r_smart: '',
           t: '',
           r: currentUser?.id || '',
-          a: currentUser?.role === 'employee' ? 'zhangwei' : 'lifang',
+          a: currentUser?.id || '',
           c: '',
           i: ''
         }}
       />
+
 
       {/* 驳回/草稿 二次编辑弹窗 */}
       <SmartTaskModal
@@ -554,6 +557,8 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                 target_value: `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`,
                 deadline: data.t,
                 collaborators: data.c,
+                assignee_id: data.r || editingPlan?.assignee_id,
+                approver_id: data.a || editingPlan?.approver_id,
                 attachments: data.attachments || [],
               })
             });
@@ -641,8 +646,10 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             approver_id: (selectedPlan as any).approver_id,
             creator_id: selectedPlan.creator_id,
             assignee_id: selectedPlan.assignee_id,
+            receipt_status: (selectedPlan as any).receipt_status || '{}',
             attachments: parsedAttachments
           };
+
         })()}
         customFooter={(() => {
           if (!selectedPlan) return null;
@@ -806,10 +813,6 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                     提交验收总结
                   </button>
                 )}
-                <button onClick={() => setSelectedPlan(null)}
-                  className="px-6 py-2.5 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-200 transition-colors">
-                  关闭
-                </button>
               </div>
             </div>
           );

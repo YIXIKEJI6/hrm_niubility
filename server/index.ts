@@ -45,6 +45,7 @@ import perfStarRoutes from './routes/perf-star';
 import poolRewardsRoutes from './routes/pool-rewards';
 import salaryRoutes from './routes/salary';
 import workflowTrajectoryRoutes from './routes/workflow-trajectory';
+import taskDiscussionsRoutes from './routes/task-discussions';
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
@@ -87,6 +88,7 @@ app.use('/api/pool/star', poolStarRoutes);
 app.use('/api/pool/rewards', poolRewardsRoutes);
 app.use('/api/salary', salaryRoutes);
 app.use('/api/workflow/trajectory', workflowTrajectoryRoutes);
+app.use('/api/task-discussions', taskDiscussionsRoutes);
 
 // 健康检查
 app.get('/api/health', (_req, res) => {
