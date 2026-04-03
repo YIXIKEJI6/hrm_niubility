@@ -7,12 +7,11 @@ import { logAudit } from '../services/audit-logger';
 
 const router = Router();
 
-// ── 自动迁移: 添加 deleted_at 列 ──
-try {
+// ── 自动迁移: 添加 deleted_at 和 category 列 ──
   const db0 = getDb();
-  db0.exec("ALTER TABLE pool_tasks ADD COLUMN deleted_at DATETIME");
-  db0.exec("ALTER TABLE pool_tasks ADD COLUMN category TEXT");
-} catch(e) { /* columns already exist */ }
+  try { db0.exec("ALTER TABLE pool_tasks ADD COLUMN deleted_at DATETIME"); } catch(e) {}
+  try { db0.exec("ALTER TABLE pool_tasks ADD COLUMN category TEXT"); } catch(e) {}
+
 
 // 绩效池任务列表 (新状态: proposing/claiming/in_progress/rewarded)
 // proposing 状态仅 HR/Admin 可见
