@@ -101,9 +101,7 @@ export default function PersonalGoalsPanel() {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           title: data.summary || '新目标',
-          description: encodeSmartDescription(data.a_smart, data.r_smart, {
-            plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-          }),
+          description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
           category: data.taskType || '常规任务',
           target_value: targetValue,
           deadline: data.t,
@@ -183,9 +181,7 @@ export default function PersonalGoalsPanel() {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({
             title: data.summary || editingPlan.title,
-            description: encodeSmartDescription(data.a_smart, data.r_smart, {
-              plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-            }),
+            description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
             category: data.taskType || editingPlan.category,
             target_value: targetValue,
             deadline: data.t,
@@ -203,9 +199,7 @@ export default function PersonalGoalsPanel() {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({
             title: data.summary || editingPlan.title,
-            description: encodeSmartDescription(data.a_smart, data.r_smart, {
-              plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-            }),
+            description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
             category: data.taskType || editingPlan.category,
             target_value: targetValue,
             deadline: data.t,
@@ -442,9 +436,7 @@ export default function PersonalGoalsPanel() {
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿目标',
-                description: encodeSmartDescription(data.a_smart, data.r_smart, {
-                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-                }),
+                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
                 category: data.taskType || '常规任务',
                 target_value: targetValue,
                 deadline: data.t,
@@ -491,9 +483,7 @@ export default function PersonalGoalsPanel() {
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || editingPlan?.title,
-                description: encodeSmartDescription(data.a_smart, data.r_smart, {
-                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-                }),
+                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
                 category: data.taskType || editingPlan?.category,
                 target_value: `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`,
                 deadline: data.t,

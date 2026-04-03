@@ -191,8 +191,9 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         data.actTime ? `Act: ${data.actTime}` : ''
       ].filter(Boolean).join(' | ');
       
-      const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}${pdcaStr ? `\n【PDCA】\n${pdcaStr}` : ''}`;
-      
+      const descText = data.s || '';
+      const hasPDCA = descText.includes('【PDCA】');
+      const smartDescription = descText + (pdcaStr && !hasPDCA ? `\n\n【PDCA】\n${pdcaStr}` : '');
       const res = await fetch('/api/pool/tasks/propose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1038,7 +1039,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             flow_type: 'proposal',
             creator_name: selectedTask.creator_name,
             summary: selectedTask.title,
-            s: selectedTask.title,
+            s: selectedTask.description || selectedTask.title,
             m: '',
             a_smart: decoded.resource,
             r_smart: decoded.relevance,
@@ -1352,7 +1353,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         onDraft={async (data) => {
           try {
             const token = localStorage.getItem('token');
-            const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}`;
+            const smartDescription = data.s || '';
             const res = await fetch('/api/pool/tasks/propose', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1592,7 +1593,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             // For drafts: submit as proposal
             try {
               const token = localStorage.getItem('token');
-              const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}`;
+              const smartDescription = data.s || '';
               await fetch(`/api/pool/tasks/${viewingProposal.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1638,11 +1639,11 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               status: p.proposal_status,
               flow_type: 'proposal',
               summary: p.title,
-              s: extract('目标 S'),
-              m: extract('指标 M'),
-              a_smart: extract('方案 A'),
-              r_smart: extract('相关 R'),
-              t: extract('时限 T'),
+              s: p.description || p.title,
+              m: '',
+              a_smart: '',
+              r_smart: '',
+              t: p.deadline || '',
               taskType: p.department || '',
               bonus: String(p.bonus || 0),
               rewardType: p.reward_type || 'money',
@@ -1658,7 +1659,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
           onDraft={async (data) => {
             try {
               const token = localStorage.getItem('token');
-              const smartDescription = `【目标 S】${data.s}\n【指标 M】${data.m}\n【方案 A】${data.a_smart}\n【相关 R】${data.r_smart}\n【时限 T】${data.t}`;
+              const smartDescription = data.s || '';
               const res = await fetch(`/api/pool/tasks/${viewingProposal.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
