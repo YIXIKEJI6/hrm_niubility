@@ -66,7 +66,7 @@ export async function transitionPlan(
   planId: number,
   targetStatus: string,
   operatorId: string,
-  extra?: { comment?: string; score?: number; bonus?: number; attachments?: any }
+  extra?: { comment?: string; score?: number; bonus?: number; attachments?: any, silent?: boolean }
 ): Promise<{ success: boolean; message: string }> {
   const db = getDb();
   const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
@@ -148,7 +148,7 @@ export async function transitionPlan(
   });
 
   // 企微消息推送
-  if (notifyAction && notifyUsers.length > 0) {
+  if (!extra?.silent && notifyAction && notifyUsers.length > 0) {
     try {
       await notifyPerfStatusChange(planId, notifyAction, notifyUsers, plan.title, extra?.comment);
     } catch (e) {
@@ -157,7 +157,7 @@ export async function transitionPlan(
   }
 
   // ── 流程异常检测：节点缺失时通知HR ──
-  if (['pending_review', 'pending_dept_review', 'in_progress', 'pending_assessment'].includes(targetStatus)) {
+  if (!extra?.silent && ['pending_review', 'pending_dept_review', 'in_progress', 'pending_assessment'].includes(targetStatus)) {
     const { createNotification } = await import('../routes/notifications');
     const updatedPlan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
     const issues: string[] = [];

@@ -52,6 +52,10 @@ export default function PersonalGoalsPanel() {
   const [editForm, setEditForm] = useState<SmartData>({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', collaborators: '' });
   const [resubmitting, setResubmitting] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<PerfPlan | null>(null);
+  const [actionPrompt, setActionPrompt] = useState<{
+    type: string, title: string, desc: React.ReactNode, placeholder?: string, requireInput?: boolean,
+    confirmText: string, confirmClass: string, icon: string, iconClass: string, onConfirm: (val: string) => void
+  } | null>(null);
 
 
   useEffect(() => {
@@ -546,6 +550,134 @@ export default function PersonalGoalsPanel() {
         type="personal"
         users={users}
         readonly={true}
+        headerActions={selectedPlan?.status === 'in_progress' ? (() => {
+          const sp = selectedPlan;
+          const isAssigned = sp.creator_id !== sp.assignee_id;
+
+          const handleComplete100 = () => {
+            setActionPrompt({
+              type: 'submit_review',
+              title: '100% 满分完结',
+              desc: '确认发起 100% 完结？\n任务完成后将直接进入验收评级阶段，全员进入 STAR 汇报环节。',
+              confirmText: '确认完结',
+              confirmClass: 'bg-emerald-500 hover:bg-emerald-600 text-white',
+              icon: 'task_alt',
+              iconClass: 'bg-emerald-100 text-emerald-500',
+              onConfirm: async () => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ action: 'assess' })
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) {
+                    setSelectedPlan(null);
+                    fetchPlans();
+                  } else { alert(json.message || '操作失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
+
+          const handleEarlyComplete = () => {
+            setActionPrompt({
+              type: 'submit_review',
+              title: '提前完结任务',
+              desc: '确认提前完结任务吗？\n提前完结无需审批，将直接进入 STAR 验收获评阶段。',
+              requireInput: true,
+              placeholder: '请简述提前完结原因...',
+              confirmText: '提前完结',
+              confirmClass: 'bg-amber-500 hover:bg-amber-600 text-white',
+              icon: 'stop_circle',
+              iconClass: 'bg-amber-100 text-amber-500',
+              onConfirm: async (val) => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ action: 'assess', reason: val }) 
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) {
+                    setSelectedPlan(null);
+                    fetchPlans();
+                  } else { alert(json.message || '操作失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
+
+          const handleReturnHeader = () => {
+            setActionPrompt({
+              type: 'return',
+              title: '退回任务',
+              desc: '退回后任务将可被执行人重新调整编辑。',
+              requireInput: true,
+              placeholder: '请输入退回原因（可选）...',
+              confirmText: '确认退回',
+              confirmClass: 'bg-orange-600 hover:bg-orange-700 text-white',
+              icon: 'reply',
+              iconClass: 'bg-orange-100 text-orange-600',
+              onConfirm: async (val) => {
+                try {
+                  const token = localStorage.getItem('token');
+                  await fetch(`/api/perf/plans/${sp.id}/return`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ reason: val })
+                  });
+                  setSelectedPlan(null);
+                  fetchPlans();
+                } catch { }
+              }
+            });
+          };
+
+          return (
+            <div className="flex items-center gap-2">
+              {/* 写STAR */}
+              <button
+                onClick={() => {
+                  // 触发切换到 STAR广场 标签
+                  document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'));
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0"
+              >
+                <span className="material-symbols-outlined text-[14px]">star</span>
+                写STAR
+              </button>
+              {/* 100%完结 */}
+              <button
+                onClick={handleComplete100}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0"
+              >
+                <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                100%完结
+              </button>
+              {/* 提前完结 */}
+              <button
+                onClick={handleEarlyComplete}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0"
+              >
+                <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                提前完结
+              </button>
+              {/* 退回（仅上级下发任务） */}
+              {isAssigned && !(sp as any).is_pool && (
+                <button
+                  onClick={handleReturnHeader}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 shadow-sm transition-colors shrink-0"
+                >
+                  <span className="material-symbols-outlined text-[14px]">reply</span>
+                  退回
+                </button>
+              )}
+            </div>
+          );
+        })() : undefined}
         initialData={(() => {
           if (!selectedPlan) return {};
           const decoded = decodeSmartDescription(selectedPlan.description || '');
@@ -561,7 +693,7 @@ export default function PersonalGoalsPanel() {
           return {
             id: selectedPlan.id,
             status: selectedPlan.status,
-            flow_type: 'perf_plan',
+            flow_type: (selectedPlan as any).is_pool ? 'proposal' : 'perf_plan',
             summary: selectedPlan.title,
             s: selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[0]?.replace('S: ', '') : '',
             m: selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[1]?.replace('M: ', '') : '',
@@ -569,9 +701,19 @@ export default function PersonalGoalsPanel() {
             a_smart: decoded.resource,
             r_smart: decoded.relevance,
             taskType: selectedPlan.category,
-            c: selectedPlan.collaborators || '',
-            a: selectedPlan.approver_id || currentUser?.id,
-            r: selectedPlan.assignee_id || currentUser?.id,
+            c: (selectedPlan as any).is_pool
+              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(',')
+              : (selectedPlan.collaborators || ''),
+            a: (selectedPlan as any).is_pool
+              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'A' && c.status === 'approved').map((c: any) => c.user_id).join(',')
+              : (selectedPlan.approver_id || currentUser?.id),
+            r: (selectedPlan as any).is_pool
+              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'R' && c.status === 'approved').map((c: any) => c.user_id).join(',')
+              : (selectedPlan.assignee_id || currentUser?.id),
+            i: (selectedPlan as any).is_pool
+              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(',')
+              : '',
+            role_claims: (selectedPlan as any).role_claims,
             planTime: decoded.planTime,
             doTime: decoded.doTime,
             checkTime: decoded.checkTime,
@@ -593,33 +735,60 @@ export default function PersonalGoalsPanel() {
           }[sp.status] || '#94a3b8';
 
           // 退回操作
-          const handleReturn = async () => {
-            const reason = prompt('请输入退回原因（可选）：');
-            if (reason === null) return;
-            try {
-              const token = localStorage.getItem('token');
-              await fetch(`/api/perf/plans/${sp.id}/return`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ reason })
-              });
-              setSelectedPlan(null);
-              fetchPlans();
-            } catch (err) { console.error(err); }
+          const handleReturn = () => {
+             setActionPrompt({
+               type: 'return',
+               title: '退回任务',
+               desc: '退回后任务将退给执行人重新调整编辑。',
+               requireInput: true,
+               placeholder: '请输入退回原因（可选）...',
+               confirmText: '确认退回',
+               confirmClass: 'bg-orange-500 hover:bg-orange-600 text-white',
+               icon: 'reply',
+               iconClass: 'bg-orange-100 text-orange-500',
+               onConfirm: async (val) => {
+                 try {
+                   const token = localStorage.getItem('token');
+                   const res = await fetch(`/api/perf/plans/${sp.id}/return`, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                     body: JSON.stringify({ reason: val || '经线下沟通，退回调整' })
+                   });
+                   const data = await res.json();
+                   if (data.code === 0) {
+                     setSelectedPlan(null);
+                     fetchPlans();
+                   } else { alert(data.message || '退回失败'); }
+                 } catch { alert('操作失败'); }
+               }
+             });
           };
 
           // 删除草稿
-          const handleDeleteDraft = async () => {
-            if (!confirm('确认删除此草稿？')) return;
-            try {
-              const token = localStorage.getItem('token');
-              await fetch(`/api/perf/plans/${sp.id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              setSelectedPlan(null);
-              fetchPlans();
-            } catch (err) { console.error(err); }
+          const handleDeleteDraft = () => {
+             setActionPrompt({
+               type: 'delete',
+               title: '删除草稿',
+               desc: '确定删除这个草稿吗？此操作不可恢复。',
+               confirmText: '确认删除',
+               confirmClass: 'bg-red-500 hover:bg-red-600 text-white',
+               icon: 'warning',
+               iconClass: 'bg-red-100 text-red-500',
+               onConfirm: async () => {
+                 try {
+                   const token = localStorage.getItem('token');
+                   const res = await fetch(`/api/perf/plans/${sp.id}`, {
+                     method: 'DELETE',
+                     headers: { 'Authorization': `Bearer ${token}` }
+                   });
+                   const data = await res.json();
+                   if (data.code === 0) {
+                     setSelectedPlan(null);
+                     fetchPlans();
+                   } else { alert(data.message || '删除失败'); }
+                 } catch { alert('操作失败'); }
+               }
+             });
           };
 
           // 提交审批
@@ -699,14 +868,7 @@ export default function PersonalGoalsPanel() {
                       修改后重新提交
                     </button>
                   )}
-                  {/* 进行中 + 上级下发的 + 非只读 → 退回按钮 */}
-                  {sp.status === 'in_progress' && isAssigned && !(sp as any).is_pool && (
-                    <button onClick={handleReturn}
-                      className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-50 text-orange-600 text-sm font-bold rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors">
-                      <span className="material-symbols-outlined text-[16px]">reply</span>
-                      退回
-                    </button>
-                  )}
+                  {/* 进行中的退回已移至 header actions 区域 */}
                 </div>
               </div>
             </div>
@@ -714,6 +876,49 @@ export default function PersonalGoalsPanel() {
         })()}
       />
 
+    {/* Render action prompt overlay */}
+    {actionPrompt && (
+      <div className="fixed inset-0 bg-black/50 z-[10000] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setActionPrompt(null)}>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200/50" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-3 p-5 border-b border-slate-100 dark:border-slate-800">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner ${actionPrompt.iconClass}`}>
+              <span className="material-symbols-outlined text-[20px]">{actionPrompt.icon}</span>
+            </div>
+            <div>
+               <h3 className="font-black text-[16px] text-slate-800 dark:text-slate-100 tracking-tight">{actionPrompt.title}</h3>
+            </div>
+          </div>
+          <div className="p-5 bg-slate-50/50 dark:bg-slate-900/50">
+            <p className="text-[13px] text-slate-600 dark:text-slate-400 font-medium whitespace-pre-wrap leading-relaxed">{actionPrompt.desc}</p>
+            
+            {actionPrompt.requireInput && (
+               <div className="mt-4">
+                 <textarea 
+                   autoFocus
+                   placeholder={actionPrompt.placeholder || ''}
+                   className="w-full text-sm px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm transition-all h-24"
+                   id="action-prompt-input"
+                 />
+               </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950/50">
+            <button onClick={() => setActionPrompt(null)} className="flex-1 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-200/70 transition-colors">取消</button>
+            <button onClick={() => {
+               let val = '';
+               if (actionPrompt.requireInput) {
+                 val = (document.getElementById('action-prompt-input') as HTMLTextAreaElement).value;
+                 if (!val.trim() && actionPrompt.title.includes('完结')) {
+                    alert('请填写真实原因！'); return;
+                 }
+               }
+               actionPrompt.onConfirm(val);
+               setActionPrompt(null);
+            }} className={`flex-1 py-2 rounded-xl font-bold text-sm shadow-sm transition-all transform active:scale-95 ${actionPrompt.confirmClass}`}>{actionPrompt.confirmText}</button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }

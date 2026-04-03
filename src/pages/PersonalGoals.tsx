@@ -56,6 +56,10 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
   const [editingPlan, setEditingPlan] = useState<PerfPlan | null>(null);
   const [editForm, setEditForm] = useState<SmartData>({ title: '', target_value: '', resource: '', relevance: '', deadline: '', category: '业务', collaborators: '' });
   const [resubmitting, setResubmitting] = useState(false);
+  const [actionPrompt, setActionPrompt] = useState<{
+    type: string, title: string, desc: React.ReactNode, placeholder?: string, requireInput?: boolean,
+    confirmText: string, confirmClass: string, icon: string, iconClass: string, onConfirm: (val: string) => void
+  } | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PerfPlan | null>(null);
 
 
@@ -662,40 +666,62 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           }[sp.status] || '#94a3b8';
 
           // 退回操作
-          const handleReturn = async () => {
-            const reason = prompt('请输入退回原因（可选）：');
-            if (reason === null) return; // 用户取消
-            try {
-              const token = localStorage.getItem('token');
-              const res = await fetch(`/api/perf/plans/${sp.id}/return`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ reason: reason || '经线下沟通，退回调整' })
-              });
-              const data = await res.json();
-              if (data.code === 0) {
-                setSelectedPlan(null);
-                fetchPlans();
-              } else { alert(data.message || '退回失败'); }
-            } catch { alert('操作失败'); }
+          const handleReturn = () => {
+             setActionPrompt({
+               type: 'return',
+               title: '退回任务',
+               desc: '退回后任务将退给执行人重新调整编辑。',
+               requireInput: true,
+               placeholder: '请输入退回原因（可选）...',
+               confirmText: '确认退回',
+               confirmClass: 'bg-orange-500 hover:bg-orange-600 text-white',
+               icon: 'reply',
+               iconClass: 'bg-orange-100 text-orange-500',
+               onConfirm: async (val) => {
+                 try {
+                   const token = localStorage.getItem('token');
+                   const res = await fetch(`/api/perf/plans/${sp.id}/return`, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                     body: JSON.stringify({ reason: val || '经线下沟通，退回调整' })
+                   });
+                   const data = await res.json();
+                   if (data.code === 0) {
+                     setSelectedPlan(null);
+                     fetchPlans();
+                   } else { alert(data.message || '退回失败'); }
+                 } catch { alert('操作失败'); }
+               }
+             });
           };
 
           // 删除草稿
-          const handleDeleteDraft = async () => {
-            if (!confirm('确定删除这个草稿吗？此操作不可恢复。')) return;
-            try {
-              const token = localStorage.getItem('token');
-              const res = await fetch(`/api/perf/plans/${sp.id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              const data = await res.json();
-              if (data.code === 0) {
-                setSelectedPlan(null);
-                fetchPlans();
-              } else { alert(data.message || '删除失败'); }
-            } catch { alert('操作失败'); }
+          const handleDeleteDraft = () => {
+             setActionPrompt({
+               type: 'delete',
+               title: '删除草稿',
+               desc: '确定删除这个草稿吗？此操作不可恢复。',
+               confirmText: '确认删除',
+               confirmClass: 'bg-red-500 hover:bg-red-600 text-white',
+               icon: 'warning',
+               iconClass: 'bg-red-100 text-red-500',
+               onConfirm: async () => {
+                 try {
+                   const token = localStorage.getItem('token');
+                   const res = await fetch(`/api/perf/plans/${sp.id}`, {
+                     method: 'DELETE',
+                     headers: { 'Authorization': `Bearer ${token}` }
+                   });
+                   const data = await res.json();
+                   if (data.code === 0) {
+                     setSelectedPlan(null);
+                     fetchPlans();
+                   } else { alert(data.message || '删除失败'); }
+                 } catch { alert('操作失败'); }
+               }
+             });
           };
+
 
           // 提交草稿
           const handleSubmitDraft = async () => {
@@ -792,21 +818,31 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                   currentUser?.role === 'admin' || 
                   currentUser?.role === 'gm'
                 ) && (
-                  <button onClick={async () => {
-                    if (!confirm('确定发起验收总结吗？发起后将流转至上级进行最终评级结案。')) return;
-                    try {
-                      const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                        body: JSON.stringify({ action: 'assess' })
-                      });
-                      const data = await res.json();
-                      if (data.code === 0) {
-                        alert('已发起验收流程，等待评级考评。');
-                        setSelectedPlan(null);
-                        fetchPlans();
-                      } else { alert(data.message || '操作失败'); }
-                    } catch { alert('网络异常'); }
+                  <button onClick={() => {
+                     setActionPrompt({
+                       type: 'submit_review',
+                       title: '提交验收总结',
+                       desc: '确定发起验收总结吗？发起后将流转至上级进行最终评级结案。',
+                       confirmText: '确认提交',
+                       confirmClass: 'bg-purple-600 hover:bg-purple-700 text-white',
+                       icon: 'how_to_reg',
+                       iconClass: 'bg-purple-100 text-purple-600',
+                       onConfirm: async () => {
+                         try {
+                           const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
+                             method: 'POST',
+                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                             body: JSON.stringify({ action: 'assess' })
+                           });
+                           const data = await res.json();
+                           if (data.code === 0) {
+                             alert('已发起验收流程，等待评级考评。');
+                             setSelectedPlan(null);
+                             fetchPlans();
+                           } else { alert(data.message || '操作失败'); }
+                         } catch { alert('网络异常'); }
+                       }
+                     });
                   }}
                     className="flex items-center gap-1.5 px-5 py-2.5 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors shadow-sm">
                     <span className="material-symbols-outlined text-[16px]">how_to_reg</span>
@@ -819,6 +855,49 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
         })()}
       />
 
+    {/* Render action prompt overlay */}
+    {actionPrompt && (
+      <div className="fixed inset-0 bg-black/50 z-[10000] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setActionPrompt(null)}>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200/50" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-3 p-5 border-b border-slate-100 dark:border-slate-800">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner ${actionPrompt.iconClass}`}>
+              <span className="material-symbols-outlined text-[20px]">{actionPrompt.icon}</span>
+            </div>
+            <div>
+               <h3 className="font-black text-[16px] text-slate-800 dark:text-slate-100 tracking-tight">{actionPrompt.title}</h3>
+            </div>
+          </div>
+          <div className="p-5 bg-slate-50/50 dark:bg-slate-900/50">
+            <p className="text-[13px] text-slate-600 dark:text-slate-400 font-medium whitespace-pre-wrap leading-relaxed">{actionPrompt.desc}</p>
+            
+            {actionPrompt.requireInput && (
+               <div className="mt-4">
+                 <textarea 
+                   autoFocus
+                   placeholder={actionPrompt.placeholder || ''}
+                   className="w-full text-sm px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm transition-all h-24"
+                   id="action-prompt-input"
+                 />
+               </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950/50">
+            <button onClick={() => setActionPrompt(null)} className="flex-1 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-200/70 transition-colors">取消</button>
+            <button onClick={() => {
+               let val = '';
+               if (actionPrompt.requireInput) {
+                 val = (document.getElementById('action-prompt-input') as HTMLTextAreaElement).value;
+                 if (!val.trim() && actionPrompt.title.includes('完结')) {
+                    alert('请填写真实原因！'); return;
+                 }
+               }
+               actionPrompt.onConfirm(val);
+               setActionPrompt(null);
+            }} className={`flex-1 py-2 rounded-xl font-bold text-sm shadow-sm transition-all transform active:scale-95 ${actionPrompt.confirmClass}`}>{actionPrompt.confirmText}</button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }

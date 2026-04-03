@@ -493,6 +493,13 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     }
   }, [isOpen]);
 
+  // 监听外部触发的"切换到STAR广场"事件（来自 headerActions 的写STAR按钮）
+  useEffect(() => {
+    const handler = () => setActiveTab('star_space');
+    document.addEventListener('SWITCH_TO_STAR_TAB', handler);
+    return () => document.removeEventListener('SWITCH_TO_STAR_TAB', handler);
+  }, []);
+
   const resolvedFlowType = initialData?.flow_type || (type.startsWith('pool') ? 'proposal' : 'perf_plan');
   const codePrefix = resolvedFlowType === 'proposal' ? 'PL' : 'PF';
 
@@ -596,26 +603,6 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
       setShowTransfer(false);
       setIsEditingMode(false);
 
-      // 个人目标模式下，如果 A (负责人/审批人) 为空或等于自己，异步查找直属上级
-      if ((title === '申请新任务' || type === 'personal') && (!a || a === currentUser?.id)) {
-        const token = localStorage.getItem('token');
-        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-          .then(r => r.json())
-          .then(meData => {
-            const deptId = meData?.data?.department_id;
-            if (deptId) {
-              return fetch(`/api/org/departments/${deptId}`, { headers: { Authorization: `Bearer ${token}` } })
-                .then(r => r.json())
-                .then(deptData => {
-                  const leaderId = deptData?.data?.leader_user_id;
-                  if (leaderId && leaderId !== currentUser?.id) {
-                    setHeaderSelections(prev => ({ ...prev, a: leaderId }));
-                  }
-                });
-            }
-          })
-          .catch(() => {});
-      }
 
       setActiveTab(initialTab || 'details');
     }

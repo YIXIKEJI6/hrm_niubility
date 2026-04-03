@@ -100,12 +100,25 @@ router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
     `).all(userId) as any[];
 
     if (claims.length > 0) {
-      const virtualPlans = claims.map(c => {
+      // 预查询所有涉及的 pool_task 的 role_claims（批量避免 N+1）
+      const poolTaskIds = [...new Set(claims.map((c: any) => c.pool_task_id))];
+      const allRoleClaims = poolTaskIds.length > 0
+        ? db.prepare(`
+            SELECT rc.*, u.name as user_name
+            FROM pool_role_claims rc
+            LEFT JOIN users u ON u.id = rc.user_id
+            WHERE rc.pool_task_id IN (${poolTaskIds.map(() => '?').join(',')}) AND rc.status = 'approved'
+          `).all(...poolTaskIds) as any[]
+        : [];
+
+      const virtualPlans = claims.map((c: any) => {
         let mappedStatus = 'in_progress';
         if (['open', 'published', 'pending', 'in_progress'].includes(c.pt_status)) mappedStatus = 'in_progress';
         else if (['reviewing', 'completed', 'pending_assessment', 'pending_dept_review'].includes(c.pt_status)) mappedStatus = 'completed';
         else if (['settled', 'closed', 'approved'].includes(c.pt_status)) mappedStatus = 'approved';
         else mappedStatus = c.pt_status;
+
+        const taskRoleClaims = allRoleClaims.filter((rc: any) => rc.pool_task_id === c.pool_task_id);
 
         return {
           id: `pool_${c.id}`,
@@ -114,15 +127,17 @@ router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
           category: '专项任务',
           status: mappedStatus,
           progress: c.pt_progress || 0,
-        target_value: `赏金榜角色：${c.role_name}`,
-        deadline: c.pt_deadline || '',
-        quarter: '',
-        creator_id: c.creator_id,
-        assignee_id: c.user_id,
-        assignee_name: '',
-        bonus: c.bonus || 0,
-        created_at: c.created_at || c.pt_created_at,
-          is_pool: true
+          target_value: `赏金榜角色：${c.role_name}`,
+          deadline: c.pt_deadline || '',
+          quarter: '',
+          creator_id: c.creator_id,
+          assignee_id: c.user_id,
+          assignee_name: '',
+          bonus: c.bonus || 0,
+          created_at: c.created_at || c.pt_created_at,
+          is_pool: true,
+          pool_task_id: c.pool_task_id,
+          role_claims: taskRoleClaims
         };
       });
 
@@ -337,10 +352,10 @@ router.post('/plans/:id/submit', authMiddleware, async (req: AuthRequest, res) =
   if (nextStatus === 'pending_review') {
       await transitionPlan(plan.id, 'pending_review', req.userId!);
   } else if (nextStatus === 'pending_dept_review') {
-      await transitionPlan(plan.id, 'pending_review', req.userId!);
+      await transitionPlan(plan.id, 'pending_review', req.userId!, { silent: true } as any);
       await transitionPlan(plan.id, 'pending_dept_review', req.userId!);
   } else {
-      await transitionPlan(plan.id, 'pending_review', req.userId!);
+      await transitionPlan(plan.id, 'pending_review', req.userId!, { silent: true } as any);
       await transitionPlan(plan.id, 'approved', req.userId!);
   }
 

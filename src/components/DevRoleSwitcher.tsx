@@ -2,8 +2,19 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useIsMobile';
 
-const APP_VERSION = 'v2.5.0';
+const APP_VERSION = 'v2.5.1';
 const CHANGELOG = [
+  {
+    version: 'v2.5.1',
+    date: '2026-04-03',
+    tag: '修复',
+    tagColor: 'bg-green-500',
+    items: [
+      '🩹 修复 PersonalGoals 看板报错及状态映射不一致的问题',
+      '🤖 后端 API perf.ts 预查询所有 role_claims 解决 N+1 性能问题',
+      '🚀 SmartTaskModal 弹窗数据清理'
+    ]
+  },
   {
     version: 'v2.5.0',
     date: '2026-04-03',
