@@ -23,11 +23,16 @@ interface PerfPlan {
 const statusMap: Record<string, { label: string, color: string, bg: string }> = {
   draft: { label: '草稿', color: 'text-slate-500', bg: 'bg-slate-100' },
   pending_review: { label: '待审批', color: 'text-amber-600', bg: 'bg-amber-100' },
+  pending_dept_review: { label: '部门审批中', color: 'text-orange-600', bg: 'bg-orange-100' },
+  pending_receipt: { label: '待签收', color: 'text-cyan-700', bg: 'bg-cyan-100' },
   in_progress: { label: '进行中', color: 'text-primary', bg: 'bg-blue-100' },
   completed: { label: '待考核', color: 'text-purple-600', bg: 'bg-purple-100' },
   approved: { label: '已归档', color: 'text-emerald-600', bg: 'bg-emerald-100' },
   rejected: { label: '被驳回', color: 'text-error', bg: 'bg-red-100' },
+  returned: { label: '已退回', color: 'text-orange-600', bg: 'bg-orange-100' },
+  pending_assessment: { label: '待评级', color: 'text-violet-600', bg: 'bg-violet-100' },
 };
+
 
 
 export default function PersonalGoalsPanel() {
@@ -626,44 +631,103 @@ export default function PersonalGoalsPanel() {
             });
           };
 
+          const isPendingReceipt = sp.status === 'pending_receipt';
+          const isInProgress = sp.status === 'in_progress';
+
+          const handleConfirmReceipt = () => {
+            setActionPrompt({
+              type: 'confirm_receipt',
+              title: '确认查收任务',
+              desc: '上级已向您下发此任务，确认查收后任务将正式启动进入"进行中"状态。',
+              confirmText: '确认查收',
+              confirmClass: 'bg-cyan-500 hover:bg-cyan-600 text-white',
+              icon: 'inbox',
+              iconClass: 'bg-cyan-100 text-cyan-600',
+              onConfirm: async () => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${sp.id}/confirm-receipt`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) { setSelectedPlan(null); fetchPlans(); }
+                  else { alert(json.message || '签收失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
+
+          const handleRejectReceipt = () => {
+            setActionPrompt({
+              type: 'reject_receipt',
+              title: '拒签任务',
+              desc: '拒签后，任务将退回给下发人，请说明拒签原因。',
+              requireInput: true,
+              placeholder: '请输入拒签原因...',
+              confirmText: '确认拒签',
+              confirmClass: 'bg-red-500 hover:bg-red-600 text-white',
+              icon: 'cancel',
+              iconClass: 'bg-red-100 text-red-500',
+              onConfirm: async (val) => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${sp.id}/reject-receipt`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ reason: val || '不接受此任务' })
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) { setSelectedPlan(null); fetchPlans(); }
+                  else { alert(json.message || '操作失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
+
           return (
             <div className="flex items-center gap-2">
-              {/* 写STAR */}
-              <button
-                onClick={() => {
-                  // 触发切换到 STAR广场 标签
-                  document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'));
-                }}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0"
-              >
-                <span className="material-symbols-outlined text-[14px]">star</span>
-                写STAR
-              </button>
-              {/* 100%完结 */}
-              <button
-                onClick={handleComplete100}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0"
-              >
-                <span className="material-symbols-outlined text-[14px]">task_alt</span>
-                100%完结
-              </button>
-              {/* 提前完结 */}
-              <button
-                onClick={handleEarlyComplete}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0"
-              >
-                <span className="material-symbols-outlined text-[14px]">stop_circle</span>
-                提前完结
-              </button>
-              {/* 退回（仅上级下发任务） */}
-              {isAssigned && !(sp as any).is_pool && (
-                <button
-                  onClick={handleReturnHeader}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 shadow-sm transition-colors shrink-0"
-                >
-                  <span className="material-symbols-outlined text-[14px]">reply</span>
-                  退回
-                </button>
+              {/* 待签收：签收 / 拒签 */}
+              {isPendingReceipt && (
+                <>
+                  <button onClick={handleRejectReceipt}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 shadow-sm transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">cancel</span>
+                    拒签
+                  </button>
+                  <button onClick={handleConfirmReceipt}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-cyan-500 hover:bg-cyan-600 shadow-sm transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">inbox</span>
+                    确认查收
+                  </button>
+                </>
+              )}
+              {/* 进行中：完结 / 退回 操作 */}
+              {isInProgress && (
+                <>
+                  <button onClick={() => document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'))}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">star</span>
+                    写STAR
+                  </button>
+                  <button onClick={handleComplete100}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                    100%完结
+                  </button>
+                  <button onClick={handleEarlyComplete}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                    提前完结
+                  </button>
+                  {isAssigned && !(sp as any).is_pool && (
+                    <button onClick={handleReturnHeader}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 shadow-sm transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">reply</span>
+                      退回
+                    </button>
+                  )}
+                </>
               )}
             </div>
           );

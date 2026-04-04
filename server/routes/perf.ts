@@ -85,7 +85,11 @@ router.get('/plans', authMiddleware, (req: AuthRequest, res) => {
   if (status) { sql += ' AND p.status = ?'; params.push(status); }
   if (quarter) { sql += ' AND p.quarter = ?'; params.push(quarter); }
   if (category) { sql += ' AND p.category = ?'; params.push(category); }
-  if (userId) { sql += " AND (p.creator_id = ? OR (',' || p.assignee_id || ',' LIKE '%,' || ? || ',%'))"; params.push(userId, userId); }
+  if (userId) {
+    // Match creator OR assignee (supports comma-separated multi-assignee)
+    sql += " AND (p.creator_id = ? OR p.assignee_id = ? OR (',' || p.assignee_id || ',') LIKE ('%,' || ? || ',%') OR p.approver_id = ?)";
+    params.push(userId, userId, userId, userId);
+  }
 
   sql += ' ORDER BY p.created_at DESC';
   const plans = db.prepare(sql).all(...params) as any[];
