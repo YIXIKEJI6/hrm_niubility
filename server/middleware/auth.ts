@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'hrm_niubility_jwt_secret_2024';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is not configured');
 
 // ── 最高系统管理员 (Super Admin) ────────────────────────────────
 // 该用户始终拥有 admin 权限，无需数据库角色配置

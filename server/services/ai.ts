@@ -1,4 +1,5 @@
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'sk-592b0ba541a94bc39f4f77480b3fe4f1';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+if (!DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY environment variable is not configured');
 
 export async function analyzePerformance(data: {
   companyMetrics?: any;

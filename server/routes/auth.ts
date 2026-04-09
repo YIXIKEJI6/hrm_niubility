@@ -52,11 +52,12 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // Mock 登录: code 为 'mock_code' 时直接用 userId 登录（测试/开发专用）
-    // 生产安全性：真实企微 code 永远不会等于 'mock_code'，无需额外环境变量判断
     let userId: string;
-    if (code === 'mock_code') {
+    if (code === 'mock_code' && process.env.NODE_ENV !== 'production') {
+      // Mock 登录仅限非生产环境（测试/开发专用）
       userId = req.body.userId || 'zhangwei';
+    } else if (code === 'mock_code') {
+      return res.status(403).json({ code: 403, message: '生产环境不允许 mock 登录' });
     } else {
       const result = await getUserIdByCode(code);
       userId = result.userId;

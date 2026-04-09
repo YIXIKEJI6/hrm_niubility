@@ -318,7 +318,8 @@ router.post('/bank/generate-ai', authMiddleware, async (req: any, res) => {
 }
 `;
 
-  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'sk-592b0ba541a94bc39f4f77480b3fe4f1';
+  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+  if (!DEEPSEEK_API_KEY) return res.status(500).json({ code: 500, message: 'DEEPSEEK_API_KEY is not configured' });
   try {
     const apiRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',

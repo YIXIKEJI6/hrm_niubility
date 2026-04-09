@@ -59,21 +59,29 @@ router.post('/files', authMiddleware, upload.array('files', 10), (req: AuthReque
   return res.json({ code: 0, data: result });
 });
 
-// Serve uploaded files (download / preview)
-router.get('/:filename', (req, res) => {
-  const filePath = path.join(uploadsDir, req.params.filename);
+// Serve uploaded files (download / preview) — requires authentication
+router.get('/:filename', authMiddleware, (req: AuthRequest, res) => {
+  // Sanitize filename: strip path separators to prevent traversal
+  const sanitized = path.basename(req.params.filename);
+  const filePath = path.join(uploadsDir, sanitized);
+
+  // Double-check resolved path stays within uploadsDir
+  if (!filePath.startsWith(uploadsDir)) {
+    return res.status(403).json({ code: 403, message: '非法文件路径' });
+  }
+
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ code: 404, message: '文件不存在' });
   }
 
   // For images, serve inline for preview; others as download
-  const ext = path.extname(req.params.filename).toLowerCase();
+  const ext = path.extname(sanitized).toLowerCase();
   const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
   if (imageExtensions.includes(ext)) {
     res.setHeader('Content-Disposition', 'inline');
   } else {
     // Extract original filename from stored name (after timestamp-random-)
-    const parts = req.params.filename.split('-');
+    const parts = sanitized.split('-');
     const originalName = parts.slice(2).join('-');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(originalName)}`);
   }

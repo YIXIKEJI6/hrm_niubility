@@ -77,7 +77,10 @@ export async function transitionPlan(
   }
 
   const now = new Date().toISOString();
-  const updates: string[] = [`status = '${targetStatus}'`, `updated_at = '${now}'`];
+  // Use parameterized queries to prevent SQL injection
+  const setClauses: string[] = ['status = ?', 'updated_at = ?'];
+  const params: any[] = [];
+  let effectiveStatus = targetStatus;
   const notifyUsers: string[] = [];
   let notifyAction = '';
 
@@ -87,37 +90,36 @@ export async function transitionPlan(
       if (plan.approver_id) notifyUsers.push(plan.approver_id);
       break;
     case 'pending_dept_review':
-      notifyAction = 'submitted'; // Using submitted for dept head too
+      notifyAction = 'submitted';
       if (plan.dept_head_id) notifyUsers.push(plan.dept_head_id);
       break;
     case 'approved':
       notifyAction = 'approved';
       notifyUsers.push(plan.creator_id);
       if (plan.assignee_id) notifyUsers.push(plan.assignee_id);
-      // 审批通过后自动流转到 in_progress，覆盖初始 status
-      updates[0] = `status = 'in_progress'`;
+      effectiveStatus = 'in_progress';
       break;
     case 'rejected':
-      if (extra?.comment) updates.push(`reject_reason = '${extra.comment}'`);
+      if (extra?.comment) { setClauses.push('reject_reason = ?'); params.push(extra.comment); }
       notifyAction = 'rejected';
       notifyUsers.push(plan.creator_id);
       break;
     case 'returned':
-      if (extra?.comment) updates.push(`reject_reason = '${extra.comment.replace(/'/g, "''")}'`);
+      if (extra?.comment) { setClauses.push('reject_reason = ?'); params.push(extra.comment); }
       notifyAction = 'returned';
       notifyUsers.push(plan.creator_id);
       break;
     case 'assessed':
-      if (extra?.score != null) updates.push(`score = ${extra.score}`);
-      updates.push(`assessed_at = '${now}'`);
+      if (extra?.score != null) { setClauses.push('score = ?'); params.push(extra.score); }
+      setClauses.push('assessed_at = ?'); params.push(now);
       notifyAction = 'assessed';
       if (plan.assignee_id) notifyUsers.push(plan.assignee_id);
       break;
     case 'pending_reward':
-      if (extra?.bonus != null) updates.push(`bonus = ${extra.bonus}`);
+      if (extra?.bonus != null) { setClauses.push('bonus = ?'); params.push(extra.bonus); }
       break;
     case 'completed':
-      updates.push(`rewarded_at = '${now}'`);
+      setClauses.push('rewarded_at = ?'); params.push(now);
       notifyAction = 'rewarded';
       if (plan.assignee_id) notifyUsers.push(plan.assignee_id);
       break;
@@ -125,10 +127,12 @@ export async function transitionPlan(
 
   if (extra?.attachments !== undefined) {
     const attStr = typeof extra.attachments === 'string' ? extra.attachments : JSON.stringify(extra.attachments);
-    updates.push(`attachments = '${attStr.replace(/'/g, "''")}'`);
+    setClauses.push('attachments = ?'); params.push(attStr);
   }
 
-  db.prepare(`UPDATE perf_plans SET ${updates.join(', ')} WHERE id = ?`).run(planId);
+  // Build parameterized UPDATE: status and updated_at are the first two placeholders
+  const allParams = [effectiveStatus, now, ...params, planId];
+  db.prepare(`UPDATE perf_plans SET ${setClauses.join(', ')} WHERE id = ?`).run(...allParams);
 
   // 记录状态变更日志
   db.prepare(

@@ -1,7 +1,12 @@
 import express from 'express';
 import { getDb } from '../config/database';
+import { authMiddleware, requireRole } from '../middleware/auth';
 
 const router = express.Router();
+
+// All payroll export routes require authentication and admin/hr role
+router.use(authMiddleware);
+router.use(requireRole('admin', 'hr'));
 
 // 1. 获取所有可选系统字段
 router.get('/fields', (req, res) => {

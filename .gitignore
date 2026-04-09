@@ -3,13 +3,21 @@ build/
 dist/
 server-dist/
 coverage/
-data/*.db
 .DS_Store
 *.log
 *.zip
 .env*
 !.env.example
 deploy.config
+deploy-test.config
 
+# Database files (all locations)
 data/
+*.db
+*.sqlite
+server/*.db
+server/*.sqlite
+
+# Temporary scripts and archives
+src.tar.gz
 .mcp.json
