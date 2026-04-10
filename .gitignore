@@ -12,7 +12,7 @@ deploy.config
 deploy-test.config
 
 # Database files (all locations)
-data/
+/data/
 *.db
 *.sqlite
 server/*.db
