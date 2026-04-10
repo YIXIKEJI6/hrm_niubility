@@ -26,13 +26,13 @@ function getAccountable(db: any, taskId: number, userId: string) {
   ).get(taskId, userId);
 }
 
-// ── 辅助：获取 R/A 成员（带 STAR 状态）
+// ── 辅助：获取全部 RACI 成员（带 STAR 状态）
 function getRaMembersWithStar(db: any, taskId: number) {
   const members = db.prepare(`
     SELECT prc.user_id, prc.role_name, u.name
     FROM pool_role_claims prc
     LEFT JOIN users u ON prc.user_id = u.id
-    WHERE prc.pool_task_id = ? AND prc.role_name IN ('R', 'A')
+    WHERE prc.pool_task_id = ? AND prc.role_name IN ('R', 'A', 'C', 'I')
   `).all(taskId) as any[];
 
   return members.map((m: any) => {
@@ -63,7 +63,7 @@ router.post('/initiate/:taskId', authMiddleware, (req: AuthRequest, res) => {
 
   // STAR 状态：仅做软提示，不阻断草稿创建（提交时才强校验）
   const members = getRaMembersWithStar(db, taskId);
-  const unsubmitted = members.filter((m: any) => !m.star_submitted);
+  const unsubmitted = members.filter((m: any) => ['R', 'A'].includes(m.role_name) && !m.star_submitted);
 
   // 幂等：如已有草稿，直接返回
   const existing = db.prepare(
@@ -201,7 +201,7 @@ router.post('/:id/submit', authMiddleware, async (req: AuthRequest, res) => {
 
   // 提交前最终校验 STAR
   const members = getRaMembersWithStar(db, plan.pool_task_id);
-  const unsubmitted = members.filter((m: any) => !m.star_submitted);
+  const unsubmitted = members.filter((m: any) => ['R', 'A'].includes(m.role_name) && !m.star_submitted);
   if (unsubmitted.length > 0) {
     return res.status(400).json({
       code: 400,

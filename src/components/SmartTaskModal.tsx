@@ -617,6 +617,13 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     }
   }, [isOpen]);
 
+  // 响应外部 initialTab 变化（如写STAR按钮在 modal 已打开时切换 tab）
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
 
 
   const { isRecording, startRecording, stopRecording, error: voiceError } = useRTASR({

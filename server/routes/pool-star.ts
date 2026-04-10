@@ -82,6 +82,12 @@ router.post('/:taskId', authMiddleware, (req: AuthRequest, res) => {
   if (submit) {
     db.prepare(`UPDATE pool_role_claims SET status = 'star_submitted' WHERE pool_task_id = ? AND user_id = ?`).run(taskId, userId);
 
+    // 同步发布到 STAR 广场（task_discussions），让所有参与人可见
+    const starMd = `## ⭐ STAR 绩效报告\n\n**S — 情境 (Situation)**\n${situation || '(未填写)'}\n\n**T — 任务 (Task)**\n${task_desc || '(未填写)'}\n\n**A — 行动 (Action)**\n${action || '(未填写)'}\n\n**R — 结果 (Result)**\n${result || '(未填写)'}`;
+    try {
+      db.prepare(`INSERT INTO task_discussions (target_type, target_id, user_id, content, attachments) VALUES ('proposal', ?, ?, ?, '[]')`).run(taskId, userId, starMd);
+    } catch {}
+
     // 检查是否所有 R/A 都提交了，通知 A
     const members = getRaMembers(db, taskId);
     const unsubmitted = members.filter((m: any) => {
@@ -107,7 +113,7 @@ router.post('/:taskId', authMiddleware, (req: AuthRequest, res) => {
   return res.json({ code: 0, message: submit ? 'STAR 报告已提交' : '草稿已保存' });
 });
 
-// GET /api/pool/star/:taskId/mine — 获取我的 STAR
+// GET /api/pool/star/:taskId/mine — 获取我的 STAR + 角色
 router.get('/:taskId/mine', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
   const taskId = parseInt(req.params.taskId);
@@ -117,7 +123,11 @@ router.get('/:taskId/mine', authMiddleware, (req: AuthRequest, res) => {
     `SELECT * FROM pool_star_reports WHERE pool_task_id = ? AND user_id = ?`
   ).get(taskId, userId);
 
-  return res.json({ code: 0, data: report || null });
+  const claim = db.prepare(
+    `SELECT role_name FROM pool_role_claims WHERE pool_task_id = ? AND user_id = ?`
+  ).get(taskId, userId) as any;
+
+  return res.json({ code: 0, data: { report: report || null, role: claim?.role_name || null } });
 });
 
 // GET /api/pool/star/:taskId — 获取任务所有人 STAR（A角色/HR/Admin）

@@ -1,4 +1,4 @@
-# 一键部署到 GitHub
+# 备份到 GitHub
 
 将当前代码提交并推送到 GitHub 远程仓库（origin/main）。
 
@@ -21,6 +21,8 @@
 - `deploy-test.config`
 - `*.db` / `*.sqlite`
 - `data/` 目录
+- `test-results/` 目录
+- `ARCHITECTURE_ANALYSIS.md`
 
 使用 `git add` 逐个添加安全文件，而非 `git add -A`。
 
@@ -36,8 +38,13 @@
 1. `git commit -m "<message>"`
 2. `git push origin main`
 
-### 5. 报告结果
+### 5. 汇报结果
 
 - commit hash
 - 推送是否成功
 - GitHub 仓库地址：https://github.com/caoguiqiang2009-dev/hrm-niubility
+
+## 注意事项
+
+- **不构建**、**不部署到任何服务器**
+- 代码原样推送（含 DevRoleSwitcher、Mock 登录等开发功能）

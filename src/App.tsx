@@ -63,6 +63,7 @@ const TestBankManager = lazy(() => import('./pages/TestBankManager'));
 const MonthlyEvaluationPage = lazy(() => import('./pages/MonthlyEvaluationPage'));
 const SchedulePage = lazy(() => import('./pages/SchedulePage'));
 
+import DevRoleSwitcher from './components/DevRoleSwitcher';
 import Watermark from './components/Watermark';
 import FloatingAiChat from './components/FloatingAiChat';
 import GlobalToast from './components/GlobalToast';
@@ -204,6 +205,7 @@ export default function App() {
       <Watermark text={currentUser.name} />
       <FloatingAiChat />
       <GlobalToast />
+      {showDevTools && <DevRoleSwitcher />}
     </>
   );
 }

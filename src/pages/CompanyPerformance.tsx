@@ -424,7 +424,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
   const handleApproveRole = async (claimId: number, role: string) => {
     if (role === 'A') {
-      const hasA = (selectedTask?.role_claims || []).some((c: any) => c.status === 'approved' && c.role_name === 'A');
+      const hasA = (selectedTask?.role_claims || []).some((c: any) => (c.status === 'approved' || c.status === 'star_submitted') && c.role_name === 'A');
       if (hasA) {
         alert('该任务的 [A 负责人] 只能分配 1 人，请先撤销当前 A 角色后再分配！');
         return;
@@ -834,7 +834,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       <div className="flex items-center text-[10px] text-on-surface-variant mb-1.5 w-full">
                         <span className="mr-2 shrink-0">{task.current_participants}/{task.max_participants} 人参与</span>
                         {(() => {
-                           const participants = task.role_claims?.filter(rc => rc.status === 'approved').map(rc => rc.user_name) || task.participant_names || [];
+                           const participants = task.role_claims?.filter(rc => (rc.status === 'approved' || rc.status === 'star_submitted')).map(rc => rc.user_name) || task.participant_names || [];
                            if (participants.length === 0) return null;
                            return (
                              <div className="flex -space-x-1.5 opacity-90 shrink-0">
@@ -1081,25 +1081,25 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             roles_config: selectedTask.roles_config,
             // 从已审核通过的 role_claims 中提取 RACI 人员 ID，供弹窗头部属性栏展示；若无则从 roles_config 兜底
             r: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'R' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'R' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
               if (fromClaims) return fromClaims;
               const rc = selectedTask.roles_config || [];
               return (rc.find?.((r: any) => r.name === 'R')?.users || []).map((u: any) => u.id).join(',');
             })(),
             a: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'A' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'A' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
               if (fromClaims) return fromClaims;
               const rc = selectedTask.roles_config || [];
               return (rc.find?.((r: any) => r.name === 'A')?.users || []).map((u: any) => u.id).join(',');
             })(),
             c: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'C' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
               if (fromClaims) return fromClaims;
               const rc = selectedTask.roles_config || [];
               return (rc.find?.((r: any) => r.name === 'C')?.users || []).map((u: any) => u.id).join(',');
             })(),
             i: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'I' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
               if (fromClaims) return fromClaims;
               const rc = selectedTask.roles_config || [];
               return (rc.find?.((r: any) => r.name === 'I')?.users || []).map((u: any) => u.id).join(',');
@@ -1137,7 +1137,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             ) : null}
 
             {['in_progress', 'completed', 'terminated'].includes(selectedTask?.status || '') && (() => {
-              const myClaim = (selectedTask?.role_claims || []).find((c: any) => c.user_id === currentUser?.id && c.status === 'approved');
+              const myClaim = (selectedTask?.role_claims || []).find((c: any) => c.user_id === currentUser?.id && (c.status === 'approved' || c.status === 'star_submitted'));
               const myRole = myClaim?.role_name;
               if (!myClaim) return null;
               const isA = myRole === 'A';

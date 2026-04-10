@@ -96,10 +96,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
       
+      const isDev = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isTestServer = window.location.port === '4001';
+
+      if (!token && (isDev || isTestServer)) {
+        // ★ 测试/开发环境：直接自动 Mock 登录，完全跳过企微认证
+        try {
+          const mockRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: 'mock_code', userId: 'CaoGuiQiang' })
+          });
+          const mockData = await mockRes.json();
+          if (mockData.code === 0 && mockData.data?.token) {
+            localStorage.setItem('token', mockData.data.token);
+            setCurrentUser(mockData.data.user);
+            await fetchPerms();
+          }
+        } catch {}
+        setIsAuthenticating(false);
+        return;
+      }
+
+      // ── 以下仅在正式生产环境执行 ──
       // Check for OAuth callback code (both WeCom in-app and QR scan)
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
-      
+
       if (!token || !currentUser) {
         if (code) {
           // Got auth code from either WeCom OAuth or QR scan callback

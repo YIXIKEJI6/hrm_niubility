@@ -126,7 +126,7 @@ router.get('/:type/:id', authMiddleware, (req: AuthRequest, res) => {
       const plan = db.prepare(`
         SELECT p.*, t.title as task_title, u.name as initiator_name
         FROM pool_reward_plans p
-        JOIN pool_tasks t ON p.task_id = t.id
+        JOIN pool_tasks t ON p.pool_task_id = t.id
         JOIN users u ON t.created_by = u.id
         WHERE p.id = ?
       `).get(id) as any;

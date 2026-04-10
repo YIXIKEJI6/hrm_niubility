@@ -201,12 +201,12 @@ export default function RewardDistributionModal({
                 {distributions.map(d => (
                   <div key={d.user_id} className={`rounded-xl border p-4 ${d.star_submitted ? 'border-slate-200/60' : 'border-amber-200 bg-amber-50/40'}`}>
                     <div className="flex items-center gap-2 mb-3">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${d.role_name === 'A' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${d.role_name === 'A' ? 'bg-blue-100 text-blue-700' : d.role_name === 'R' ? 'bg-red-100 text-red-600' : d.role_name === 'C' ? 'bg-amber-100 text-amber-700' : d.role_name === 'I' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
                         {d.role_name}
                       </div>
                       <div>
                         <span className="font-bold text-slate-800 dark:text-white text-sm">{d.name}</span>
-                        <span className="text-[10px] text-slate-400 ml-1">{d.role_name === 'A' ? '负责人' : '执行人'}</span>
+                        <span className="text-[10px] text-slate-400 ml-1">{d.role_name === 'A' ? '负责人' : d.role_name === 'R' ? '执行人' : d.role_name === 'C' ? '协作人' : d.role_name === 'I' ? '知情人' : d.role_name}</span>
                       </div>
                       <div className="ml-auto">
                         {d.star_submitted
