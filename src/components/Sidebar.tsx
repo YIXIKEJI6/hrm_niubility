@@ -36,6 +36,7 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
     { id: 'hrmap', icon: 'map', label: '人力地图', permKey: 'view_hr_map' },
     { id: 'panorama', icon: 'view_quilt', label: '全景仪表盘', permKey: 'view_panorama' },
     { id: 'org', icon: 'account_tree', label: '组织关系', permKey: 'view_org_chart' },
+    { id: 'schedule', icon: 'calendar_month', label: '排班请假', permKey: 'view_schedule' },
   ].filter(item => !item.permKey || hasPermission(item.permKey));
 
 

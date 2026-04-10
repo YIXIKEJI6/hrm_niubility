@@ -1,5 +1,9 @@
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-if (!DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY environment variable is not configured');
+
+function requireApiKey(): string {
+  if (!DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY environment variable is not configured');
+  return DEEPSEEK_API_KEY;
+}
 
 export async function analyzePerformance(data: {
   companyMetrics?: any;
@@ -17,7 +21,7 @@ export async function analyzePerformance(data: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${requireApiKey()}`,
       },
       body: JSON.stringify({
         model: 'deepseek-chat',
@@ -69,7 +73,7 @@ export async function diagnosePerformance(plans: any[]): Promise<string> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${requireApiKey()}`,
       },
       body: JSON.stringify({
         model: 'deepseek-chat',

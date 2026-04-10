@@ -29,6 +29,7 @@ export default function RewardDistributionModal({
   const [plan, setPlan] = useState<any>(null);
   const [distributions, setDistributions] = useState<Distribution[]>([]);
   const [members, setMembers] = useState<any[]>([]);
+  const [unsubmittedStar, setUnsubmittedStar] = useState<any[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,6 +45,7 @@ export default function RewardDistributionModal({
         if (res.code === 0) {
           setPlan(res.data.plan);
           setMembers(res.data.members || []);
+          setUnsubmittedStar(res.data.unsubmitted || []);
           const dists = (res.data.distributions || []).map((d: any) => ({
             user_id: d.user_id,
             name: d.name || d.user_id,
@@ -66,7 +68,7 @@ export default function RewardDistributionModal({
   const remaining = totalBonus - totalAllocated;
   const pct = totalBonus > 0 ? Math.min((totalAllocated / totalBonus) * 100, 100) : 0;
   const isOverBudget = remaining < 0;
-  const allStarDone = members.every(m => m.star_submitted);
+  const allStarDone = unsubmittedStar.length === 0 && members.length > 0;
 
   const updateDist = (userId: string, field: 'bonus_amount' | 'perf_score', value: string) => {
     setDistributions(prev => prev.map(d => d.user_id === userId ? { ...d, [field]: parseFloat(value) || 0 } : d));
@@ -175,15 +177,21 @@ export default function RewardDistributionModal({
               )}
 
               {/* STAR 状态总览 */}
-              {!allStarDone && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-amber-700 text-sm">
-                    <span className="material-symbols-outlined text-[16px]">warning</span>
-                    <span>还有成员未提交 STAR，提交分配方案前需全部完成</span>
+              {unsubmittedStar.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-amber-700 text-sm font-bold">
+                      <span className="material-symbols-outlined text-[16px]">warning</span>
+                      <span>以下成员尚未提交 STAR 报告：</span>
+                    </div>
+                    <button onClick={handleRemind} className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg font-bold hover:bg-amber-600 shrink-0">
+                      一键催办
+                    </button>
                   </div>
-                  <button onClick={handleRemind} className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded-lg font-bold hover:bg-amber-600">
-                    一键催办
-                  </button>
+                  <p className="text-xs text-amber-600 mt-1.5 ml-6">
+                    {unsubmittedStar.map((m: any) => m.name || m.user_id).join('、')}
+                  </p>
+                  <p className="text-[10px] text-amber-500 mt-1 ml-6">提交分配方案前须全员完成 STAR</p>
                 </div>
               )}
 

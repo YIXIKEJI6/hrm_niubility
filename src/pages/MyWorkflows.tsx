@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import SmartTaskModal from '../components/SmartTaskModal';
+import { decodeSmartDescription } from '../components/SmartFormInputs';
 import WorkflowTrajectory from '../components/WorkflowTrajectory';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { PoolModule } from './AdminPanel';
@@ -89,9 +90,8 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
     ...( ['admin', 'hr', 'manager'].includes(currentUser?.role) ? [{ key: 'pool_mgmt' as TabKey, label: '绩效池管理', icon: 'pool', emptyText: '暂无绩效池任务' }] : [] ),
     ...( ['admin', 'hr'].includes(currentUser?.role) ? [{ key: 'exception_mgmt' as TabKey, label: '流程异常', icon: 'warning', emptyText: '' }] : [] ),
   ];
-  
-  const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}` };
+
+  const headers = useMemo(() => ({ Authorization: `Bearer ${localStorage.getItem('token')}` }), []);
 
   useEffect(() => {
     fetch('/api/org/users', { headers }).then(r => r.json()).then(j => setUsers(j.data || []));
@@ -118,27 +118,28 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
     setLoading(false);
   };
 
-  // Fetch counts for all tabs on mount
-  useEffect(() => {
-    const fetchCounts = async () => {
-      const token = localStorage.getItem('token');
-      const allTabs: TabKey[] = ['initiated', 'pending', 'reviewed', 'cc'];
-      const results = await Promise.all(
-        allTabs.map(t =>
-          fetch(`/api/workflows/${t}`, { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => r.json())
-            .catch(() => ({ data: [] }))
-        )
-      );
-      const newCounts: Record<string, number> = {};
-      allTabs.forEach((t, i) => {
-        let items: any[] = results[i]?.data || [];
-        newCounts[t] = items.length;
-      });
-      setCounts(newCounts as any);
-    };
-    fetchCounts();
+  // Fetch counts for all tabs
+  const fetchCounts = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    const allTabs: TabKey[] = ['initiated', 'pending', 'reviewed', 'cc'];
+    const results = await Promise.all(
+      allTabs.map(t =>
+        fetch(`/api/workflows/${t}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.json())
+          .catch(() => ({ data: [] }))
+      )
+    );
+    const newCounts: Record<string, number> = {};
+    allTabs.forEach((t, i) => {
+      const items: any[] = results[i]?.data || [];
+      newCounts[t] = items.length;
+    });
+    setCounts(newCounts as any);
   }, [currentUser?.id]);
+
+  useEffect(() => {
+    fetchCounts();
+  }, [fetchCounts]);
 
   useEffect(() => { fetchTab(activeTab); }, [activeTab]);
 
@@ -159,10 +160,10 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
         realEndpoint = `/api/pool/role-claims/${id}/review`;
         payload = { action, comment };
       } else if (isRewardPlan) {
-        // 根据当前状态判断审核端点
-        const item = data.find((d: any) => d.id === id);
-        const endpoint = item?.status === 'pending_admin' ? 'admin-confirm' : 
-                         item?.status === 'pending_dt' ? 'dt-review' : 'hr-review';
+        // 根据当前状态判断审核端点（从 selectedTask 获取状态，避免 data 数组搜索不到）
+        const currentStatus = selectedTask?.data?.status || selectedTask?.originalStatus;
+        const endpoint = currentStatus === 'pending_admin' ? 'admin-confirm' :
+                         currentStatus === 'pending_dt' ? 'dt-review' : 'hr-review';
         realEndpoint = `/api/pool/rewards/${id}/${endpoint}`;
         payload = { action, comment, transfer_to };
       } else {
@@ -197,11 +198,8 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
       if (data2.code === 0) {
         fetchTab(activeTab);
         setSelectedTask(null);
-        const refreshCounts = await fetch(`/api/workflows/pending`, { headers }).then(r=>r.json()).catch(()=>null);
-        if (refreshCounts) {
-          const filtered = (refreshCounts.data || []).filter((item: any) => item.creator_id !== currentUser?.id && item.created_by !== currentUser?.id);
-          setCounts(prev => ({ ...prev, pending: filtered.length }));
-        }
+        setApprovalError(null);
+        fetchCounts();
       } else {
         setApprovalError(data2.message || '操作失败');
       }
@@ -292,22 +290,24 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                     if (flowType === 'pool_join') {
                       const r = await fetch(`/api/pool/tasks/${item.pool_task_id}`, { headers });
                       const j = await r.json();
-                      if (j.code === 0) {
-                        const task = j.data;
-                        const desc = task.description || '';
-                        mappedData = {
-                          ...task,
-                          ...item,
-                          flow_type: 'pool_join',
-                          status: item.status,
-                          proposal_status: item.status,
-                          summary: task.title,
-                          s: desc,
-                          join_applicant: item.creator_name || item.user_id,
-                          join_role: item.role,
-                          join_reason: item.reason,
-                        };
+                      if (j.code !== 0) {
+                        alert(j.message || '获取任务详情失败');
+                        return;
                       }
+                      const task = j.data;
+                      const desc = task.description || '';
+                      mappedData = {
+                        ...task,
+                        ...item,
+                        flow_type: 'pool_join',
+                        status: item.status,
+                        proposal_status: item.status,
+                        summary: task.title,
+                        s: desc,
+                        join_applicant: item.creator_name || item.user_id,
+                        join_role: item.role,
+                        join_reason: item.reason,
+                      };
                       setSelectedTask({
                         type: 'pool_propose',
                         data: mappedData,
@@ -327,13 +327,17 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                       const endpoint = flowType === 'perf_plan' ? `/api/perf/plans/${item.id}` : `/api/pool/proposals/${item.id}`;
                       const r = await fetch(endpoint, { headers });
                       const j = await r.json();
-                      if (j.code === 0) {
-                        fullData = { ...j.data, logs: item.logs };
+                      if (j.code !== 0) {
+                        alert(j.message || '获取流程详情失败');
+                        return;
                       }
-                      
+                      fullData = { ...j.data, logs: item.logs };
+
                       if (flowType === 'perf_plan') {
                         const tv = fullData.target_value || '';
                         const desc = fullData.description || '';
+                        const descHasSmart = desc.includes('【目标 S】');
+                        const decoded = decodeSmartDescription(desc);
                         let parsedAttachments: any[] = [];
                         try {
                           if (Array.isArray(fullData.attachments)) {
@@ -342,23 +346,35 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                             parsedAttachments = JSON.parse(fullData.attachments);
                           }
                         } catch { parsedAttachments = []; }
+                        // 从 SMART 格式描述中正确提取各字段
+                        const smartS = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
+                        const smartM = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
+                        const smartA = desc.match(/【方案 A】\n?([\s\S]*?)(?=\n【相关 R】|$)/);
+                        const smartR = desc.match(/【相关 R】\n?([\s\S]*?)(?=\n【时限 T】|$)/);
+                        const smartT = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
+                        const cleanVal = (v: string) => v.replace(/【目标 S】\s*/g,'').replace(/【指标 M】\s*/g,'').replace(/【方案 A】\s*/g,'').replace(/【相关 R】\s*/g,'').replace(/【时限 T】\s*/g,'').replace(/【PDCA】[\s\S]*/g,'').trim();
                         mappedData = {
                           ...fullData,
                           flow_type: 'perf_plan',
                           summary: fullData.title,
-                          s: tv.match(/S:\s*(.*?)(?=\nM:|$)/s)?.[1] || '',
-                          m: tv.match(/M:\s*(.*?)(?=\nT:|$)/s)?.[1] || '',
-                          t: tv.match(/T:\s*(.*)/s)?.[1] || '',
-                          a_smart: desc.match(/\[Resource\]:\s*(.*?)(?=\n\[Relevance\]:|$)/s)?.[1]
-                            || desc.match(/[【「]所需资源[】」]\n([\s\S]*?)(?=\n\n[【「]|$)/)?.[1]
-                            || '',
-                          r_smart: desc.match(/\[Relevance\]:\s*(.*?)(?=\n\[PDCA-Plan\]:|$)/s)?.[1]
-                            || desc.match(/[【「]岗位关联[】」]\n([\s\S]*?)(?=\n\n[【「]|$)/)?.[1]
-                            || '',
-                          planTime: desc.match(/\[PDCA-Plan\]:\s*(.*?)(?=\n\[PDCA-Do\]:|$)/s)?.[1] || '',
-                          doTime: desc.match(/\[PDCA-Do\]:\s*(.*?)(?=\n\[PDCA-Check\]:|$)/s)?.[1] || '',
-                          checkTime: desc.match(/\[PDCA-Check\]:\s*(.*?)(?=\n\[PDCA-Act\]:|$)/s)?.[1] || '',
-                          actTime: desc.match(/\[PDCA-Act\]:\s*(.*)/s)?.[1] || '',
+                          s: descHasSmart ? (() => { const pre = desc.substring(0, desc.indexOf('【目标 S】')).trim(); const sc = cleanVal(smartS?.[1] || ''); return [pre, sc].filter(Boolean).join('\n\n'); })() : (tv.match(/S:\s*(.*?)(?=\nM:|$)/s)?.[1] || ''),
+                          m: descHasSmart ? cleanVal(smartM?.[1] || '') : (tv.match(/M:\s*(.*?)(?=\nT:|$)/s)?.[1] || ''),
+                          t: fullData.deadline || (descHasSmart ? cleanVal(smartT?.[1] || '') : (tv.match(/T:\s*(.*)/s)?.[1] || '')),
+                          a_smart: descHasSmart ? cleanVal(smartA?.[1] || '') : decoded.resource,
+                          r_smart: descHasSmart ? cleanVal(smartR?.[1] || '') : decoded.relevance,
+                          taskType: fullData.category,
+                          c: fullData.collaborators || '',
+                          i: fullData.informed_parties || '',
+                          dt: fullData.delivery_target || '',
+                          bonus: String(fullData.bonus || ''),
+                          maxParticipants: String(fullData.max_participants || '5'),
+                          rewardType: fullData.reward_type || 'money',
+                          r: fullData.assignee_id || fullData.creator_id,
+                          a: fullData.approver_id || '',
+                          planTime: decoded.planTime,
+                          doTime: decoded.doTime,
+                          checkTime: decoded.checkTime,
+                          actTime: decoded.actTime,
                           attachments: parsedAttachments,
                         };
                       } else {
@@ -372,38 +388,51 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                           }
                         } catch { parsedAttachments = []; }
 
-                        if (desc.includes('【目标 S】')) {
-                          mappedData = {
-                            ...fullData,
-                            status: fullData.proposal_status,
-                            summary: fullData.title,
-                            rewardType: fullData.reward_type || 'money',
-                            maxParticipants: fullData.max_participants || 5,
-                            s: desc.match(/【目标 S】(.*?)(\n【指标 M】|$)/s)?.[1] || '',
-                            m: desc.match(/【指标 M】(.*?)(\n【方案 A】|$)/s)?.[1] || '',
-                            a_smart: desc.match(/【方案 A】(.*?)(\n【相关 R】|$)/s)?.[1] || '',
-                            r_smart: desc.match(/【相关 R】(.*?)(\n【时限 T】|$)/s)?.[1] || '',
-                            t: desc.match(/【时限 T】(.*?)(\n【PDCA】|$)/s)?.[1] || '',
-                            attachments: parsedAttachments,
-                          };
-                          const pdca = desc.match(/【PDCA】\n(.*)/s)?.[1] || '';
-                          if (pdca) {
-                            mappedData.planTime = pdca.match(/Plan: (.*?)( \| |$)/)?.[1] || '';
-                            mappedData.doTime = pdca.match(/Do: (.*?)( \| |$)/)?.[1] || '';
-                            mappedData.checkTime = pdca.match(/Check: (.*?)( \| |$)/)?.[1] || '';
-                            mappedData.actTime = pdca.match(/Act: (.*?)( \| |$)/)?.[1] || '';
-                          }
+                        // 提案：正确解析 SMART 格式描述
+                        const pSmart = desc.includes('【目标 S】');
+                        const pClean = (v: string) => v.replace(/【目标 S】\s*/g,'').replace(/【指标 M】\s*/g,'').replace(/【方案 A】\s*/g,'').replace(/【相关 R】\s*/g,'').replace(/【时限 T】\s*/g,'').replace(/【PDCA】[\s\S]*/g,'').trim();
+                        let pS: string, pM = '', pASmart = '', pRSmart = '', pT = '';
+                        if (pSmart) {
+                          // 提取【目标 S】之前的内容（员工在插入模板前写的文本）
+                          const preMarker = desc.substring(0, desc.indexOf('【目标 S】')).trim();
+                          const pSMatch = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
+                          const pMMatch = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
+                          const pAMatch = desc.match(/【方案 A】\n?([\s\S]*?)(?=\n【相关 R】|$)/);
+                          const pRMatch = desc.match(/【相关 R】\n?([\s\S]*?)(?=\n【时限 T】|$)/);
+                          const pTMatch = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
+                          const sContent = pClean(pSMatch?.[1] || '');
+                          pS = [preMarker, sContent].filter(Boolean).join('\n\n');
+                          pM = pClean(pMMatch?.[1] || '');
+                          pASmart = pClean(pAMatch?.[1] || '');
+                          pRSmart = pClean(pRMatch?.[1] || '');
+                          pT = pClean(pTMatch?.[1] || '');
                         } else {
-                          mappedData = {
-                            ...fullData,
-                            status: fullData.proposal_status,
-                            summary: fullData.title,
-                            rewardType: fullData.reward_type || 'money',
-                            maxParticipants: fullData.max_participants || 5,
-                            taskType: fullData.department,
-                            attachments: parsedAttachments,
-                            s: desc
-                          };
+                          const pdcaIdx = desc.indexOf('\n\n【PDCA】');
+                          pS = pdcaIdx >= 0 ? desc.substring(0, pdcaIdx).trim() : desc;
+                        }
+                        const pdcaMatch = desc.match(/【PDCA】\n?(.*)/s);
+                        mappedData = {
+                          ...fullData,
+                          flow_type: 'proposal',
+                          status: fullData.proposal_status,
+                          summary: fullData.title,
+                          rewardType: fullData.reward_type || 'money',
+                          maxParticipants: String(fullData.max_participants || '5'),
+                          bonus: String(fullData.bonus || ''),
+                          taskType: fullData.category || '',
+                          attachments: parsedAttachments,
+                          s: pS,
+                          m: pM,
+                          a_smart: pASmart,
+                          r_smart: pRSmart,
+                          t: pT,
+                        };
+                        if (pdcaMatch) {
+                          const pdca = pdcaMatch[1] || '';
+                          mappedData.planTime = pdca.match(/Plan: (.*?)( \| |$)/)?.[1] || '';
+                          mappedData.doTime = pdca.match(/Do: (.*?)( \| |$)/)?.[1] || '';
+                          mappedData.checkTime = pdca.match(/Check: (.*?)( \| |$)/)?.[1] || '';
+                          mappedData.actTime = pdca.match(/Act: (.*?)( \| |$)/)?.[1] || '';
                         }
                       }
                     }
@@ -415,7 +444,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                       originalStatus: flowType === 'perf_plan' ? fullData.status : fullData.proposal_status
                     });
                   } catch (e) {
-                    console.error("Failed to fetch task details", e);
+                    alert('网络错误，无法获取流程详情');
                   }
                 }} 
               />
@@ -448,6 +477,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
             const data = await res.json();
             if (data.code === 0) {
               setSelectedTask(null);
+              setApprovalError(null);
               fetchTab(activeTab);
             } else {
               alert(data.message || '撤回失败');
@@ -473,9 +503,14 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                 title: formData.summary,
                 category: formData.taskType,
                 target_value: `S: ${formData.s}\nM: ${formData.m}\nT: ${formData.t}`,
-                description: `[Resource]: ${formData.a_smart}\n[Relevance]: ${formData.r_smart}\n[PDCA-Plan]: ${formData.planTime || ''}\n[PDCA-Do]: ${formData.doTime || ''}\n[PDCA-Check]: ${formData.checkTime || ''}\n[PDCA-Act]: ${formData.actTime || ''}`,
+                description: formData.s + (formData.planTime || formData.doTime || formData.checkTime || formData.actTime ? `\n\n【PDCA】\nPlan: ${formData.planTime||''}|Do: ${formData.doTime||''}|Check: ${formData.checkTime||''}|Act: ${formData.actTime||''}` : ''),
                 deadline: formData.t,
                 collaborators: formData.c,
+                informed_parties: formData.i || undefined,
+                delivery_target: formData.dt || undefined,
+                bonus: formData.bonus ? parseFloat(formData.bonus) : 0,
+                max_participants: formData.maxParticipants ? parseInt(formData.maxParticipants) : 5,
+                reward_type: formData.rewardType || 'money',
                 attachments: formData.attachments || []
               };
             } else {
@@ -496,12 +531,13 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
             const data = await res.json();
             if (data.code === 0) {
               setSelectedTask(null);
+              setApprovalError(null);
               fetchTab(activeTab);
             } else {
               alert(data.message || '提交失败');
             }
           } catch (e) {
-            console.error(e);
+            alert('网络错误，请重试');
           } finally {
             setSubmittingApprovals(false);
           }
@@ -521,6 +557,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
             if (data.success || data.code === 0) {
               // 先关 modal，再刷新列表，避免闪烁
               setSelectedTask(null);
+              setApprovalError(null);
               // 从本地列表中即时移除，避免重画闪烁
               setData(prev => prev.filter((item: any) => item.id !== selectedTask.data.id));
               // 后台静默刷新拿最新数据
@@ -672,7 +709,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                     <span className="material-symbols-outlined text-2xl">payments</span>
                     <div>
                       <p className="font-black text-lg">奖励分配方案审批</p>
-                      <p className="text-amber-100 text-xs">{plan.task_title || `任务 #${plan.pool_task_id}`}</p>
+                      <p className="text-amber-100 text-xs">{plan.task_title || (plan.pool_task_id ? `任务 #${plan.pool_task_id}` : '奖励方案')}</p>
                     </div>
                   </div>
                   <button onClick={() => { setSelectedTask(null); setApprovalError(null); }} className="text-white/60 hover:text-white">
@@ -689,7 +726,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                       <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
                         {plan.status === 'pending_admin' ? '总经理最终确认' : plan.status === 'pending_dt' ? '金主验收确认中' : 'HR 审核中'}
                       </p>
-                      <p className="text-xs text-amber-600/70">发起人：{plan.creator_name} · 发起时间：{plan.created_at?.slice(0, 10)}</p>
+                      <p className="text-xs text-amber-600/70">发起人：{plan.creator_name || '未知'} · 发起时间：{plan.created_at?.slice(0, 10) || '未知'}</p>
                     </div>
                   </div>
 
@@ -835,7 +872,7 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
   }
 
   const flowType = item.flow_type || 'unknown';
-  const status = flowType === 'proposal' ? item.proposal_status : flowType === 'pool_join' ? item.status : item.status;
+  const status = flowType === 'proposal' ? item.proposal_status : item.status;
   const title = flowType === 'test_assignment' ? item.test_bank_title : item.title;
   const creator = item.creator_name || item.created_by || item.user_id;
   const approver = item.approver_name || item.hr_reviewer_name || item.admin_reviewer_name;
@@ -961,16 +998,16 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
                     const isReject = log.new_value === 'rejected' || log.action === 'reject';
                     const isApprove = log.new_value === 'approved' || log.action === 'approve';
                     return (
-                      <React.Fragment key={i}>
+                      <React.Fragment key={log.id || `${log.action}_${log.created_at}_${i}`}>
                         <div className={`flex flex-col rounded-lg px-2 py-1 border ${
-                          isReject ? 'bg-red-50 border-red-100 text-red-700' : 
-                          isApprove ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 
+                          isReject ? 'bg-red-50 border-red-100 text-red-700' :
+                          isApprove ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
                           'bg-slate-50 border-slate-200 text-slate-600'
                         }`}>
                           <span className="font-bold">{log.user_name || log.user_id}</span>
                           <span className="text-[9px] opacity-70">
-                            {log.action === 'submit' ? '发起申请' : 
-                             isReject ? '已驳回' : 
+                            {log.action === 'submit' ? '发起申请' :
+                             isReject ? '已驳回' :
                              isApprove ? '已通过' : '审阅中'}
                           </span>
                         </div>
@@ -1120,8 +1157,8 @@ function NodeFixPanel() {
                   </div>
 
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    {plan.issues?.map((issue: string, i: number) => (
-                      <span key={i} className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-[10px] font-bold rounded-lg border border-red-100">
+                    {plan.issues?.map((issue: string) => (
+                      <span key={issue} className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-[10px] font-bold rounded-lg border border-red-100">
                         <span className="material-symbols-outlined text-[12px]">error</span>{issue}
                       </span>
                     ))}

@@ -53,8 +53,9 @@ router.post('/login', async (req, res) => {
 
   try {
     let userId: string;
-    if (code === 'mock_code' && process.env.NODE_ENV !== 'production') {
-      // Mock 登录仅限非生产环境（测试/开发专用）
+    const allowMock = process.env.NODE_ENV !== 'production' || process.env.ALLOW_MOCK_LOGIN === 'true';
+    if (code === 'mock_code' && allowMock) {
+      // Mock 登录仅限非生产环境或显式开启 ALLOW_MOCK_LOGIN 的测试服
       userId = req.body.userId || 'zhangwei';
     } else if (code === 'mock_code') {
       return res.status(403).json({ code: 403, message: '生产环境不允许 mock 登录' });

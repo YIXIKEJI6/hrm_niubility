@@ -24,9 +24,9 @@ router.get('/tasks', authMiddleware, (req: AuthRequest, res) => {
   let sql = `SELECT pt.*, u.name as creator_name FROM pool_tasks pt LEFT JOIN users u ON pt.created_by = u.id WHERE pt.deleted_at IS NULL AND pt.proposal_status != 'rejected'`;
   const params: any[] = [];
 
-  // 非HR/Admin用户看不到 proposing 状态的任务
+  // 非HR/Admin用户仅能看到已通过审批的任务
   if (!isHrAdmin) {
-    sql += " AND pt.status != 'proposing'";
+    sql += " AND pt.proposal_status = 'approved'";
   }
   if (status && status !== 'all') { sql += ' AND pt.status = ?'; params.push(status); }
   if (department) { sql += ' AND pt.department = ?'; params.push(department); }
@@ -113,8 +113,8 @@ router.get('/leaderboard', authMiddleware, (req, res) => {
     SELECT 
       u.id, u.name, d.name as department_name, u.title,
       COUNT(DISTINCT pp.pool_task_id) as total_tasks,
-      SUM(CASE WHEN pt.reward_type = 'money' AND pt.status = 'closed' THEN pt.bonus ELSE 0 END) as total_money,
-      SUM(CASE WHEN pt.reward_type = 'score' AND pt.status = 'closed' THEN pt.bonus ELSE 0 END) as total_score
+      SUM(CASE WHEN pt.reward_type = 'money' AND pt.status IN ('completed', 'rewarded', 'closed') THEN pt.bonus ELSE 0 END) as total_money,
+      SUM(CASE WHEN pt.reward_type = 'score' AND pt.status IN ('completed', 'rewarded', 'closed') THEN pt.bonus ELSE 0 END) as total_score
     FROM users u
     LEFT JOIN departments d ON u.department_id = d.id
     LEFT JOIN pool_participants pp ON u.id = pp.user_id
@@ -254,7 +254,7 @@ router.post('/tasks/publish', authMiddleware, (req: AuthRequest, res) => {
 
   // 校验权限
   const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
-  if (!user || !['admin', 'hr', 'supervisor'].includes(user.role)) {
+  if (!user || !['admin', 'hr'].includes(user.role)) {
     return res.status(403).json({ code: 403, message: '权限不足，无法直接发布任务' });
   }
 
@@ -715,7 +715,7 @@ router.post('/join-requests/:id/review', authMiddleware, (req: AuthRequest, res)
       if (!existing) {
         db.prepare(
           `INSERT INTO perf_plans (title, description, category, creator_id, assignee_id, status, bonus, difficulty, target_value, attachments)
-           VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`
         ).run(
           task.title,
           task.description || '',
@@ -773,10 +773,15 @@ router.post('/tasks', authMiddleware, (req: AuthRequest, res) => {
   return res.json({ code: 0, data: { id: result.lastInsertRowid } });
 });
 
-// 关闭绩效池任务
-router.post('/tasks/:id/close', authMiddleware, (_req, res) => {
+// 关闭绩效池任务 (仅管理员/HR/GM可操作)
+router.post('/tasks/:id/close', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
-  db.prepare("UPDATE pool_tasks SET status = 'closed' WHERE id = ?").run(_req.params.id);
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
+  const canClose = (user && ['admin', 'hr'].includes(user.role)) || isGM(req.userId) || isSuperAdmin(req.userId);
+  if (!canClose) return res.status(403).json({ code: 403, message: '权限不足，仅管理员或HR可关闭任务' });
+  const task = db.prepare('SELECT id FROM pool_tasks WHERE id = ? AND deleted_at IS NULL').get(req.params.id);
+  if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
+  db.prepare("UPDATE pool_tasks SET status = 'closed' WHERE id = ?").run(req.params.id);
   return res.json({ code: 0, message: '已关闭' });
 });
 
@@ -1116,6 +1121,25 @@ router.post('/tasks/:id/start-project', authMiddleware, (req: AuthRequest, res) 
   }
 
   return res.json({ code: 0, message: '项目已启动' });
+});
+
+// ─── 赏金榜任务进度更新 ────────────────────────────
+router.put('/tasks/:id/progress', authMiddleware, (req: AuthRequest, res) => {
+  const db = getDb();
+  const taskId = Number(req.params.id);
+  const { progress } = req.body;
+  const task = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(taskId) as any;
+  if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
+
+  // 仅 R 或 A 角色可更新进度
+  const isApproved = db.prepare("SELECT id FROM pool_role_claims WHERE pool_task_id = ? AND user_id = ? AND role_name IN ('R', 'A') AND status = 'approved'").get(taskId, req.userId) as any;
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as any;
+  if (!isApproved && (!user || (!['admin', 'hr'].includes(user.role) && !isGM(req.userId) && !isSuperAdmin(req.userId)))) {
+    return res.status(403).json({ code: 403, message: '仅执行人(R)或负责人(A)可更新进度' });
+  }
+
+  db.prepare('UPDATE pool_tasks SET progress = ?, updated_at = ? WHERE id = ?').run(progress, new Date().toISOString(), taskId);
+  return res.json({ code: 0, message: '进度已更新' });
 });
 
 export default router;

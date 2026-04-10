@@ -26,11 +26,12 @@ const statusMap: Record<string, { label: string, color: string, bg: string }> = 
   pending_dept_review: { label: '部门审批中', color: 'text-orange-600', bg: 'bg-orange-100' },
   pending_receipt: { label: '待签收', color: 'text-cyan-700', bg: 'bg-cyan-100' },
   in_progress: { label: '进行中', color: 'text-primary', bg: 'bg-blue-100' },
-  completed: { label: '待考核', color: 'text-purple-600', bg: 'bg-purple-100' },
-  approved: { label: '已归档', color: 'text-emerald-600', bg: 'bg-emerald-100' },
+  completed: { label: '已结案', color: 'text-emerald-600', bg: 'bg-emerald-100' },
+  approved: { label: '已批准', color: 'text-blue-600', bg: 'bg-blue-100' },
   rejected: { label: '被驳回', color: 'text-error', bg: 'bg-red-100' },
   returned: { label: '已退回', color: 'text-orange-600', bg: 'bg-orange-100' },
   pending_assessment: { label: '待评级', color: 'text-violet-600', bg: 'bg-violet-100' },
+  assessed: { label: '已评级', color: 'text-violet-600', bg: 'bg-violet-100' },
 };
 
 
@@ -99,7 +100,6 @@ export default function PersonalGoalsPanel() {
     try {
       const token = localStorage.getItem('token');
       if (!token) { alert('登录已过期，请重新登录'); window.location.reload(); return; }
-      const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
       const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
@@ -112,8 +112,14 @@ export default function PersonalGoalsPanel() {
           deadline: data.t,
           quarter: data.quarter || undefined,
           collaborators: data.c,
+          informed_parties: data.i || undefined,
+          delivery_target: data.dt || undefined,
+          bonus: data.bonus ? parseFloat(data.bonus) : 0,
+          max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+          reward_type: data.rewardType || 'money',
+          attachments: data.attachments || [],
           assignee_id: data.r || currentUser?.id,
-          approver_id: data.a || approverId
+          approver_id: data.a || currentUser?.id
         })
       });
 
@@ -138,14 +144,20 @@ export default function PersonalGoalsPanel() {
     }
   };
 
-  const submitProgress = async (id: number, progress: number) => {
+  const submitProgress = async (id: number | string, progress: number) => {
     try {
       // Optimistic update to keep views perfectly in sync without deep re-fetching
       setPlans(prev => prev.map(p => p.id === id ? { ...p, progress } : p));
       setSelectedPlan(prev => prev && prev.id === id ? { ...prev, progress } : prev);
 
       const token = localStorage.getItem('token');
-      await fetch(`/api/perf/plans/${id}/progress`, {
+      // Pool tasks use pool_task_id for progress update
+      const isPoolPlan = String(id).startsWith('pool_');
+      const plan = plans.find(p => p.id === id);
+      const url = isPoolPlan && (plan as any)?.pool_task_id
+        ? `/api/pool/tasks/${(plan as any).pool_task_id}/progress`
+        : `/api/perf/plans/${id}/progress`;
+      await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ progress, comment: '员工自主更新进度' })
@@ -179,19 +191,27 @@ export default function PersonalGoalsPanel() {
       const token = localStorage.getItem('token');
       const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
 
+      const bodyPayload = {
+        title: data.summary || editingPlan.title,
+        description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+        category: data.taskType || editingPlan.category,
+        target_value: targetValue,
+        deadline: data.t,
+        collaborators: data.c,
+        informed_parties: data.i || undefined,
+        delivery_target: data.dt || undefined,
+        bonus: data.bonus ? parseFloat(data.bonus) : 0,
+        max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+        reward_type: data.rewardType || 'money',
+        attachments: data.attachments || [],
+      };
+
       if (editingPlan.status === 'draft') {
         // 草稿：先 PUT 更新，再 POST submit
         await fetch(`/api/perf/plans/${editingPlan.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
-            title: data.summary || editingPlan.title,
-            description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
-            category: data.taskType || editingPlan.category,
-            target_value: targetValue,
-            deadline: data.t,
-            collaborators: data.c
-          }),
+          body: JSON.stringify(bodyPayload),
         });
         await fetch(`/api/perf/plans/${editingPlan.id}/submit`, {
           method: 'POST',
@@ -202,14 +222,7 @@ export default function PersonalGoalsPanel() {
         await fetch(`/api/perf/plans/${editingPlan.id}/resubmit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
-            title: data.summary || editingPlan.title,
-            description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
-            category: data.taskType || editingPlan.category,
-            target_value: targetValue,
-            deadline: data.t,
-            collaborators: data.c
-          }),
+          body: JSON.stringify(bodyPayload),
         });
       }
       setEditingPlan(null);
@@ -274,10 +287,10 @@ export default function PersonalGoalsPanel() {
           {/* Horizontal scroll kanban */}
           <div className="flex gap-4 overflow-x-auto pb-4">
             {([
-              { keys: ['draft', 'pending_review', 'rejected'], label: '筹备中', color: '#94a3b8', bg: '#f1f5f9', wide: false },
+              { keys: ['draft', 'pending_review', 'pending_dept_review', 'rejected', 'returned', 'pending_receipt'], label: '筹备中', color: '#94a3b8', bg: '#f1f5f9', wide: false },
               { keys: ['in_progress'],                          label: '进行中', color: '#3b82f6', bg: '#eff6ff', wide: true  },
-              { keys: ['completed'],                            label: '待考核', color: '#8b5cf6', bg: '#f5f3ff', wide: false },
-              { keys: ['approved'],                             label: '已归档', color: '#10b981', bg: '#ecfdf5', wide: false },
+              { keys: ['pending_assessment'],                          label: '待考核', color: '#8b5cf6', bg: '#f5f3ff', wide: false },
+              { keys: ['assessed', 'completed'],                       label: '已归档', color: '#10b981', bg: '#ecfdf5', wide: false },
             ] as const).map(col => {
               const colPlans = plans.filter(p => (col.keys as readonly string[]).includes(p.status));
               const colKey = col.keys[0]; // for UI keying
@@ -333,7 +346,7 @@ export default function PersonalGoalsPanel() {
                               <span className="flex-none mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 border border-blue-200/60">
                                 {plan.quarter}
                               </span>
-                            ) : plan.deadline ? (
+                            ) : plan.deadline && typeof plan.deadline === 'string' ? (
                               <span className="flex-none mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 border border-violet-200/60">
                                 {plan.deadline.substring(0, 7)}
                               </span>
@@ -382,7 +395,7 @@ export default function PersonalGoalsPanel() {
                               <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <div data-pct-bar={plan.id} className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
                               </div>
-                              {plan.status === 'in_progress' && !(plan as any).is_pool && (
+                              {plan.status === 'in_progress' && (
                                 <input type="range" min="0" max="100" defaultValue={pct}
                                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                   onInput={e => {
@@ -434,7 +447,6 @@ export default function PersonalGoalsPanel() {
           setSubmitting(true);
           try {
             const token = localStorage.getItem('token');
-            const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
             const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
             const res = await fetch('/api/perf/plans', {
               method: 'POST',
@@ -446,8 +458,13 @@ export default function PersonalGoalsPanel() {
                 target_value: targetValue,
                 deadline: data.t,
                 collaborators: data.c,
+                informed_parties: data.i || undefined,
+                delivery_target: data.dt || undefined,
+                bonus: data.bonus ? parseFloat(data.bonus) : 0,
+                max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+                reward_type: data.rewardType || 'money',
                 assignee_id: data.r || currentUser?.id,
-                approver_id: data.a || approverId,
+                approver_id: data.a || currentUser?.id,
               })
             });
             const json = await res.json();
@@ -493,6 +510,11 @@ export default function PersonalGoalsPanel() {
                 target_value: `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`,
                 deadline: data.t,
                 collaborators: data.c,
+                informed_parties: data.i || undefined,
+                delivery_target: data.dt || undefined,
+                bonus: data.bonus ? parseFloat(data.bonus) : 0,
+                max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+                reward_type: data.rewardType || 'money',
                 attachments: data.attachments || [],
               })
             });
@@ -516,15 +538,21 @@ export default function PersonalGoalsPanel() {
               parsedAttachments = JSON.parse((editingPlan as any).attachments);
             }
           } catch { parsedAttachments = []; }
+          const descHasSmart = editingPlan.description?.includes('【目标 S】');
           return {
             summary: editingPlan.title,
-            s: editingPlan.target_value ? String(editingPlan.target_value).split('\n')[0]?.replace('S: ', '') : '',
-            m: editingPlan.target_value ? String(editingPlan.target_value).split('\n')[1]?.replace('M: ', '') : '',
+            s: descHasSmart ? editingPlan.description.replace(/\n\n【PDCA】[\s\S]*$/, '').trim() : (editingPlan.target_value ? String(editingPlan.target_value).split('\n')[0]?.replace('S: ', '') : ''),
+            m: descHasSmart ? '' : (editingPlan.target_value ? String(editingPlan.target_value).split('\n')[1]?.replace('M: ', '') : ''),
             t: editingPlan.deadline || (editingPlan.target_value ? String(editingPlan.target_value).split('\n')[2]?.replace('T: ', '') : '') || '',
-            a_smart: decoded.resource,
-            r_smart: decoded.relevance,
+            a_smart: descHasSmart ? '' : decoded.resource,
+            r_smart: descHasSmart ? '' : decoded.relevance,
             taskType: editingPlan.category,
             c: editingPlan.collaborators || '',
+            i: (editingPlan as any).informed_parties || '',
+            dt: (editingPlan as any).delivery_target || '',
+            bonus: String((editingPlan as any).bonus || ''),
+            maxParticipants: String((editingPlan as any).max_participants || '5'),
+            rewardType: (editingPlan as any).reward_type || 'money',
             planTime: decoded.planTime,
             doTime: decoded.doTime,
             checkTime: decoded.checkTime,
@@ -545,9 +573,12 @@ export default function PersonalGoalsPanel() {
         type="personal"
         users={users}
         readonly={true}
-        headerActions={selectedPlan?.status === 'in_progress' ? (() => {
+        headerActions={['in_progress', 'pending_receipt', 'pending_assessment'].includes(selectedPlan?.status || '') ? (() => {
           const sp = selectedPlan;
           const isAssigned = sp.creator_id !== sp.assignee_id;
+
+          const isPoolTask = !!(sp as any).is_pool;
+          const poolTaskId = (sp as any).pool_task_id;
 
           const handleComplete100 = () => {
             setActionPrompt({
@@ -561,10 +592,16 @@ export default function PersonalGoalsPanel() {
               onConfirm: async () => {
                 try {
                   const token = localStorage.getItem('token');
-                  const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
+                  const url = isPoolTask && poolTaskId
+                    ? `/api/pool/tasks/${poolTaskId}/complete`
+                    : `/api/perf/plans/${sp.id}/review`;
+                  const body = isPoolTask && poolTaskId
+                    ? {}
+                    : { action: 'assess' };
+                  const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ action: 'assess' })
+                    body: JSON.stringify(body)
                   });
                   const json = await res.json();
                   if (json.code === 0) {
@@ -578,11 +615,13 @@ export default function PersonalGoalsPanel() {
 
           const handleEarlyComplete = () => {
             setActionPrompt({
-              type: 'submit_review',
+              type: isPoolTask ? 'early_complete_pool' : 'submit_review',
               title: '提前完结任务',
-              desc: '确认提前完结任务吗？\n提前完结无需审批，将直接进入 STAR 验收获评阶段。',
+              desc: isPoolTask
+                ? '确认提前完结任务吗？\n请填写完结原因、实际完成度和已交付成果。'
+                : '确认提前完结任务吗？\n提前完结无需审批，将直接进入 STAR 验收获评阶段。',
               requireInput: true,
-              placeholder: '请简述提前完结原因...',
+              placeholder: isPoolTask ? '请简述提前完结原因...' : '请简述提前完结原因...',
               confirmText: '提前完结',
               confirmClass: 'bg-amber-500 hover:bg-amber-600 text-white',
               icon: 'stop_circle',
@@ -590,10 +629,16 @@ export default function PersonalGoalsPanel() {
               onConfirm: async (val) => {
                 try {
                   const token = localStorage.getItem('token');
-                  const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
+                  const url = isPoolTask && poolTaskId
+                    ? `/api/pool/tasks/${poolTaskId}/terminate`
+                    : `/api/perf/plans/${sp.id}/review`;
+                  const body = isPoolTask && poolTaskId
+                    ? { reason: val || '提前完结', actual_completion: sp.progress || 0, delivered_content: val || '提前完结' }
+                    : { action: 'assess', reason: val };
+                  const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ action: 'assess', reason: val }) 
+                    body: JSON.stringify(body)
                   });
                   const json = await res.json();
                   if (json.code === 0) {
@@ -633,6 +678,47 @@ export default function PersonalGoalsPanel() {
 
           const isPendingReceipt = sp.status === 'pending_receipt';
           const isInProgress = sp.status === 'in_progress';
+          const isPendingAssessment = sp.status === 'pending_assessment';
+
+          // 解析签收状态
+          let receiptStatus: Record<string, string> = {};
+          try { receiptStatus = JSON.parse((sp as any).receipt_status || '{}'); } catch {}
+          const myReceiptDone = receiptStatus[currentUser?.id || ''] === 'confirmed';
+          const allReceiptsConfirmed = Object.keys(receiptStatus).length > 0 && Object.values(receiptStatus).every(s => s === 'confirmed');
+          const isApprover = currentUser?.id === sp.approver_id;
+
+          const handleAssessScore = () => {
+            setActionPrompt({
+              type: 'assess_score',
+              title: '评级打分',
+              desc: '请为该任务的完成质量打分（1-100分）。\n评级完成后任务将自动结案归档。',
+              requireInput: true,
+              placeholder: '请输入评分(1-100)',
+              confirmText: '确认评级',
+              confirmClass: 'bg-violet-500 hover:bg-violet-600 text-white',
+              icon: 'grade',
+              iconClass: 'bg-violet-100 text-violet-500',
+              onConfirm: async (val) => {
+                const score = parseInt(val);
+                if (isNaN(score) || score < 1 || score > 100) {
+                  alert('请输入1-100之间的整数分数'); return;
+                }
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ action: 'assess', score })
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) {
+                    setSelectedPlan(null);
+                    fetchPlans();
+                  } else { alert(json.message || '评级失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
 
           const handleConfirmReceipt = () => {
             setActionPrompt({
@@ -653,6 +739,30 @@ export default function PersonalGoalsPanel() {
                   const json = await res.json();
                   if (json.code === 0) { setSelectedPlan(null); fetchPlans(); }
                   else { alert(json.message || '签收失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
+
+          const handleStartTask = () => {
+            setActionPrompt({
+              type: 'start_task',
+              title: '启动执行任务',
+              desc: '全员已签收完毕，确认启动任务？\n启动后任务将进入"进行中"状态。',
+              confirmText: '启动执行',
+              confirmClass: 'bg-emerald-500 hover:bg-emerald-600 text-white',
+              icon: 'rocket_launch',
+              iconClass: 'bg-emerald-100 text-emerald-500',
+              onConfirm: async () => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${sp.id}/start-task`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) { setSelectedPlan(null); fetchPlans(); }
+                  else { alert(json.message || '启动失败'); }
                 } catch { alert('网络错误'); }
               }
             });
@@ -687,8 +797,15 @@ export default function PersonalGoalsPanel() {
 
           return (
             <div className="flex items-center gap-2">
-              {/* 待签收：签收 / 拒签 */}
-              {isPendingReceipt && (
+              {/* 待签收：根据状态显示不同按钮 */}
+              {isPendingReceipt && allReceiptsConfirmed && isApprover && (
+                <button onClick={handleStartTask}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm transition-colors shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">rocket_launch</span>
+                  启动执行
+                </button>
+              )}
+              {isPendingReceipt && !allReceiptsConfirmed && !myReceiptDone && (
                 <>
                   <button onClick={handleRejectReceipt}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 shadow-sm transition-colors shrink-0">
@@ -701,6 +818,20 @@ export default function PersonalGoalsPanel() {
                     确认查收
                   </button>
                 </>
+              )}
+              {isPendingReceipt && !allReceiptsConfirmed && myReceiptDone && (
+                <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-600 bg-emerald-50 shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                  已签收，等待其他成员
+                </span>
+              )}
+              {/* 待评级：评级打分 */}
+              {isPendingAssessment && (
+                <button onClick={handleAssessScore}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-500 hover:bg-violet-600 shadow-sm transition-colors shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">grade</span>
+                  评级打分
+                </button>
               )}
               {/* 进行中：完结 / 退回 操作 */}
               {isInProgress && (
@@ -744,16 +875,42 @@ export default function PersonalGoalsPanel() {
               parsedAttachments = JSON.parse((selectedPlan as any).attachments);
             }
           } catch { parsedAttachments = []; }
+          const desc = selectedPlan.description || '';
+          const descHasSmart = desc.includes('【目标 S】');
+          // Proper SMART field extraction with regex — prevents marker duplication
+          const cleanMarkers = (v: string) => v.replace(/【目标 S】\s*/g, '').replace(/【指标 M】\s*/g, '').replace(/【方案 A】\s*/g, '').replace(/【相关 R】\s*/g, '').replace(/【时限 T】\s*/g, '').replace(/【PDCA】[\s\S]*/g, '').trim();
+          let s_val = '', m_val = '', t_val = '', a_smart_val = '', r_smart_val = '';
+          if (descHasSmart) {
+            const sMatch = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
+            const mMatch = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
+            const aMatch = desc.match(/【方案 A】\n?([\s\S]*?)(?=\n【相关 R】|$)/);
+            const rMatch = desc.match(/【相关 R】\n?([\s\S]*?)(?=\n【时限 T】|$)/);
+            const tMatch = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
+            const preMarker = desc.substring(0, desc.indexOf('【目标 S】')).trim();
+            const sContent = cleanMarkers(sMatch?.[1] || '');
+            s_val = [preMarker, sContent].filter(Boolean).join('\n\n');
+            m_val = mMatch ? cleanMarkers(mMatch[1]) : '';
+            a_smart_val = aMatch ? cleanMarkers(aMatch[1]) : '';
+            r_smart_val = rMatch ? cleanMarkers(rMatch[1]) : '';
+            t_val = tMatch ? cleanMarkers(tMatch[1]) : '';
+          } else {
+            s_val = selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[0]?.replace('S: ', '') : '';
+            m_val = selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[1]?.replace('M: ', '') : '';
+            t_val = selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[2]?.replace('T: ', '') : '';
+            a_smart_val = decoded.resource;
+            r_smart_val = decoded.relevance;
+          }
           return {
             id: selectedPlan.id,
             status: selectedPlan.status,
             flow_type: (selectedPlan as any).is_pool ? 'proposal' : 'perf_plan',
+            pool_task_id: (selectedPlan as any).pool_task_id,
             summary: selectedPlan.title,
-            s: selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[0]?.replace('S: ', '') : '',
-            m: selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[1]?.replace('M: ', '') : '',
-            t: selectedPlan.deadline || (selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[2]?.replace('T: ', '') : '') || '',
-            a_smart: decoded.resource,
-            r_smart: decoded.relevance,
+            s: s_val,
+            m: m_val,
+            t: selectedPlan.deadline || t_val || '',
+            a_smart: a_smart_val,
+            r_smart: r_smart_val,
             taskType: selectedPlan.category,
             c: (selectedPlan as any).is_pool
               ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(',')
@@ -766,7 +923,11 @@ export default function PersonalGoalsPanel() {
               : (selectedPlan.assignee_id || currentUser?.id),
             i: (selectedPlan as any).is_pool
               ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(',')
-              : '',
+              : ((selectedPlan as any).informed_parties || ''),
+            dt: (selectedPlan as any).delivery_target || '',
+            bonus: String((selectedPlan as any).bonus || ''),
+            maxParticipants: String((selectedPlan as any).max_participants || '5'),
+            rewardType: (selectedPlan as any).reward_type || 'money',
             role_claims: (selectedPlan as any).role_claims,
             planTime: decoded.planTime,
             doTime: decoded.doTime,
@@ -786,6 +947,7 @@ export default function PersonalGoalsPanel() {
           const accentColor = {
             in_progress: '#3b82f6', pending_review: '#f59e0b', completed: '#8b5cf6',
             approved: '#10b981', rejected: '#ef4444', draft: '#94a3b8', returned: '#f97316',
+            pending_assessment: '#8b5cf6', assessed: '#8b5cf6', pending_dept_review: '#f59e0b', pending_receipt: '#06b6d4',
           }[sp.status] || '#94a3b8';
 
           // 退回操作
@@ -874,7 +1036,7 @@ export default function PersonalGoalsPanel() {
                     <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                       <div data-pct-bar={`modal-${sp.id}`} className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: accentColor }} />
                     </div>
-                    {sp.status === 'in_progress' && !(sp as any).is_pool && (
+                    {sp.status === 'in_progress' && (
                       <input type="range" min="0" max="100" defaultValue={pct}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         onInput={e => {
@@ -947,12 +1109,21 @@ export default function PersonalGoalsPanel() {
             
             {actionPrompt.requireInput && (
                <div className="mt-4">
-                 <textarea 
-                   autoFocus
-                   placeholder={actionPrompt.placeholder || ''}
-                   className="w-full text-sm px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm transition-all h-24"
-                   id="action-prompt-input"
-                 />
+                 {actionPrompt.type === 'assess_score' ? (
+                   <input
+                     type="number" min="1" max="100" autoFocus
+                     placeholder={actionPrompt.placeholder || ''}
+                     className="w-full text-sm px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 shadow-sm transition-all text-center text-2xl font-black"
+                     id="action-prompt-input"
+                   />
+                 ) : (
+                   <textarea
+                     autoFocus
+                     placeholder={actionPrompt.placeholder || ''}
+                     className="w-full text-sm px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm transition-all h-24"
+                     id="action-prompt-input"
+                   />
+                 )}
                </div>
             )}
           </div>
@@ -961,7 +1132,7 @@ export default function PersonalGoalsPanel() {
             <button onClick={() => {
                let val = '';
                if (actionPrompt.requireInput) {
-                 val = (document.getElementById('action-prompt-input') as HTMLTextAreaElement).value;
+                 val = (document.getElementById('action-prompt-input') as HTMLInputElement).value;
                  if (!val.trim() && actionPrompt.title.includes('完结')) {
                     alert('请填写真实原因！'); return;
                  }

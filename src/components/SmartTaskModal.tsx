@@ -442,6 +442,7 @@ export interface SmartTaskData {
   proposal_status?: string;
   role_claims?: any[];
   roles_config?: any;
+  pool_task_id?: number;
 }
 
 export interface SmartTaskModalProps {
@@ -502,6 +503,8 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
 
   const resolvedFlowType = initialData?.flow_type || (type.startsWith('pool') ? 'proposal' : 'perf_plan');
   const codePrefix = resolvedFlowType === 'proposal' ? 'PL' : 'PF';
+  // For pool tasks viewed from personal goals, use pool_task_id for trajectory lookup
+  const trajectoryBusinessId = (resolvedFlowType === 'proposal' && initialData?.pool_task_id) ? String(initialData.pool_task_id) : initialData?.id;
 
   const [headerSelections, setHeaderSelections] = useState({
     r: initialData?.r || initialData?.assignee_id || '',
@@ -516,11 +519,11 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     quarter: initialData?.quarter || ''
   });
   
-  const isSimplifiedMode = type === 'pool_propose' && (!!proposalCategory || !!initialData?.category);
+  const isSimplifiedMode = type === 'pool_propose' && !initialData?.id;
 
   const [formData, setFormData] = useState({
     summary: initialData?.summary || '',
-    s: getInitialS(initialData),
+    s: isSimplifiedMode ? (initialData?.s || '') : getInitialS(initialData),
     m: initialData?.m || '',
     a_smart: initialData?.a_smart || '',
     r_smart: initialData?.r_smart || '',
@@ -595,7 +598,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
       });
       setFormData({
         summary: initialData?.summary || '',
-        s: getInitialS(initialData),
+        s: isSimplifiedMode ? (initialData?.s || '') : getInitialS(initialData),
         m: initialData?.m || '',
         a_smart: initialData?.a_smart || '',
         r_smart: initialData?.r_smart || '',
@@ -704,7 +707,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
 
         <div className="flex-1 flex flex-col overflow-hidden">
           {activeTab === 'star_space' ? (
-            <SharedSTARPanel taskId={Number(initialData?.id)} taskType={type} taskTitle={initialData?.title} initialData={initialData} currentUser={currentUser} />
+            <SharedSTARPanel taskId={initialData?.pool_task_id || Number(initialData?.id)} taskType={type} taskTitle={initialData?.title} initialData={initialData} currentUser={currentUser} />
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden relative bg-white">
               <div className="flex-1 flex flex-col overflow-hidden">
@@ -833,7 +836,11 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                         <div className="space-y-4">
                            <div className="bg-white rounded-xl overflow-hidden shadow-sm flex flex-col border-0">
                               <div className="bg-slate-50/50 px-4 py-3 flex items-center justify-between border-0">
-                                <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">详情与验收标准 (SMART)</label>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">{isSimplifiedMode ? '提案描述' : '详情与验收标准 (SMART)'}</label>
+                                  {type === 'pool_publish' && initialData?.status === 'claiming' && <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">选填</span>}
+                                </div>
+                                {isSimplifiedMode && !readonly && <span className="text-[10px] text-slate-400">自由描述，也可按 SMART 格式填写</span>}
                               </div>
                               <div className="p-4 bg-white smart-task-editor" data-color-mode="light">
                                 <style>{`
@@ -847,8 +854,9 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                     border-left: 3px solid #e2e8f0 !important;
                                   }
                                 `}</style>
-                                <MDEditor 
-                                  value={formData.s} 
+                                <MDEditor
+                                  textareaProps={isSimplifiedMode ? { placeholder: '请描述您的提案想法...\n可以自由书写，也可点击下方按钮插入 SMART 模板' } : undefined}
+                                  value={formData.s}
                                   onChange={readonly ? undefined : (v, ev) => {
                                     if (!v) {
                                       handleUpdate('s', '');
@@ -894,15 +902,24 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                       handleUpdate('s', newV);
                                     }
                                   }}
-                                  height={380} 
+                                  height={isSimplifiedMode ? 220 : 380}
                                   preview={readonly ? "preview" : "edit"} 
                                   hideToolbar={readonly} 
                                 />
+                                {isSimplifiedMode && !readonly && !formData.s?.includes('【目标 S】') && (
+                                  <button
+                                    onClick={() => handleUpdate('s', (formData.s ? formData.s + '\n\n' : '') + SMART_TEMPLATE_CLEAN)}
+                                    className="mt-2 text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[14px]">add_circle</span>
+                                    插入 SMART 模板
+                                  </button>
+                                )}
                               </div>
                            </div>
 
-                           {/* PDCA 时间规划节点 */}
-                           {(isHeaderEditable || formData.planTime || formData.doTime || formData.checkTime || formData.actTime) && (
+                           {/* PDCA 时间规划节点 — 提案模式隐藏 */}
+                           {!isSimplifiedMode && (isHeaderEditable || formData.planTime || formData.doTime || formData.checkTime || formData.actTime) && (
                            <div className="bg-white border-0 rounded-xl overflow-hidden shadow-sm p-4">
                               <label className="text-[11px] font-black text-rose-600 uppercase tracking-widest block mb-4 flex items-center gap-2">
                                 <span className="material-symbols-outlined text-[18px]">calendar_month</span>
@@ -939,7 +956,11 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                   {formData.attachments.map((file, idx) => (
                                     <div key={idx} className="flex items-center gap-2 bg-slate-50 border-0 shadow-sm px-3 py-1.5 rounded-lg">
                                       <span className="material-symbols-outlined text-slate-400 text-[18px]">description</span>
-                                      <span className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{file.name}</span>
+                                      {file.url && !file.url.startsWith('blob:') ? (
+                                        <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline truncate max-w-[120px]">{file.name}</a>
+                                      ) : (
+                                        <span className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{file.name}</span>
+                                      )}
                                       {!readonly && (
                                         <button onClick={() => setFormData({...formData, attachments: formData.attachments.filter((_, i) => i !== idx)})} className="text-slate-400 hover:text-red-500 transition-colors">
                                           <X size={14} />
@@ -953,8 +974,22 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                       <input type="file" multiple className="hidden" onChange={async (e) => {
                                         if (e.target.files) {
                                           const files = Array.from(e.target.files);
-                                          const newAttachments = files.map(f => ({ name: f.name, size: (f.size / 1024).toFixed(1) + 'KB', url: URL.createObjectURL(f) }));
-                                          setFormData({...formData, attachments: [...formData.attachments, ...newAttachments]});
+                                          const fd = new FormData();
+                                          files.forEach(f => fd.append('files', f));
+                                          try {
+                                            const token = localStorage.getItem('token') || '';
+                                            const res = await fetch('/api/uploads/files', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+                                            if (!res.ok) {
+                                              try { const ej = await res.json(); alert(ej.message || `上传失败 (${res.status})`); } catch { alert(`上传失败 (HTTP ${res.status})`); }
+                                              return;
+                                            }
+                                            const json = await res.json();
+                                            if (json.code === 0 && json.data) {
+                                              setFormData({...formData, attachments: [...formData.attachments, ...json.data]});
+                                            } else {
+                                              alert(json.message || '上传失败');
+                                            }
+                                          } catch (e: any) { alert('上传失败: ' + (e?.message || '请检查网络')); }
                                         }
                                       }} />
                                     </label>
@@ -979,10 +1014,10 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                   {initialData?.id ? (
                     <div className="flex-1 flex items-center gap-4 min-w-0">
                        <div className="flex-1 min-w-0 scale-90 origin-left">
-                          <WorkflowTrajectory businessType={resolvedFlowType as any} businessId={initialData.id} codePrefix={codePrefix} />
+                          <WorkflowTrajectory businessType={resolvedFlowType as any} businessId={trajectoryBusinessId} codePrefix={codePrefix} />
                        </div>
                        <div className="shrink-0 opacity-60 scale-90 origin-right">
-                          <AuditTimeline businessType={resolvedFlowType === 'proposal' ? 'proposal' : 'perf_plan'} businessId={initialData.id} />
+                          <AuditTimeline businessType={resolvedFlowType === 'proposal' ? 'proposal' : 'perf_plan'} businessId={trajectoryBusinessId} />
                        </div>
                     </div>
                   ) : <div className="flex-1" />}

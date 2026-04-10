@@ -46,6 +46,11 @@ export const ALL_PERMISSIONS = [
   { key: 'view_dept_data',    label: '查看本部门数据',  module: '字段权限', defaultRoles: ['admin','hr','manager','employee'] },
   { key: 'view_other_dept',   label: '查看跨部门数据',  module: '字段权限', defaultRoles: ['admin','hr'] },
   { key: 'edit_org_info',     label: '编辑组织架构',    module: '字段权限', defaultRoles: ['admin','hr'] },
+  // 排班请假
+  { key: 'view_schedule',      label: '查看排班请假',    module: '功能模块', defaultRoles: ['admin','hr','manager','employee'] },
+  { key: 'manage_dept_shifts', label: '管理部门排班',    module: '操作权限', defaultRoles: ['admin','hr','manager'] },
+  { key: 'manage_leave_types', label: '管理假期类型',    module: '操作权限', defaultRoles: ['admin','hr'] },
+  { key: 'view_dept_leaves',   label: '查看部门请假',    module: '操作权限', defaultRoles: ['admin','hr','manager'] },
 ];
 
 // ── 获取某用户的有效权限（角色默认 + 个人覆盖） ───────────────────────

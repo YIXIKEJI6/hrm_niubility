@@ -585,6 +585,90 @@ export function initDatabase(): void {
   `);
 
 
+  // ── 排班请假模块 ─────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS leave_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      color TEXT DEFAULT '#3B82F6',
+      need_approval INTEGER DEFAULT 1,
+      max_days REAL,
+      unit TEXT DEFAULT 'day',
+      sort_order INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      leave_type_id INTEGER NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      start_half TEXT DEFAULT 'am',
+      end_half TEXT DEFAULT 'pm',
+      duration REAL NOT NULL,
+      reason TEXT,
+      status TEXT DEFAULT 'pending',
+      wecom_sp_no TEXT,
+      wecom_template_id TEXT,
+      approved_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (leave_type_id) REFERENCES leave_types(id)
+    );
+    CREATE TABLE IF NOT EXISTS shift_types (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      color TEXT DEFAULT '#10B981',
+      start_time TEXT,
+      end_time TEXT,
+      sort_order INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS shift_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      date DATE NOT NULL,
+      shift_type TEXT NOT NULL,
+      shift_label TEXT,
+      department_id INTEGER,
+      created_by TEXT NOT NULL,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, date)
+    );
+  `);
+
+  // 预设假期类型
+  const ltCount = (db.prepare('SELECT COUNT(*) as c FROM leave_types').get() as any)?.c;
+  if (!ltCount) {
+    const ins = db.prepare('INSERT OR IGNORE INTO leave_types (name, code, color, need_approval, max_days, unit, sort_order) VALUES (?,?,?,?,?,?,?)');
+    db.transaction(() => {
+      ins.run('年假', 'annual', '#3B82F6', 1, 15, 'day', 1);
+      ins.run('事假', 'personal', '#F59E0B', 1, null, 'day', 2);
+      ins.run('病假', 'sick', '#EF4444', 1, null, 'day', 3);
+      ins.run('调休', 'swap', '#8B5CF6', 1, null, 'half_day', 4);
+      ins.run('婚假', 'marriage', '#EC4899', 1, 10, 'day', 5);
+      ins.run('产假', 'maternity', '#F472B6', 1, 158, 'day', 6);
+      ins.run('陪产假', 'paternity', '#06B6D4', 1, 15, 'day', 7);
+      ins.run('丧假', 'bereavement', '#6B7280', 1, 3, 'day', 8);
+    })();
+  }
+
+  // 预设班次类型
+  const stCount = (db.prepare('SELECT COUNT(*) as c FROM shift_types').get() as any)?.c;
+  if (!stCount) {
+    const ins = db.prepare('INSERT OR IGNORE INTO shift_types (name, code, color, start_time, end_time, sort_order) VALUES (?,?,?,?,?,?)');
+    db.transaction(() => {
+      ins.run('上班', 'work', '#10B981', '08:00', '17:00', 1);
+      ins.run('休息', 'off', '#9CA3AF', null, null, 2);
+    })();
+  }
+
   // perf_plans 缺失列迁移
   const perfMigrations = [
     'ALTER TABLE perf_plans ADD COLUMN dept_head_id TEXT',

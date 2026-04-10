@@ -52,6 +52,11 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
   const [sortKey, setSortKey] = useState<'status' | 'deadline' | 'progress' | 'assignee_name'>('deadline');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
+  const [allCompanyUsers, setAllCompanyUsers] = useState<{ id: string; name: string }[]>([]);
+  const [actionPrompt, setActionPrompt] = useState<{
+    type: string; title: string; desc: string; placeholder?: string; requireInput?: boolean;
+    confirmText: string; confirmClass: string; icon: string; iconClass: string; onConfirm: (val: string) => void;
+  } | null>(null);
 
   
   const flatTasks = React.useMemo(() => {
@@ -147,6 +152,19 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
     }
   }, [currentUser]);
 
+  // 获取全公司成员（用于任务下发时的人员选择）
+  useEffect(() => {
+    const fetchAllUsers = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/org/users', { headers: { Authorization: `Bearer ${token}` } });
+        const json = await res.json();
+        if (json.code === 0) setAllCompanyUsers((json.data || []).map((u: any) => ({ id: u.id, name: u.name })));
+      } catch {}
+    };
+    fetchAllUsers();
+  }, []);
+
   const fetchTeamStatus = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -174,17 +192,21 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           title: data.summary || '新任务',
-          description: encodeSmartDescription(data.a_smart, data.r_smart, {
-            plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-          }),
+          description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
           category: data.taskType || '临时指派',
           target_value: targetValue,
           deadline: data.t,
-          collaborators: [data.c, data.i].filter(Boolean).join(','),
+          collaborators: data.c || undefined,
+          informed_parties: data.i || undefined,
+          delivery_target: data.dt || undefined,
+          bonus: data.bonus ? parseFloat(data.bonus) : 0,
+          max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+          reward_type: data.rewardType || 'money',
+          attachments: data.attachments || [],
           assignee_id: data.r || subordinates[0]?.id || '',
-          quarter: data.quarter || undefined, 
+          quarter: data.quarter || undefined,
           creator_id: currentUser?.id,
           approver_id: data.a || currentUser?.id
         })
@@ -198,7 +220,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       }
 
       const createData = await createRes.json();
-      
+
       if (createData.code === 0 && createData.data?.id) {
         const planId = createData.data.id;
         // 使用签收流程：dispatch → pending_receipt，员工在「我的流程」待处理中看到并签收
@@ -253,17 +275,21 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       const createRes = await fetch('/api/perf/plans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           title: data.summary || '新任务',
-          description: encodeSmartDescription(data.a_smart, data.r_smart, {
-            plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-          }),
+          description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
           category: data.taskType || '常规任务',
           target_value: targetValue,
           deadline: data.t,
-          collaborators: [data.c, data.i].filter(Boolean).join(','),
+          collaborators: data.c || undefined,
+          informed_parties: data.i || undefined,
+          delivery_target: data.dt || undefined,
+          bonus: data.bonus ? parseFloat(data.bonus) : 0,
+          max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+          reward_type: data.rewardType || 'money',
+          attachments: data.attachments || [],
           assignee_id: data.r || currentUser?.id,
-          quarter: data.quarter || undefined, 
+          quarter: data.quarter || undefined,
           creator_id: currentUser?.id,
           approver_id: data.a || approverId
         })
@@ -312,38 +338,36 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
 
         {/* Unified Top Section: Quick Actions + Team Overview */}
         <section className="mb-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {currentUser?.role !== 'employee' && (
-            <>
-              {/* Card 1: Assign Task */}
-              <div onClick={() => { setIsAssignModalOpen(true); setNewPlan(p => ({ ...p, assignee_id: subordinates[0]?.id || '' })); }} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between">
-                <div className="flex items-start space-x-4 mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors shrink-0">
-                    <span className="material-symbols-outlined text-primary group-hover:text-white">add_task</span>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-on-surface tracking-tight">团队内发起任务</h4>
-                    <p className="text-[11px] text-on-surface-variant mt-1 leading-relaxed">为团队成员分配关键的绩效目标与执行任务</p>
-                  </div>
+          {/* Card 1: Assign Task — 仅主管/HR/管理员 */}
+          {hasPermission('push_goal_to_member') && currentUser?.role !== 'employee' && (
+            <div onClick={() => { setIsAssignModalOpen(true); setNewPlan(p => ({ ...p, assignee_id: subordinates[0]?.id || '' })); }} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between">
+              <div className="flex items-start space-x-4 mb-3">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-colors shrink-0">
+                  <span className="material-symbols-outlined text-primary group-hover:text-white">add_task</span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-on-surface tracking-tight">团队内发起任务</h4>
+                  <p className="text-[11px] text-on-surface-variant mt-1 leading-relaxed">为团队成员分配关键的绩效目标与执行任务</p>
                 </div>
               </div>
-              
-              {/* Card 2: Apply Task */}
-              <div onClick={() => setIsApplyModalOpen(true)} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between">
-                <div className="flex items-start space-x-4 mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition-colors shrink-0">
-                    <span className="material-symbols-outlined group-hover:text-white">post_add</span>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-on-surface tracking-tight text-slate-800">申请新任务</h4>
-                    <p className="text-[11px] text-on-surface-variant mt-1 leading-relaxed">使用严谨完整的 SMART 原则向直属上级提报计划</p>
-                  </div>
-                </div>
-              </div>
-            </>
+            </div>
           )}
 
+          {/* Card 2: Apply Task — 全员可见 */}
+          <div onClick={() => setIsApplyModalOpen(true)} className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between">
+            <div className="flex items-start space-x-4 mb-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition-colors shrink-0">
+                <span className="material-symbols-outlined group-hover:text-white">post_add</span>
+              </div>
+              <div>
+                <h4 className="font-bold text-on-surface tracking-tight text-slate-800">申请新任务</h4>
+                <p className="text-[11px] text-on-surface-variant mt-1 leading-relaxed">使用严谨完整的 SMART 原则向直属上级提报计划</p>
+              </div>
+            </div>
+          </div>
+
           {/* Card 3: Team Overview Section */}
-          <div className={`bg-white border border-surface-container rounded-2xl p-5 shadow-sm flex flex-col justify-between ${currentUser?.role === 'employee' ? 'lg:col-span-3' : 'lg:col-span-1'}`}>
+          <div className="bg-white border border-surface-container rounded-2xl p-5 shadow-sm flex flex-col justify-between">
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="text-sm font-black font-headline text-on-surface">团队整体进度</h3>
@@ -505,9 +529,9 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         {viewMode === 'kanban' && (
           <div className="flex gap-4 overflow-x-auto pb-4 h-[calc(100vh-320px)] min-h-[400px]">
             {[
-              { id: 'pending', title: '待处理 / 挂起', statuses: ['pending', 'suspended', 'claiming'] },
+              { id: 'pending', title: '待处理 / 挂起', statuses: ['pending', 'suspended', 'claiming', 'pending_receipt', 'pending_dept_review', 'returned'] },
               { id: 'in_progress', title: '进行中', statuses: ['in_progress'] },
-              { id: 'review', title: '待验收', statuses: ['pending_review'] },
+              { id: 'review', title: '待验收', statuses: ['pending_review', 'pending_assessment'] },
               { id: 'done', title: '已结案', statuses: ['completed', 'assessed', 'rewarded'] }
             ].map(col => (
               <div key={col.id} className="flex-none w-80 flex flex-col bg-surface-container-lowest border border-surface-container rounded-2xl overflow-hidden shadow-sm">
@@ -730,7 +754,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         )}
       </main>
 
-      {/* Top-Down Assignment Modal */}
+      {/* Top-Down Assignment Modal — 仅本部门及子部门成员 */}
       <SmartTaskModal
         isOpen={isAssignModalOpen}
         onClose={() => setIsAssignModalOpen(false)}
@@ -750,13 +774,17 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿任务',
-                description: encodeSmartDescription(data.a_smart, data.r_smart, {
-                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-                }),
+                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
                 category: data.taskType || '临时指派',
                 target_value: targetValue,
                 deadline: data.t,
-                collaborators: [data.c, data.i].filter(Boolean).join(','),
+                collaborators: data.c || undefined,
+                informed_parties: data.i || undefined,
+                delivery_target: data.dt || undefined,
+                bonus: data.bonus ? parseFloat(data.bonus) : 0,
+                max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+                reward_type: data.rewardType || 'money',
+                attachments: data.attachments || [],
                 assignee_id: data.r || subordinates[0]?.id || '',
                 quarter: data.quarter || undefined,
                 creator_id: currentUser?.id,
@@ -792,26 +820,70 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         onSubmit={() => {}}
         title="任务详情"
         type="team"
-        users={subordinates.map(s => ({ id: s.id, name: s.name }))}
+        users={allCompanyUsers}
         readonly={true}
+        headerActions={selectedTask?.status === 'pending_assessment' ? (
+          <button onClick={() => {
+            const task = selectedTask;
+            setActionPrompt({
+              type: 'assess_score',
+              title: '评级打分',
+              desc: '请为该任务的完成质量打分（1-100分）。\n评级完成后任务将自动结案归档。',
+              requireInput: true,
+              placeholder: '请输入评分(1-100)',
+              confirmText: '确认评级',
+              confirmClass: 'bg-violet-500 hover:bg-violet-600 text-white',
+              icon: 'grade',
+              iconClass: 'bg-violet-100 text-violet-500',
+              onConfirm: async (val) => {
+                const score = parseInt(val);
+                if (isNaN(score) || score < 1 || score > 100) {
+                  alert('请输入1-100之间的整数分数'); return;
+                }
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${task.id}/review`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ action: 'assess', score })
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) {
+                    setSelectedTask(null);
+                    fetchTeamStatus();
+                  } else { alert(json.message || '评级失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          }}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-500 hover:bg-violet-600 shadow-sm transition-colors shrink-0">
+            <span className="material-symbols-outlined text-[14px]">grade</span>
+            评级打分
+          </button>
+        ) : undefined}
         initialData={(() => {
           if (!selectedTask) return {};
           const decoded = decodeSmartDescription(selectedTask.description || '');
+          const descHasSmart = selectedTask.description?.includes('【目标 S】');
           return {
             id: selectedTask.id,
             status: selectedTask.status,
             flow_type: 'perf_plan',
             summary: selectedTask.title,
-            s: selectedTask.target_value ? String(selectedTask.target_value).split('\n')[0]?.replace('S: ', '') : '',
-            m: selectedTask.target_value ? String(selectedTask.target_value).split('\n')[1]?.replace('M: ', '') : '',
+            s: descHasSmart ? selectedTask.description.replace(/\n\n【PDCA】[\s\S]*$/, '').trim() : (selectedTask.target_value ? String(selectedTask.target_value).split('\n')[0]?.replace('S: ', '') : ''),
+            m: descHasSmart ? '' : (selectedTask.target_value ? String(selectedTask.target_value).split('\n')[1]?.replace('M: ', '') : ''),
             t: selectedTask.deadline || (selectedTask.target_value ? String(selectedTask.target_value).split('\n')[2]?.replace('T: ', '') : '') || '',
-            a_smart: decoded.resource,
-            r_smart: decoded.relevance,
+            a_smart: descHasSmart ? '' : decoded.resource,
+            r_smart: descHasSmart ? '' : decoded.relevance,
             taskType: selectedTask.category,
             c: selectedTask.collaborators || '',
+            i: selectedTask.informed_parties || '',
+            dt: selectedTask.delivery_target || '',
+            bonus: String(selectedTask.bonus || ''),
+            maxParticipants: String(selectedTask.max_participants || '5'),
+            rewardType: selectedTask.reward_type || 'money',
             a: selectedTask.approver_id || currentUser?.id,
             r: selectedTask.assignee_id || selectedTask.creator_id,
-            i: '',
             planTime: decoded.planTime,
             doTime: decoded.doTime,
             checkTime: decoded.checkTime,
@@ -831,29 +903,32 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         submitting={submitting}
         title="申请新任务"
         type="personal"
-        users={subordinates.map(s => ({ id: s.id, name: s.name }))}
+        users={allCompanyUsers}
         onDraft={async (data) => {
           setSubmitting(true);
           try {
             const token = localStorage.getItem('token');
             const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
-            const approverId = currentUser?.role === 'employee' ? 'zhangwei' : 'lifang';
             const res = await fetch('/api/perf/plans', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿目标',
-                description: encodeSmartDescription(data.a_smart, data.r_smart, {
-                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-                }),
+                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
                 category: data.taskType || '常规任务',
                 target_value: targetValue,
                 deadline: data.t,
-                collaborators: [data.c, data.i].filter(Boolean).join(','),
+                collaborators: data.c || undefined,
+                informed_parties: data.i || undefined,
+                delivery_target: data.dt || undefined,
+                bonus: data.bonus ? parseFloat(data.bonus) : 0,
+                max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+                reward_type: data.rewardType || 'money',
+                attachments: data.attachments || [],
                 assignee_id: data.r || currentUser?.id,
                 quarter: data.quarter || undefined,
                 creator_id: currentUser?.id,
-                approver_id: data.a || approverId
+                approver_id: data.a || currentUser?.id
               })
             });
             if (res.status === 401) { alert('登录已过期'); window.location.reload(); return; }
@@ -873,13 +948,52 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           r_smart: '',
           t: '',
           taskType: '重点项目',
-          r: currentUser?.id
+          r: currentUser?.id,
+          a: currentUser?.id
         }}
       />
 
       {/* ── TeamScope Modal ── */}
       {isScopeModalOpen && (
         <TeamScopeModal onClose={() => setIsScopeModalOpen(false)} />
+      )}
+
+      {/* ── Action Prompt Overlay (评级打分) ── */}
+      {actionPrompt && (
+        <div className="fixed inset-0 bg-black/50 z-[10000] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setActionPrompt(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200/50" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 p-5 border-b border-slate-100 dark:border-slate-800">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner ${actionPrompt.iconClass}`}>
+                <span className="material-symbols-outlined text-[20px]">{actionPrompt.icon}</span>
+              </div>
+              <h3 className="font-black text-[16px] text-slate-800 dark:text-slate-100 tracking-tight">{actionPrompt.title}</h3>
+            </div>
+            <div className="p-5 bg-slate-50/50 dark:bg-slate-900/50">
+              <p className="text-[13px] text-slate-600 dark:text-slate-400 font-medium whitespace-pre-wrap leading-relaxed">{actionPrompt.desc}</p>
+              {actionPrompt.requireInput && (
+                <div className="mt-4">
+                  <input
+                    type="number" min="1" max="100" autoFocus
+                    placeholder={actionPrompt.placeholder || ''}
+                    className="w-full text-sm px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 shadow-sm transition-all text-center text-2xl font-black"
+                    id="team-action-prompt-input"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3 px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950/50">
+              <button onClick={() => setActionPrompt(null)} className="flex-1 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-200/70 transition-colors">取消</button>
+              <button onClick={() => {
+                let val = '';
+                if (actionPrompt.requireInput) {
+                  val = (document.getElementById('team-action-prompt-input') as HTMLInputElement).value;
+                }
+                actionPrompt.onConfirm(val);
+                setActionPrompt(null);
+              }} className={`flex-1 py-2 rounded-xl font-bold text-sm shadow-sm transition-all transform active:scale-95 ${actionPrompt.confirmClass}`}>{actionPrompt.confirmText}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

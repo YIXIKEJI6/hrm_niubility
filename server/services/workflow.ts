@@ -9,6 +9,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   pending_review: ['pending_dept_review', 'approved', 'rejected'],
   pending_dept_review: ['approved', 'rejected'],
   rejected: ['draft'],
+  returned: ['draft'],                              // 退回后可重新编辑提交
   approved: ['in_progress'],
   in_progress: ['pending_assessment', 'returned'],
   pending_assessment: ['assessed'],
@@ -132,24 +133,28 @@ export async function transitionPlan(
 
   // Build parameterized UPDATE: status and updated_at are the first two placeholders
   const allParams = [effectiveStatus, now, ...params, planId];
-  db.prepare(`UPDATE perf_plans SET ${setClauses.join(', ')} WHERE id = ?`).run(...allParams);
 
-  // 记录状态变更日志
-  db.prepare(
-    `INSERT INTO perf_logs (plan_id, user_id, action, old_value, new_value, comment) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(planId, operatorId, 'status_change', plan.status, targetStatus, extra?.comment || null);
+  // 事务包裹：确保状态更新、日志记录、审计日志原子性写入，防止并发双重审批
+  db.transaction(() => {
+    db.prepare(`UPDATE perf_plans SET ${setClauses.join(', ')} WHERE id = ?`).run(...allParams);
 
-  // 双写统一审计日志
-  logAudit({
-    businessType: 'perf_plan',
-    businessId: planId,
-    actorId: operatorId,
-    action: 'status_change',
-    fromStatus: plan.status,
-    toStatus: targetStatus,
-    comment: extra?.comment || null,
-    extra: extra?.score != null ? { score: extra.score } : undefined
-  });
+    // 记录状态变更日志
+    db.prepare(
+      `INSERT INTO perf_logs (plan_id, user_id, action, old_value, new_value, comment) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(planId, operatorId, 'status_change', plan.status, targetStatus, extra?.comment || null);
+
+    // 双写统一审计日志
+    logAudit({
+      businessType: 'perf_plan',
+      businessId: planId,
+      actorId: operatorId,
+      action: 'status_change',
+      fromStatus: plan.status,
+      toStatus: targetStatus,
+      comment: extra?.comment || null,
+      extra: extra?.score != null ? { score: extra.score } : undefined
+    });
+  })();
 
   // 企微消息推送
   if (!extra?.silent && notifyAction && notifyUsers.length > 0) {
@@ -157,6 +162,14 @@ export async function transitionPlan(
       await notifyPerfStatusChange(planId, notifyAction, notifyUsers, plan.title, extra?.comment);
     } catch (e) {
       console.error('消息推送失败:', e);
+      // 记录通知失败到 perf_logs，便于审计追踪
+      try {
+        db.prepare(
+          `INSERT INTO perf_logs (plan_id, user_id, action, old_value, new_value, comment) VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(planId, operatorId, 'notify_failed', null, notifyAction, e instanceof Error ? e.message : String(e));
+      } catch (_) {
+        // 日志记录失败不应阻塞主流程
+      }
     }
   }
 

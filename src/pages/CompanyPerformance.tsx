@@ -115,6 +115,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const isMobile = useIsMobile();
   const canManagePool = hasPermission('manage_perf_pool');
   const canDeleteTask = hasPermission('delete_perf_task');
+  const isHrOrAdmin = ['hr', 'admin'].includes(currentUser?.role || '');
 
   const fetchTasks = async () => {
     try {
@@ -395,6 +396,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
     rewarded: { label: '💰 已发赏', cls: 'bg-purple-50 text-purple-700 border border-purple-200/60' },
     completed: { label: '🎉 已结案', cls: 'bg-slate-50 text-slate-600 border border-slate-200/60' },
     assessed: { label: '⭐ 已评级', cls: 'bg-purple-50 text-purple-700 border border-purple-200/60' },
+    terminated: { label: '⚡ 已终止', cls: 'bg-red-50 text-red-600 border border-red-200/60' },
   };
   const getBadge = (t: PoolTask) => STATUS_BADGE[t.status] || { label: t.status, cls: 'bg-slate-50 text-slate-500 border border-slate-200/60' };
 
@@ -753,8 +755,8 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                           )}
                           {/* 操作按钮 */}
                           {(task.status === 'approved' || task.status === 'published') ? (
-                            canManagePool ? (
-                              <button onClick={(e) => { e.stopPropagation(); handlePublishTaskPool(task.id); }} 
+                            isHrOrAdmin ? (
+                              <button onClick={(e) => { e.stopPropagation(); handlePublishTaskPool(task.id); }}
                                 className="text-[10px] text-white bg-sky-500 hover:bg-sky-600 px-2.5 py-0.5 rounded-md font-bold shrink-0 shadow-sm transition-colors focus:ring-2 focus:ring-sky-500/50 ml-auto">
                                 发布认领
                               </button>
@@ -858,8 +860,8 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       )}
                       
                       {(task.status === 'approved' || task.status === 'published') ? (
-                         canManagePool ? (
-                           <button onClick={(e) => { e.stopPropagation(); handlePublishTaskPool(task.id); }} 
+                         isHrOrAdmin ? (
+                           <button onClick={(e) => { e.stopPropagation(); handlePublishTaskPool(task.id); }}
                              className="w-full text-xs text-white bg-sky-500 hover:bg-sky-600 font-bold py-2.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5">
                              <span className="material-symbols-outlined text-[16px]">campaign</span> 发布认领
                            </button>
@@ -911,7 +913,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   {leaderboard.filter(u => !personnelSearchKey || u.name.toLowerCase().includes(personnelSearchKey.toLowerCase()) || (u.department_name && u.department_name.toLowerCase().includes(personnelSearchKey.toLowerCase()))).map((user, idx) => {
                      const userTasks = tasks.filter(t => t.participant_names?.includes(user.name));
                      const ongoingCount = userTasks.filter(t => t.status === 'in_progress').length;
-                     const closedCount = userTasks.filter(t => t.status === 'rewarded').length;
+                     const closedCount = userTasks.filter(t => ['completed', 'assessed', 'rewarded', 'terminated'].includes(t.status)).length;
                      const isSelected = expandedUserId === user.id;
 
                      return (
@@ -949,7 +951,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                     
                     const openT = userTasks.filter(t => t.status === 'claiming');
                     const inProgressT = userTasks.filter(t => t.status === 'in_progress');
-                    const closedT = userTasks.filter(t => t.status === 'rewarded');
+                    const closedT = userTasks.filter(t => ['completed', 'assessed', 'rewarded', 'terminated'].includes(t.status));
                     
                     const renderGroup = (title: string, icon: string, color: string, list: PoolTask[]) => {
                       if (list.length === 0) return null;
@@ -1032,33 +1034,76 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         readonly={true}
         initialData={(() => {
           if (!selectedTask) return {};
-          const decoded = decodeSmartDescription(selectedTask.description || '');
+          const desc = selectedTask.description || '';
+          const decoded = decodeSmartDescription(desc);
+          // 正确解析 SMART 格式描述，避免标记重复显示
+          const sMatch = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
+          const mMatch = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
+          const tMatch = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
+          // 清理被重复嵌套的 SMART 标记
+          const cleanMarkers = (v: string) => v.replace(/【目标 S】\s*/g, '').replace(/【指标 M】\s*/g, '').replace(/【方案 A】\s*/g, '').replace(/【相关 R】\s*/g, '').replace(/【时限 T】\s*/g, '').replace(/【PDCA】[\s\S]*/g, '').trim();
+          let s_val: string, m_val: string, t_val: string;
+          if (sMatch) {
+            // 提取【目标 S】之前的内容（员工在插入模板前写的文本）
+            const preMarker = desc.substring(0, desc.indexOf('【目标 S】')).trim();
+            const sContent = cleanMarkers(sMatch[1]);
+            s_val = [preMarker, sContent].filter(Boolean).join('\n\n');
+            m_val = mMatch ? cleanMarkers(mMatch[1]) : '';
+            t_val = tMatch ? cleanMarkers(tMatch[1]) : '';
+          } else {
+            const pdcaIdx = desc.indexOf('\n\n【PDCA】');
+            s_val = pdcaIdx >= 0 ? desc.substring(0, pdcaIdx).trim() : desc;
+            s_val = cleanMarkers(s_val);
+            m_val = '';
+            t_val = '';
+          }
           return {
             id: selectedTask.id,
             status: selectedTask.status || (selectedTask as any).proposal_status,
             flow_type: 'proposal',
             creator_name: selectedTask.creator_name,
             summary: selectedTask.title,
-            s: selectedTask.description || selectedTask.title,
-            m: '',
+            s: s_val || selectedTask.title,
+            m: m_val,
             a_smart: decoded.resource,
             r_smart: decoded.relevance,
-            t: selectedTask.deadline || '',
+            t: t_val || selectedTask.deadline || '',
             planTime: decoded.planTime,
             doTime: decoded.doTime,
             checkTime: decoded.checkTime,
             actTime: decoded.actTime,
-            taskType: selectedTask.department,
+            taskType: selectedTask.category || '',
             bonus: String(selectedTask.bonus),
             rewardType: selectedTask.reward_type,
             maxParticipants: String(selectedTask.max_participants),
             attachments: (selectedTask as any).attachments ? JSON.parse((selectedTask as any).attachments) : [],
             role_claims: selectedTask.role_claims,
-            // 从已审核通过的 role_claims 中提取 RACI 人员 ID，供弹窗头部属性栏展示
-            r: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'R' && c.status === 'approved').map((c: any) => c.user_id).join(','),
-            a: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'A' && c.status === 'approved').map((c: any) => c.user_id).join(','),
-            c: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(','),
-            i: (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(','),
+            roles_config: selectedTask.roles_config,
+            // 从已审核通过的 role_claims 中提取 RACI 人员 ID，供弹窗头部属性栏展示；若无则从 roles_config 兜底
+            r: (() => {
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'R' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              if (fromClaims) return fromClaims;
+              const rc = selectedTask.roles_config || [];
+              return (rc.find?.((r: any) => r.name === 'R')?.users || []).map((u: any) => u.id).join(',');
+            })(),
+            a: (() => {
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'A' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              if (fromClaims) return fromClaims;
+              const rc = selectedTask.roles_config || [];
+              return (rc.find?.((r: any) => r.name === 'A')?.users || []).map((u: any) => u.id).join(',');
+            })(),
+            c: (() => {
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              if (fromClaims) return fromClaims;
+              const rc = selectedTask.roles_config || [];
+              return (rc.find?.((r: any) => r.name === 'C')?.users || []).map((u: any) => u.id).join(',');
+            })(),
+            i: (() => {
+              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(',');
+              if (fromClaims) return fromClaims;
+              const rc = selectedTask.roles_config || [];
+              return (rc.find?.((r: any) => r.name === 'I')?.users || []).map((u: any) => u.id).join(',');
+            })(),
           };
         })()}
         headerActions={
@@ -1069,7 +1114,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${canManagePool ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-white text-violet-700 hover:bg-slate-50 shadow-sm'}`}>
                   认领角色
                 </button>
-                {canManagePool && (
+                {isHrOrAdmin && (
                   <button onClick={() => document.dispatchEvent(new CustomEvent('TRIGGER_TASK_FINISH_ALLOCATION'))}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-violet-700 bg-white shadow-sm hover:bg-slate-50 transition-colors shrink-0">
                     <span className="material-symbols-outlined text-[14px]">verified</span>
@@ -1077,7 +1122,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   </button>
                 )}
               </>
-            ) : (selectedTask?.status === 'approved' || selectedTask?.status === 'published') && canManagePool ? (
+            ) : (selectedTask?.status === 'approved' || selectedTask?.status === 'published') && isHrOrAdmin ? (
               <button onClick={() => handlePublishTaskPool(selectedTask.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-sky-500 hover:bg-sky-600 shadow-sm transition-colors shrink-0">
                 <span className="material-symbols-outlined text-[14px]">campaign</span>
@@ -1469,15 +1514,8 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowMyProposals(false);
-                            setProposeForm({
-                              title: p.title || '',
-                              description: p.description || '',
-                              department: p.department || '',
-                              difficulty: p.difficulty || '中',
-                              bonus: String(p.bonus || ''),
-                              max_participants: String(p.max_participants || '5'),
-                            });
-                            setShowPropose(true);
+                            // 打开原提案的编辑弹窗（覆盖 proposal_status 为 draft 以启用编辑模式）
+                            setViewingProposal({ ...p, proposal_status: 'draft' });
                           }}
                           className="flex-1 py-2 bg-violet-500 text-white rounded-xl text-xs font-bold hover:bg-violet-600 transition-colors flex justify-center items-center"
                         >

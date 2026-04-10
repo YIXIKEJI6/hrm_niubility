@@ -61,16 +61,9 @@ router.post('/initiate/:taskId', authMiddleware, (req: AuthRequest, res) => {
     return res.status(400).json({ code: 400, message: '任务尚未完成或终止，无法发起奖励分配' });
   }
 
-  // 检查所有 R/A 的 STAR 是否全部提交
+  // STAR 状态：仅做软提示，不阻断草稿创建（提交时才强校验）
   const members = getRaMembersWithStar(db, taskId);
   const unsubmitted = members.filter((m: any) => !m.star_submitted);
-  if (unsubmitted.length > 0) {
-    return res.status(400).json({
-      code: 400,
-      message: `以下成员尚未提交 STAR 报告：${unsubmitted.map((m: any) => m.name || m.user_id).join('、')}`,
-      data: { unsubmitted }
-    });
-  }
 
   // 幂等：如已有草稿，直接返回
   const existing = db.prepare(
@@ -81,7 +74,7 @@ router.post('/initiate/:taskId', authMiddleware, (req: AuthRequest, res) => {
     const distributions = db.prepare(
       `SELECT prd.*, u.name FROM pool_reward_distributions prd LEFT JOIN users u ON prd.user_id = u.id WHERE prd.reward_plan_id = ?`
     ).all(existing.id);
-    return res.json({ code: 0, data: { plan: existing, distributions, members } });
+    return res.json({ code: 0, data: { plan: existing, distributions, members, unsubmitted } });
   }
 
   // 创建新草稿
@@ -107,7 +100,7 @@ router.post('/initiate/:taskId', authMiddleware, (req: AuthRequest, res) => {
     `SELECT prd.*, u.name FROM pool_reward_distributions prd LEFT JOIN users u ON prd.user_id = u.id WHERE prd.reward_plan_id = ?`
   ).all(planId);
 
-  return res.json({ code: 0, data: { plan, distributions, members } });
+  return res.json({ code: 0, data: { plan, distributions, members, unsubmitted } });
 });
 
 // GET /api/pool/rewards/task/:taskId — 获取某任务的奖励方案
@@ -281,7 +274,11 @@ router.post('/:id/dt-review', authMiddleware, async (req: AuthRequest, res) => {
 
   const { action, transfer_to, reason } = req.body;
 
-  // -- 特权转交支持 --
+  if (!dtAssignees.includes(userId) && !isAdminOrGM) {
+     return res.status(403).json({ code: 403, message: '您不是本悬赏任务的【验收金主】或相关负责人，无权代办该节点' });
+  }
+
+  // -- 特权转交支持 (权限验证通过后才允许转交) --
   if (action === 'transfer' && transfer_to) {
     db.prepare("UPDATE pool_reward_plans SET dt_reviewer_id = ? WHERE id = ?").run(transfer_to, planId);
     const { createNotification } = await import('./notifications');
@@ -291,10 +288,6 @@ router.post('/:id/dt-review', authMiddleware, async (req: AuthRequest, res) => {
       createNotification([transfer_to], 'workflow_transfer', '🔄 转办打分验收', `${operatorUser?.name || '管理员'} 将一个悬赏分红审核任务转交给了您，请在工作台中查看。`, '/pool');
     }
     return res.json({ code: 0, message: `金主验收节点已转办给 ${transferUser?.name}` });
-  }
-
-  if (!dtAssignees.includes(userId) && !isAdminOrGM) {
-     return res.status(403).json({ code: 403, message: '您不是本悬赏任务的【验收金主】或相关负责人，无权代办该节点' });
   }
 
   if (!['approve', 'reject'].includes(action)) return res.status(400).json({ code: 400, message: '无效操作' });
@@ -313,9 +306,15 @@ router.post('/:id/dt-review', authMiddleware, async (req: AuthRequest, res) => {
     } catch {}
     return res.json({ code: 0, message: '金主已收货！单据转交人力专员(HRBP)合规审计' });
   } else {
-    db.prepare(`UPDATE pool_reward_plans SET status = 'rejected', updated_at = ? WHERE id = ?`).run(now, planId);
-    logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: 'reject', fromStatus: 'pending_dt', toStatus: 'rejected', comment: reason || '金主验收拒绝' });
-    return res.json({ code: 0, message: '已打回给负责人，让他们重新切肉' });
+    // DT驳回 → 回退到草稿，让发起人可以修改后重新提交（而非终止状态）
+    db.prepare(`UPDATE pool_reward_plans SET status = 'draft', updated_at = ? WHERE id = ?`).run(now, planId);
+    // 驳回时回退 pool_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
+    const task = db.prepare('SELECT status FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    if (task?.status === 'rewarded') {
+      db.prepare(`UPDATE pool_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
+    }
+    logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: 'reject', fromStatus: 'pending_dt', toStatus: 'draft', comment: reason || '金主验收拒绝' });
+    return res.json({ code: 0, message: '已打回给负责人，请修改分配方案后重新提交' });
   }
 });
 
@@ -376,6 +375,13 @@ router.post('/:id/hr-review', authMiddleware, async (req: AuthRequest, res) => {
   db.prepare(`
     UPDATE pool_reward_plans SET status = ?, hr_reviewer_id = ?, hr_comment = ?, hr_reviewed_at = ?, updated_at = ? WHERE id = ?
   `).run(newStatus, userId, comment || '', now, now, planId);
+  // HR 驳回时回退 pool_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
+  if (action === 'reject') {
+    const task = db.prepare('SELECT status FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    if (task?.status === 'rewarded') {
+      db.prepare(`UPDATE pool_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
+    }
+  }
   logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: action === 'approve' ? 'approve' : 'reject', fromStatus: 'pending_hr', toStatus: newStatus, comment });
 
   const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
@@ -447,6 +453,12 @@ router.post('/:id/admin-confirm', authMiddleware, async (req: AuthRequest, res) 
     db.prepare(`
       UPDATE pool_reward_plans SET status = 'pending_hr', admin_comment = ?, updated_at = ? WHERE id = ?
     `).run(comment || '', now, planId);
+    // 总经理驳回时回退 pool_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
+    const task = db.prepare('SELECT status FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    if (task?.status === 'rewarded') {
+      db.prepare(`UPDATE pool_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
+    }
+    logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: 'reject', fromStatus: 'pending_admin', toStatus: 'pending_hr', comment });
     return res.json({ code: 0, message: '已退回 HR 重审' });
   }
 

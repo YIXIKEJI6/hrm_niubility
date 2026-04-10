@@ -26,8 +26,8 @@ const statusMap: Record<string, { label: string, color: string, bg: string }> = 
   draft: { label: '草稿', color: 'text-slate-500', bg: 'bg-slate-100' },
   pending_review: { label: '待审批', color: 'text-amber-600', bg: 'bg-amber-100' },
   in_progress: { label: '进行中', color: 'text-primary', bg: 'bg-blue-100' },
-  completed: { label: '待考核', color: 'text-purple-600', bg: 'bg-purple-100' },
-  approved: { label: '已归档', color: 'text-emerald-600', bg: 'bg-emerald-100' },
+  completed: { label: '已结案', color: 'text-emerald-600', bg: 'bg-emerald-100' },
+  approved: { label: '已批准', color: 'text-blue-600', bg: 'bg-blue-100' },
   rejected: { label: '被驳回', color: 'text-error', bg: 'bg-red-100' },
   returned: { label: '已退回', color: 'text-orange-600', bg: 'bg-orange-100' },
 };
@@ -170,7 +170,12 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
       setSelectedPlan(prev => prev && prev.id === id ? { ...prev, progress } : prev);
 
       const token = localStorage.getItem('token');
-      await fetch(`/api/perf/plans/${id}/progress`, {
+      const isPoolPlan = String(id).startsWith('pool_');
+      const plan = plans.find(p => p.id === id);
+      const url = isPoolPlan && (plan as any)?.pool_task_id
+        ? `/api/pool/tasks/${(plan as any).pool_task_id}/progress`
+        : `/api/perf/plans/${id}/progress`;
+      await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ progress, comment: '员工自主更新进度' })
@@ -325,8 +330,8 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             {([
               { keys: ['draft', 'pending_review', 'rejected'], label: '筹备中', color: '#94a3b8', bg: '#f1f5f9', wide: false },
               { keys: ['in_progress'],                          label: '进行中', color: '#3b82f6', bg: '#eff6ff', wide: true  },
-              { keys: ['completed'],                            label: '待考核', color: '#8b5cf6', bg: '#f5f3ff', wide: false },
-              { keys: ['approved'],                             label: '已归档', color: '#10b981', bg: '#ecfdf5', wide: false },
+              { keys: ['completed'],                            label: '已结案', color: '#10b981', bg: '#ecfdf5', wide: false },
+              { keys: ['approved'],                             label: '已批准', color: '#3b82f6', bg: '#eff6ff', wide: false },
             ] as const).map(col => {
               const colPlans = plans.filter(p => (col.keys as readonly string[]).includes(p.status));
               const colKey = col.keys[0]; // for UI keying
@@ -425,7 +430,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                               <div className={`w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 ${isMobile ? 'h-5' : 'h-3'}`}>
                                 <div data-pct-bar={plan.id} className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: barColor }} />
                               </div>
-                              {plan.status === 'in_progress' && !(plan as any).is_pool && (
+                              {plan.status === 'in_progress' && (
                                 <input type="range" min="0" max="100" defaultValue={pct}
                                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                   onInput={e => {
@@ -755,7 +760,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                   <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div data-pct-bar={`modal-${sp.id}`} className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: accentColor }} />
                   </div>
-                  {sp.status === 'in_progress' && !(sp as any).is_pool && (
+                  {sp.status === 'in_progress' && (
                     <input type="range" min="0" max="100" defaultValue={pct}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       onInput={e => {

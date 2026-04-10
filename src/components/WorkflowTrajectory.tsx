@@ -28,18 +28,26 @@ function formatDate(ds?: string) {
 export default function WorkflowTrajectory({ businessType, businessId, codePrefix, className = '' }: WorkflowTrajectoryProps) {
   const [steps, setSteps] = useState<TrajectoryStep[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!businessId) return;
     setLoading(true);
+    setError(null);
     fetch(`/api/workflow/trajectory/${businessType}/${businessId}`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     })
       .then(r => r.json())
       .then(res => {
-        if (res.code === 0) setSteps(res.data || []);
+        if (res.code === 0) {
+          setSteps(res.data || []);
+        } else {
+          setError(res.message || '加载审批轨迹失败');
+        }
       })
-      .catch(console.error)
+      .catch(() => {
+        setError('网络错误，无法加载审批轨迹');
+      })
       .finally(() => setLoading(false));
   }, [businessType, businessId]);
 
@@ -48,6 +56,14 @@ export default function WorkflowTrajectory({ businessType, businessId, codePrefi
       <div className={`p-4 border-t border-slate-200 bg-slate-50/80 shrink-0 ${className} animate-pulse`}>
          <div className="h-4 w-24 bg-slate-200 rounded mb-2"></div>
          <div className="flex gap-2"><div className="h-6 w-20 bg-slate-200 rounded-full"></div></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={`px-4 py-1.5 bg-red-50/80 border border-red-200 shrink-0 rounded-lg mx-4 mb-3 ${className}`}>
+        <span className="text-[10px] text-red-500 font-bold">{error}</span>
       </div>
     );
   }
@@ -75,7 +91,7 @@ export default function WorkflowTrajectory({ businessType, businessId, codePrefi
           const userStr = step.assignees?.map(u => u.name).join('/') || '无';
 
           return (
-            <React.Fragment key={idx}>
+            <React.Fragment key={`${step.seq}_${step.name}_${idx}`}>
               <div className="flex items-center gap-1 shrink-0">
                 <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
                 <span className="text-[10px] font-bold text-slate-600 whitespace-nowrap">{step.name}</span>

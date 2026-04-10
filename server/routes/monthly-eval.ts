@@ -68,9 +68,9 @@ router.get('/hr/employees-status', authMiddleware, (req: AuthRequest, res) => {
       SELECT u.id as user_id, u.name as user_name, u.department_id, d.name as department_name,
              e.status as eval_status, e.final_score
       FROM users u
-      LEFT JOIN departments d ON u.department_id = d.id AND d.deleted_at IS NULL
+      LEFT JOIN departments d ON u.department_id = d.id
       LEFT JOIN monthly_evaluations e ON u.id = e.user_id AND e.month = ?
-      WHERE u.status = 'active' AND u.deleted_at IS NULL
+      WHERE u.status = 'active'
     `;
     const params: any[] = [month];
 
@@ -130,7 +130,7 @@ router.get('/hr/all-users', authMiddleware, (req: AuthRequest, res) => {
     const scopes = getUserPermScopes(req.userId!);
     const scopedUsers = scopes['module_monthly_eval']?.users as string[] | undefined;
 
-    let sql = "SELECT id, name FROM users WHERE status = 'active' AND deleted_at IS NULL";
+    let sql = "SELECT id, name FROM users WHERE status = 'active'";
     const params: any[] = [];
     if (scopedUsers && scopedUsers.length > 0) {
       const ph = scopedUsers.map(() => '?').join(',');
@@ -307,20 +307,41 @@ router.get('/monthly-summary', (req, res) => {
   }
 });
 
-// 5. 获取某个员工在指定月份完结的核心任务 (供打分人参考)
+// 5.5 查看某员工某月考评的打分进度详情
+router.get('/hr/eval-progress', authMiddleware, (req: AuthRequest, res) => {
+  const { userId, month } = req.query;
+  if (!userId || !month) return res.status(400).json({ code: 1, message: '参数缺失' });
+  const db = getDb();
+  try {
+    const evalRow = db.prepare('SELECT id, status, final_score, deadline FROM monthly_evaluations WHERE user_id = ? AND month = ?').get(userId, month) as any;
+    if (!evalRow) return res.json({ code: 0, data: null });
+    const reviewers = db.prepare(`
+      SELECT r.id, r.reviewer_id, r.role, r.status, r.score, r.comment, r.submitted_at, r.reminded_at,
+             u.name as reviewer_name
+      FROM monthly_eval_reviewers r
+      LEFT JOIN users u ON r.reviewer_id = u.id
+      WHERE r.evaluation_id = ?
+      ORDER BY CASE r.role WHEN 'self' THEN 1 WHEN 'manager' THEN 2 WHEN 'prof' THEN 3 WHEN 'peer' THEN 4 END
+    `).all(evalRow.id);
+    res.json({ code: 0, data: { ...evalRow, reviewers } });
+  } catch (err: any) {
+    res.status(500).json({ code: 1, message: err.message });
+  }
+});
+
+// 6. 获取某个员工的所有任务 (供打分人参考)
 router.get('/user-tasks', (req, res) => {
   const { userId, month } = req.query;
   if (!userId || !month) return res.status(400).json({ code: 1, message: '参数缺失' });
   const db = getDb();
   try {
     const tasks = db.prepare(`
-      SELECT id, title, description, status, metric, target, score, reward, rewarded_at, updated_at
-      FROM perf_plans 
-      WHERE assignee_id = ? 
-      AND status IN ('completed', 'approved')
-      AND (rewarded_at LIKE ? OR updated_at LIKE ?)
+      SELECT id, title, description, status, metric, target, score, progress, reward, rewarded_at, updated_at, created_at
+      FROM perf_plans
+      WHERE assignee_id = ?
+      AND status != 'draft'
       ORDER BY updated_at DESC
-    `).all(userId, `%${month}%`, `%${month}%`);
+    `).all(userId);
     res.json({ code: 0, data: tasks });
   } catch (err: any) {
     res.status(500).json({ code: 1, message: '获取任务失败: ' + err.message });

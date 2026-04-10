@@ -24,6 +24,7 @@ const sections: GuideSection[] = [
             <li>🗺️ <b>人力地图</b> — 全公司人员分布可视化</li>
             <li>📈 <b>全景仪表盘</b> — 多维数据分析与 PDCA 监管</li>
             <li>🏗️ <b>组织关系</b> — 部门架构树状图管理</li>
+            <li>📅 <b>排班请假</b> — 值班日历排班、请假申请与审批</li>
             <li>🎯 <b>能力大盘</b> — 团队能力评测模型与短板预警</li>
           </ul>
         </div>
@@ -105,6 +106,72 @@ const sections: GuideSection[] = [
           <p>• <b>同步企微通讯录</b> — 点击"同步企微通讯录"按钮一键同步企业微信部门和人员</p>
           <p>• <b>部门管理</b> — 支持新建、编辑、删除和移动部门</p>
           <p>• <b>人员管理</b> — 点击部门可查看成员列表，编辑人员信息</p>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'schedule',
+    icon: 'calendar_month',
+    title: '排班请假',
+    content: (
+      <div className="space-y-3">
+        <p>排班请假模块提供全公司值班排班管理和请假申请功能，支持按部门查看值班日历、在线提交请假、主管审批和自定义假期/班次类型。</p>
+
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-bold text-blue-700 dark:text-blue-300">📅 三大功能 Tab</p>
+          <ul className="text-sm space-y-1 text-slate-700 dark:text-slate-300">
+            <li>• <b>值班日历</b> — 月历视图查看全员排班，主管可直接点击排班</li>
+            <li>• <b>请假管理</b> — 员工提交请假、查看记录，主管审批/驳回</li>
+            <li>• <b>假期配置</b> — 管理员自定义假期类型和班次定义</li>
+          </ul>
+        </div>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">1</span> 值班日历</h4>
+          <div className="ml-7 space-y-1.5 text-sm text-slate-600 dark:text-slate-400">
+            <p>• 月历视图：横轴为日期(1-31)，纵轴按部门分组显示成员姓名</p>
+            <p>• 每个格子用彩色标签显示班次(早/中/晚/全天/休息)，请假日期会用红色标记覆盖</p>
+            <p>• <b>切换月份</b>：点击左右箭头切换查看月份</p>
+            <p>• <b>部门筛选</b>：下拉选择部门，可查看指定部门或全公司排班</p>
+            <p>• <b>主管排班</b>：点击任意格子，弹出班次选择菜单，选择后自动保存；点"清除"可删除已有排班</p>
+            <p className="text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-lg px-3 py-1.5">⚠️ 普通员工只能查看排班表，无法编辑。只有主管/HR/管理员有排班权限。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">2</span> 请假管理</h4>
+          <div className="ml-7 space-y-1.5 text-sm text-slate-600 dark:text-slate-400">
+            <p><b>提交请假：</b></p>
+            <p>① 点击右上角"新建请假" → ② 选择假期类型(年假/事假/病假等) → ③ 选择起止日期和上午/下午 → ④ 系统自动计算天数 → ⑤ 填写事由 → ⑥ 提交</p>
+            <p><b>额度检查：</b>如果假期类型设置了年度上限(如年假15天)，系统会自动检查剩余额度，不足时提交会被拒绝。</p>
+            <p><b>查看模式：</b></p>
+            <p>• "我的请假" — 查看自己的请假记录</p>
+            <p>• "部门请假" — 主管/HR 查看本部门所有请假记录</p>
+            <p><b>操作：</b></p>
+            <p>• 员工可在"待审批"状态下撤销自己的请假</p>
+            <p>• 主管/HR 可对他人的待审批请假进行"通过"或"驳回"</p>
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2.5 text-xs text-green-700 dark:text-green-300">
+              <b>💡 请假与排班联动：</b>请假审批通过后，值班日历上对应日期会自动显示请假标记，无需手动修改排班表。
+            </div>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">3</span> 假期配置（管理员）</h4>
+          <div className="ml-7 space-y-1.5 text-sm text-slate-600 dark:text-slate-400">
+            <p><b>假期类型管理：</b></p>
+            <p>• 系统预设了 8 种假期类型：年假、事假、病假、调休、婚假、产假、陪产假、丧假</p>
+            <p>• 管理员可新增/编辑假期类型，配置名称、颜色、年度天数上限、是否需要审批、计量单位(天/半天/小时)</p>
+            <p><b>班次定义管理：</b></p>
+            <p>• 系统预设了 5 种班次：早班(08:00-17:00)、中班(13:00-22:00)、晚班(22:00-06:00)、全天、休息</p>
+            <p>• 管理员可新增/编辑班次，配置名称、颜色和上下班时间</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">🔐 权限说明</p>
+          <div className="text-xs space-y-1 text-slate-500 dark:text-slate-400">
+            <p>• <b>全员</b>：查看排班表、提交/撤销自己的请假</p>
+            <p>• <b>主管</b>：编辑本部门排班、查看部门请假、审批/驳回请假</p>
+            <p>• <b>HR/管理员</b>：管理全公司排班、管理假期类型和班次定义</p>
+          </div>
         </div>
       </div>
     ),

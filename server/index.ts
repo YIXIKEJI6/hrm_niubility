@@ -46,6 +46,7 @@ import poolRewardsRoutes from './routes/pool-rewards';
 import salaryRoutes from './routes/salary';
 import workflowTrajectoryRoutes from './routes/workflow-trajectory';
 import taskDiscussionsRoutes from './routes/task-discussions';
+import scheduleRoutes from './routes/schedule';
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
@@ -92,6 +93,7 @@ app.use('/api/pool/rewards', poolRewardsRoutes);
 app.use('/api/salary', salaryRoutes);
 app.use('/api/workflow/trajectory', workflowTrajectoryRoutes);
 app.use('/api/task-discussions', taskDiscussionsRoutes);
+app.use('/api/schedule', scheduleRoutes);
 
 // 健康检查
 app.get('/api/health', (_req, res) => {
@@ -107,8 +109,8 @@ app.get('/WW_verify_*.txt', (req, res) => {
   res.send(verifyCode);
 });
 
-// 生产模式: serve 前端静态文件
-if (process.env.NODE_ENV === 'production') {
+// 非开发模式: serve 前端静态文件（production + test）
+if (process.env.NODE_ENV !== 'development') {
   const distPath = path.resolve(PROJECT_ROOT, 'dist');
   app.use(express.static(distPath));
   app.get('*', (_req, res) => {

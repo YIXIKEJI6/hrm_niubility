@@ -176,21 +176,41 @@ router.get('/dimensions', authMiddleware, (req: AuthRequest, res) => {
     };
   }).sort((a, b) => (b.avg_score || 0) - (a.avg_score || 0));
 
-  // 人员排行 (top 10)
-  const personRanking = db.prepare(`
-    SELECT pp.assignee_id, u.name, d.name as department_name,
-           COUNT(*) as plan_count,
-           ROUND(AVG(pp.score), 1) as avg_score,
-           SUM(pp.bonus) as total_bonus,
-           ROUND(AVG(pp.progress), 0) as avg_progress
-    FROM perf_plans pp
-    LEFT JOIN users u ON pp.assignee_id = u.id
-    LEFT JOIN departments d ON u.department_id = d.id
-    WHERE pp.assignee_id IS NOT NULL
-    GROUP BY pp.assignee_id
-    ORDER BY avg_score DESC NULLS LAST
-    LIMIT 10
-  `).all();
+  // 人员排行 (top 10) — 支持逗号分隔的多 assignee
+  const plansForRanking = db.prepare(`
+    SELECT assignee_id, score, bonus, progress
+    FROM perf_plans WHERE assignee_id IS NOT NULL AND assignee_id != ''
+  `).all() as any[];
+
+  const personMap = new Map<string, { scores: number[], bonuses: number[], progresses: number[], count: number }>();
+  for (const plan of plansForRanking) {
+    const ids = plan.assignee_id.split(',').map((s: string) => s.trim()).filter(Boolean);
+    for (const id of ids) {
+      if (!personMap.has(id)) personMap.set(id, { scores: [], bonuses: [], progresses: [], count: 0 });
+      const entry = personMap.get(id)!;
+      entry.count++;
+      if (plan.score != null) entry.scores.push(plan.score);
+      entry.bonuses.push(plan.bonus || 0);
+      entry.progresses.push(plan.progress || 0);
+    }
+  }
+
+  const personRanking = Array.from(personMap.entries())
+    .map(([id, data]) => {
+      const u = db.prepare('SELECT u.name, d.name as department_name FROM users u LEFT JOIN departments d ON u.department_id = d.id WHERE u.id = ?').get(id) as any;
+      return {
+        assignee_id: id,
+        name: u?.name || null,
+        department_name: u?.department_name || null,
+        plan_count: data.count,
+        avg_score: data.scores.length > 0 ? Math.round(data.scores.reduce((a, b) => a + b, 0) / data.scores.length * 10) / 10 : null,
+        total_bonus: data.bonuses.reduce((a, b) => a + b, 0),
+        avg_progress: Math.round(data.progresses.reduce((a, b) => a + b, 0) / data.count),
+      };
+    })
+    .filter(p => p.avg_score !== null)
+    .sort((a, b) => (b.avg_score || 0) - (a.avg_score || 0))
+    .slice(0, 10);
 
   // 可用筛选值
   const availableQuarters = db.prepare("SELECT DISTINCT quarter FROM perf_plans WHERE quarter IS NOT NULL AND quarter != '' ORDER BY quarter").all();

@@ -29,34 +29,33 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
-  fileFilter: (_req, file, cb) => {
-    // Allow common file types
-    const allowed = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|png|jpg|jpeg|gif|bmp|webp|mp4|mp3)$/i;
-    if (allowed.test(path.extname(file.originalname))) {
-      cb(null, true);
-    } else {
-      cb(new Error('不支持的文件类型'));
-    }
-  }
 });
 
-// Upload multiple files
-router.post('/files', authMiddleware, upload.array('files', 10), (req: AuthRequest, res) => {
-  const files = req.files as Express.Multer.File[];
-  if (!files || files.length === 0) {
-    return res.status(400).json({ code: 400, message: '没有上传文件' });
-  }
+// Upload multiple files — 手动调用 multer 以捕获错误
+router.post('/files', authMiddleware, (req: AuthRequest, res) => {
+  upload.array('files', 10)(req, res, (err: any) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? '文件大小超过 50MB 限制'
+        : err.message || '上传失败';
+      return res.status(400).json({ code: 400, message: msg });
+    }
 
-  const result = files.map(f => ({
-    name: Buffer.from(f.originalname, 'latin1').toString('utf8'),
-    size: f.size > 1024 * 1024
-      ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
-      : `${(f.size / 1024).toFixed(0)} KB`,
-    url: `/api/uploads/${f.filename}`,
-    filename: f.filename
-  }));
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ code: 400, message: '没有上传文件' });
+    }
 
-  return res.json({ code: 0, data: result });
+    const result = files.map(f => ({
+      name: Buffer.from(f.originalname, 'latin1').toString('utf8'),
+      size: f.size > 1024 * 1024
+        ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+        : `${(f.size / 1024).toFixed(0)} KB`,
+      url: `/api/uploads/${f.filename}`,
+      filename: f.filename
+    }));
+
+    return res.json({ code: 0, data: result });
+  });
 });
 
 // Serve uploaded files (download / preview) — requires authentication

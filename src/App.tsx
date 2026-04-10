@@ -1,5 +1,50 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, Suspense, lazy, Component } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { useIsMobile } from './hooks/useIsMobile';
+
+// 部署后旧 chunk 404 时自动刷新，避免白屏
+class ChunkErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  state = { hasError: false, error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    // chunk 加载失败（部署后 hash 变化）→ 自动刷新一次
+    if (error.message?.includes('Failed to fetch dynamically imported module') ||
+        error.message?.includes('Loading chunk') ||
+        error.message?.includes('Loading CSS chunk')) {
+      const key = 'chunk_reload_ts';
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (Date.now() - last > 10000) {
+        sessionStorage.setItem(key, String(Date.now()));
+        window.location.reload();
+        return;
+      }
+    }
+    console.error('Page render error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-slate-50 flex-col">
+          <div className="w-16 h-16 bg-red-100 rounded-3xl mb-6 flex items-center justify-center">
+            <span className="material-symbols-outlined text-red-500 text-3xl">error</span>
+          </div>
+          <h2 className="text-lg font-black text-slate-800 mb-2">页面加载异常</h2>
+          <p className="text-slate-400 text-xs mb-2 max-w-md text-center">{this.state.error?.message}</p>
+          <button onClick={() => window.location.reload()}
+            className="mt-4 px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all active:scale-95">
+            刷新页面
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'));
 const PersonalGoals = lazy(() => import('./pages/PersonalGoals'));
@@ -16,8 +61,8 @@ const PerfAccountingPage = lazy(() => import('./pages/PerfAccountingPage'));
 const CompetencyManager = lazy(() => import('./pages/CompetencyManager'));
 const TestBankManager = lazy(() => import('./pages/TestBankManager'));
 const MonthlyEvaluationPage = lazy(() => import('./pages/MonthlyEvaluationPage'));
+const SchedulePage = lazy(() => import('./pages/SchedulePage'));
 
-import DevRoleSwitcher from './components/DevRoleSwitcher';
 import Watermark from './components/Watermark';
 import FloatingAiChat from './components/FloatingAiChat';
 import GlobalToast from './components/GlobalToast';
@@ -61,7 +106,7 @@ export default function App() {
             <span className="material-symbols-outlined text-amber-600 text-3xl">warning</span>
           </div>
           <h2 className="text-lg font-black text-slate-800 mb-2">自动登录失败</h2>
-          <p className="text-slate-400 text-xs mb-8">请确认后端服务 (3001端口) 已启动</p>
+          <p className="text-slate-400 text-xs mb-8">请确认后端服务已启动</p>
           <button 
             onClick={() => window.location.reload()}
             className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all active:scale-95"
@@ -140,6 +185,8 @@ export default function App() {
         return <TestBankManager navigate={navigate} />;
       case 'monthly-eval':
         return <MonthlyEvaluationPage navigate={navigate} />;
+      case 'schedule':
+        return <SchedulePage navigate={navigate} />;
       default:
         return <EmployeeDashboard navigate={navigate} />;
     }
@@ -148,14 +195,15 @@ export default function App() {
   return (
     <>
       <div key={currentView} className={isMobile ? 'mobile-page-enter' : ''}>
-        <Suspense fallback={<GlobalPageSkeleton />}>
-          {renderView()}
-        </Suspense>
+        <ChunkErrorBoundary>
+          <Suspense fallback={<GlobalPageSkeleton />}>
+            {renderView()}
+          </Suspense>
+        </ChunkErrorBoundary>
       </div>
       <Watermark text={currentUser.name} />
       <FloatingAiChat />
       <GlobalToast />
-      <DevRoleSwitcher />
     </>
   );
 }

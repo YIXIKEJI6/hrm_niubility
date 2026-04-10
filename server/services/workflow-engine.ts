@@ -62,7 +62,21 @@ export function bootstrapWorkflows() {
  * 负责解析 resolver_type，防范死锁和死循环。
  */
 export class WorkflowEngine {
-  
+
+  /**
+   * 兜底管理员ID：优先读环境变量，否则从数据库查询 super_admin / admin 角色
+   */
+  static getFallbackAdminId(): string | null {
+    if (process.env.FALLBACK_ADMIN_ID) {
+      return process.env.FALLBACK_ADMIN_ID;
+    }
+    const db = getDb();
+    const admin = db.prepare(
+      "SELECT id FROM users WHERE role = 'super_admin' OR role = 'admin' ORDER BY CASE WHEN role = 'super_admin' THEN 0 ELSE 1 END LIMIT 1"
+    ).get() as any;
+    return admin?.id || null;
+  }
+
   /**
    * 按顺读取模板节点，根据参数上下文（发起人ID等）计算出每一节点的审核人
    */
@@ -124,6 +138,10 @@ export class WorkflowEngine {
               console.error('Failed to resolve delivery_target', e);
             }
           }
+          // 兜底：交付对象为空时，回退到任务发起人审批
+          if (assignees.length === 0 && context.taskCreatorId) {
+            assignees = [context.taskCreatorId];
+          }
           break;
         default:
           break;
@@ -139,12 +157,15 @@ export class WorkflowEngine {
         if (gmUsers.length > 0 && !gmUsers.includes(initiatorId)) {
           assignees = gmUsers;
           escalatedReason = '节点防自审拦截：审核人算法等同于发起人本人，强制升级至总经理';
-        } else if (initiatorId !== 'CaoGuiQiang') {
-          assignees = ['CaoGuiQiang'];
-          escalatedReason = '节点防自审拦截：强制触发兜底高级审核';
         } else {
-          // 最高统管发起的流程自审时，只能免审跳过
-          skipReason = 'Node skipped: Creator is Super Admin, Auto Skip';
+          const fallbackAdmin = WorkflowEngine.getFallbackAdminId();
+          if (fallbackAdmin && initiatorId !== fallbackAdmin) {
+            assignees = [fallbackAdmin];
+            escalatedReason = '节点防自审拦截：强制触发兜底高级审核';
+          } else {
+            // 最高统管发起的流程自审时，只能免审跳过
+            skipReason = 'Node skipped: Creator is Super Admin, Auto Skip';
+          }
         }
       } 
       // 2. 如果自己是发起人并且触发了 auto_skip_if_self 且并不是因为自审防线补救
@@ -164,7 +185,10 @@ export class WorkflowEngine {
           assignees = gmUsers; // 升级为最高权限审批
           escalatedReason = '流程缺位自动升格：无候选处理人，强制移交总经理';
         } else {
-          assignees = [ 'CaoGuiQiang' ]; // 硬底兜底
+          const fallbackAdmin = WorkflowEngine.getFallbackAdminId();
+          if (fallbackAdmin) {
+            assignees = [fallbackAdmin];
+          }
           escalatedReason = '流程缺位自动升格：移交最高管理员';
         }
       }

@@ -121,35 +121,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else if (!token) {
           // No token and no code — need to login
-          const isDev = (import.meta as any).env?.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-          const isTestServer = window.location.port === '4001';
-
-          if (isDev || isTestServer) {
-            // ★ 测试/开发环境：直接自动 Mock 登录，完全跳过企微认证
-            console.log('[AuthContext] 测试环境，自动 Mock 登录...');
-            try {
-              const mockRes = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: 'mock_code', userId: 'CaoGuiQiang' })
-              });
-              const mockData = await mockRes.json();
-              if (mockData.code === 0 && mockData.data?.token) {
-                localStorage.setItem('token', mockData.data.token);
-                setCurrentUser(mockData.data.user);
-                await fetchPerms();
-                console.log('[AuthContext] Mock 登录成功:', mockData.data.user.name);
-              } else {
-                console.error('[AuthContext] Mock 登录返回异常:', mockData);
-              }
-            } catch (mockErr) {
-              console.error('[AuthContext] Mock 登录网络错误:', mockErr);
-            }
-            setIsAuthenticating(false);
-            return;
-          }
-
-          // ── 以下仅在正式生产环境执行 ──
           if (isWecom) {
             window.location.href = '/api/auth/wecom-url';
             return;

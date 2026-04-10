@@ -9,12 +9,17 @@ const router = Router();
 
 // 创建绩效计划
 router.post('/plans', authMiddleware, async (req: AuthRequest, res) => {
-  const { title, description, category, assignee_id, approver_id, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments } = req.body;
+  const { title, description, category, assignee_id, approver_id, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments, informed_parties, delivery_target, max_participants, reward_type, bonus } = req.body;
   const db = getDb();
 
   // 兼容旧表
   try { db.exec("ALTER TABLE perf_plans ADD COLUMN collaborators TEXT"); } catch(e) {}
   try { db.exec("ALTER TABLE perf_plans ADD COLUMN attachments TEXT DEFAULT '[]'"); } catch(e) {}
+  try { db.exec("ALTER TABLE perf_plans ADD COLUMN informed_parties TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE perf_plans ADD COLUMN delivery_target TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE perf_plans ADD COLUMN max_participants INTEGER DEFAULT 5"); } catch(e) {}
+  try { db.exec("ALTER TABLE perf_plans ADD COLUMN reward_type TEXT DEFAULT 'money'"); } catch(e) {}
+  try { db.exec("ALTER TABLE perf_plans ADD COLUMN bonus REAL DEFAULT 0"); } catch(e) {}
 
   const attachmentsStr = attachments ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : '[]';
 
@@ -39,8 +44,8 @@ router.post('/plans', authMiddleware, async (req: AuthRequest, res) => {
   }
 
   const result = db.prepare(
-    `INSERT INTO perf_plans (title, description, category, creator_id, assignee_id, approver_id, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(title, description, category, req.userId, finalAssigneeId, finalApproverId, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators || null, attachmentsStr);
+    `INSERT INTO perf_plans (title, description, category, creator_id, assignee_id, approver_id, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments, informed_parties, delivery_target, max_participants, reward_type, bonus) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(title, description, category, req.userId, finalAssigneeId, finalApproverId, department_id, difficulty, deadline, quarter, alignment, target_value, collaborators || null, attachmentsStr, informed_parties || null, delivery_target || null, max_participants || 5, reward_type || 'money', bonus || 0);
 
 
   // 流程异常检测：创建时缺少审批人则通知HR
@@ -188,13 +193,13 @@ router.get('/plans/:id', authMiddleware, (req, res) => {
 
 // 编辑绩效计划 (草稿 or 被驳回均可编辑)
 router.put('/plans/:id', authMiddleware, (req: AuthRequest, res) => {
-  const { title, description, category, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments } = req.body;
+  const { title, description, category, difficulty, deadline, quarter, alignment, target_value, collaborators, attachments, informed_parties, delivery_target, max_participants, reward_type, bonus } = req.body;
   const db = getDb();
 
   const attachmentsStr = attachments !== undefined ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : undefined;
-  const updates = ['title=?', 'description=?', 'category=?', 'difficulty=?', 'deadline=?', 'quarter=?', 'alignment=?', 'target_value=?', 'collaborators=?', 'updated_at=?'];
-  const params = [title, description, category, difficulty, deadline, quarter, alignment, target_value, collaborators || null, new Date().toISOString()];
-  
+  const updates = ['title=?', 'description=?', 'category=?', 'difficulty=?', 'deadline=?', 'quarter=?', 'alignment=?', 'target_value=?', 'collaborators=?', 'informed_parties=?', 'delivery_target=?', 'max_participants=?', 'reward_type=?', 'bonus=?', 'updated_at=?'];
+  const params: any[] = [title, description, category, difficulty, deadline, quarter, alignment, target_value, collaborators || null, informed_parties || null, delivery_target || null, max_participants || 5, reward_type || 'money', bonus || 0, new Date().toISOString()];
+
   if (attachmentsStr !== undefined) {
     updates.push('attachments=?');
     params.push(attachmentsStr);
@@ -214,11 +219,18 @@ router.post('/plans/:id/resubmit', authMiddleware, async (req: AuthRequest, res)
   if (plan.status !== 'rejected' && plan.status !== 'returned') return res.status(400).json({ code: 400, message: '只有被驳回或退回的计划可以重新提交' });
 
   // 更新字段
-  const { title, description, category, target_value, deadline, collaborators } = req.body;
+  const { title, description, category, target_value, deadline, collaborators, attachments, informed_parties, delivery_target, max_participants, reward_type, bonus } = req.body;
   if (title) {
-    db.prepare(
-      `UPDATE perf_plans SET title=?, description=?, category=?, target_value=?, deadline=?, collaborators=?, reject_reason=NULL, updated_at=? WHERE id = ?`
-    ).run(title, description, category, target_value, deadline, collaborators || null, new Date().toISOString(), req.params.id);
+    const attachmentsStr = attachments !== undefined ? (typeof attachments === 'string' ? attachments : JSON.stringify(attachments)) : undefined;
+    let sql = `UPDATE perf_plans SET title=?, description=?, category=?, target_value=?, deadline=?, collaborators=?, informed_parties=?, delivery_target=?, max_participants=?, reward_type=?, bonus=?, reject_reason=NULL, updated_at=?`;
+    const params: any[] = [title, description, category, target_value, deadline, collaborators || null, informed_parties || null, delivery_target || null, max_participants || 5, reward_type || 'money', bonus || 0, new Date().toISOString()];
+    if (attachmentsStr !== undefined) {
+      sql += ', attachments=?';
+      params.push(attachmentsStr);
+    }
+    sql += ' WHERE id = ?';
+    params.push(req.params.id);
+    db.prepare(sql).run(...params);
   } else {
     db.prepare(`UPDATE perf_plans SET reject_reason=NULL, updated_at=? WHERE id = ?`).run(new Date().toISOString(), req.params.id);
   }
@@ -231,11 +243,15 @@ router.post('/plans/:id/resubmit', authMiddleware, async (req: AuthRequest, res)
   let nextStatus = 'pending_review';
   let firstApproverId = node2?.assignees?.[0] || null;
 
+  // Fix #3/#9: 清除旧的审批人和驳回原因，防止残留脏数据
+  db.prepare('UPDATE perf_plans SET approver_id = NULL, dept_head_id = NULL, reject_reason = NULL WHERE id = ?').run(plan.id);
+
   if (node2?.isSkipped || !firstApproverId) {
     nextStatus = 'pending_dept_review';
     let secondApproverId = node3?.assignees?.[0] || null;
     if (node3?.isSkipped || !secondApproverId) {
-      nextStatus = 'approved';
+      // 所有审批人缺失，拒绝自动通过
+      return res.status(400).json({ code: 400, message: '审批流程异常：未找到任何有效审批人，请联系 HR 配置组织架构' });
     } else {
       db.prepare('UPDATE perf_plans SET dept_head_id = ? WHERE id = ?').run(secondApproverId, plan.id);
     }
@@ -251,9 +267,6 @@ router.post('/plans/:id/resubmit', authMiddleware, async (req: AuthRequest, res)
   } else if (nextStatus === 'pending_dept_review') {
       await transitionPlan(plan.id, 'pending_review', req.userId!);
       await transitionPlan(plan.id, 'pending_dept_review', req.userId!);
-  } else {
-      await transitionPlan(plan.id, 'pending_review', req.userId!);
-      await transitionPlan(plan.id, 'approved', req.userId!);
   }
 
   db.prepare('INSERT INTO perf_logs (plan_id, user_id, action, old_value, new_value, comment) VALUES (?, ?, ?, ?, ?, ?)').run(
@@ -261,7 +274,7 @@ router.post('/plans/:id/resubmit', authMiddleware, async (req: AuthRequest, res)
   );
   logAudit({ businessType: 'perf_plan', businessId: Number(req.params.id), actorId: req.userId!, action: 'resubmit', fromStatus: plan.status, toStatus: nextStatus });
 
-  return res.json({ code: 0, message: nextStatus === 'approved' ? '免审通过' : '已重新提交审批' });
+  return res.json({ code: 0, message: '已重新提交审批' });
 });
 
 // 撤回：在审批人未审核前，发起人可以撤回
@@ -287,8 +300,16 @@ router.post('/plans/:id/return', authMiddleware, async (req: AuthRequest, res) =
   const db = getDb();
   const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(req.params.id) as any;
   if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
-  if (plan.assignee_id !== req.userId) return res.status(403).json({ code: 403, message: '只有被指派人可以退回' });
   if (plan.status !== 'in_progress') return res.json({ code: 400, message: '只有进行中的任务可以退回' });
+
+  // 支持多执行人校验 + 负责人(A)也可退回
+  const assigneeList = (plan.assignee_id || '').split(',').map((s: string) => s.trim().toLowerCase());
+  const isAssignee = assigneeList.includes(String(req.userId).toLowerCase());
+  const isApprover = plan.approver_id === req.userId;
+  const isAdmin = isGM(req.userId) || isSuperAdmin(req.userId);
+  if (!isAssignee && !isApprover && !isAdmin) {
+    return res.status(403).json({ code: 403, message: '仅执行人(R)或负责人(A)可退回任务' });
+  }
 
   const result = await transitionPlan(Number(req.params.id), 'returned', req.userId!, { comment: reason || '被指派人退回' });
   return res.json({ code: result.success ? 0 : 400, message: result.success ? '已退回，发起人将收到通知' : result.message });
@@ -342,8 +363,8 @@ router.post('/plans/:id/submit', authMiddleware, async (req: AuthRequest, res) =
     nextStatus = 'pending_dept_review';
     let secondApproverId = node3?.assignees?.[0] || null;
     if (node3?.isSkipped || !secondApproverId) {
-      // 二审也跳过 → 全部跳过自动通过
-      nextStatus = 'approved';
+      // 二审也跳过 → 所有审批人缺失，拒绝自动通过
+      return res.status(400).json({ code: 400, message: '审批流程异常：未找到任何有效审批人，请联系 HR 配置组织架构' });
     } else {
       db.prepare('UPDATE perf_plans SET dept_head_id = ? WHERE id = ?').run(secondApproverId, plan.id);
     }
@@ -358,12 +379,9 @@ router.post('/plans/:id/submit', authMiddleware, async (req: AuthRequest, res) =
   } else if (nextStatus === 'pending_dept_review') {
       await transitionPlan(plan.id, 'pending_review', req.userId!, { silent: true } as any);
       await transitionPlan(plan.id, 'pending_dept_review', req.userId!);
-  } else {
-      await transitionPlan(plan.id, 'pending_review', req.userId!, { silent: true } as any);
-      await transitionPlan(plan.id, 'approved', req.userId!);
   }
 
-  return res.json({ code: 0, message: nextStatus === 'approved' ? '系统自动免审流转到执行中' : '已提交审批' });
+  return res.json({ code: 0, message: '已提交审批' });
 });
 
 // 审批通过
@@ -373,6 +391,11 @@ router.post('/plans/:id/approve', authMiddleware, async (req: AuthRequest, res) 
   const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
   if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
 
+  // 并发双重审批防护：在处理前重新验证状态，拒绝非审批态的请求
+  if (!['pending_review', 'pending_dept_review'].includes(plan.status)) {
+    return res.status(400).json({ code: 400, message: `当前状态 (${plan.status}) 不支持审批操作` });
+  }
+
   const { WorkflowEngine, WORKFLOWS } = await import('../services/workflow-engine');
   const nodes = WorkflowEngine.resolveAssignees(WORKFLOWS.PERF_PLAN, { initiatorId: plan.creator_id, deptId: plan.department_id });
   const node2 = nodes.find(n => n.seq === 2); // 一审: 直属负责
@@ -380,8 +403,8 @@ router.post('/plans/:id/approve', authMiddleware, async (req: AuthRequest, res) 
 
   const isAdminOrGM = isGM(req.userId) || isSuperAdmin(req.userId);
 
-  // 发起人自身拦截 (若非最高权限兜底)
-  if (plan.creator_id === req.userId && !isAdminOrGM) {
+  // 发起人自身拦截（所有人包括管理员都不能审批自己的计划）
+  if (plan.creator_id === req.userId) {
     return res.status(403).json({ code: 403, message: '发起人不能审批自己提交的计划' });
   }
 
@@ -418,8 +441,8 @@ router.post('/plans/:id/approve', authMiddleware, async (req: AuthRequest, res) 
     return res.json({ code: result.success ? 0 : 400, message: result.message });
   }
 
-  const result = await transitionPlan(planId, 'approved', req.userId!);
-  return res.json({ code: result.success ? 0 : 400, message: result.message });
+  // 状态守卫已在入口拦截，此处不应到达
+  return res.status(400).json({ code: 400, message: `当前状态 (${plan.status}) 不支持审批操作` });
 });
 
 // 驳回
@@ -436,8 +459,8 @@ router.post('/plans/:id/reject', authMiddleware, async (req: AuthRequest, res) =
 
   const isAdminOrGM = isGM(req.userId) || isSuperAdmin(req.userId);
 
-  // ── 禁止自审驳回 ──
-  if (plan.creator_id === req.userId && !isAdminOrGM) {
+  // ── 禁止自审驳回（所有人包括管理员都不能驳回自己的计划）──
+  if (plan.creator_id === req.userId) {
     return res.status(403).json({ code: 403, message: '发起人不能驳回自己提交的计划' });
   }
   
@@ -467,13 +490,28 @@ router.post('/plans/:id/review', authMiddleware, async (req: AuthRequest, res) =
 
   if (action === 'transfer' && transfer_to) {
     const db = (await import('../config/database')).getDb();
-    const plan = db.prepare('SELECT status FROM perf_plans WHERE id = ?').get(planId) as any;
+    const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
     if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
+
+    // 校验：不能将审批转交给计划发起人（避免自审批）
+    if (transfer_to === plan.creator_id) {
+      return res.status(400).json({ code: 400, message: '不能将审批转交给计划发起人' });
+    }
+
+    const isAdminOrGM = isGM(req.userId) || isSuperAdmin(req.userId);
 
     let updateSql = '';
     if (plan.status === 'pending_review' || plan.status === 'published') {
+      // 只有当前审批人或 admin/GM 才能转办
+      if (req.userId !== plan.approver_id && !isAdminOrGM) {
+        return res.status(403).json({ code: 403, message: '仅当前审批人可转办此节点' });
+      }
       updateSql = 'UPDATE perf_plans SET approver_id = ? WHERE id = ?';
     } else if (plan.status === 'pending_dept_review') {
+      // 只有当前部门审批人或 admin/GM 才能转办
+      if (req.userId !== plan.dept_head_id && !isAdminOrGM) {
+        return res.status(403).json({ code: 403, message: '仅当前部门审批人可转办此节点' });
+      }
       updateSql = 'UPDATE perf_plans SET dept_head_id = ? WHERE id = ?';
     } else {
       return res.status(400).json({ code: 400, message: '当前阶段不可转办' });
@@ -500,10 +538,55 @@ router.post('/plans/:id/review', authMiddleware, async (req: AuthRequest, res) =
 
   switch (action) {
     case 'approve': {
+      const plan4approve = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+      if (!plan4approve) return res.status(404).json({ code: 404, message: '计划不存在' });
+
+      // 并发双重审批防护
+      if (!['pending_review', 'pending_dept_review'].includes(plan4approve.status)) {
+        return res.status(400).json({ code: 400, message: `当前状态 (${plan4approve.status}) 不支持审批操作` });
+      }
+
+      // 发起人不能审批自己的计划
+      if (plan4approve.creator_id === req.userId) {
+        return res.status(403).json({ code: 403, message: '发起人不能审批自己提交的计划' });
+      }
+
+      const isAdminOrGM = isGM(req.userId) || isSuperAdmin(req.userId);
+
+      if (plan4approve.status === 'pending_review') {
+        // 一审：必须是 approver_id 或 admin/GM
+        if (req.userId !== plan4approve.approver_id && !isAdminOrGM) {
+          return res.status(403).json({ code: 403, message: '您不是该计划的审批人，无权审批' });
+        }
+      } else if (plan4approve.status === 'pending_dept_review') {
+        // 二审：必须是 dept_head_id 或 admin/GM
+        if (req.userId !== plan4approve.dept_head_id && !isAdminOrGM) {
+          return res.status(403).json({ code: 403, message: '您不是该计划的部门审批人，无权审批' });
+        }
+      }
+
       const result = await transitionPlan(planId, 'approved', req.userId!, { attachments });
       return res.json({ code: result.success ? 0 : 400, message: result.message });
     }
     case 'reject': {
+      const plan4reject = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+      if (!plan4reject) return res.status(404).json({ code: 404, message: '计划不存在' });
+
+      if (!['pending_review', 'pending_dept_review'].includes(plan4reject.status)) {
+        return res.status(400).json({ code: 400, message: `当前状态 (${plan4reject.status}) 不支持驳回操作` });
+      }
+
+      const isAdminOrGM_r = isGM(req.userId) || isSuperAdmin(req.userId);
+      if (plan4reject.status === 'pending_review') {
+        if (req.userId !== plan4reject.approver_id && !isAdminOrGM_r) {
+          return res.status(403).json({ code: 403, message: '您不是该计划的审批人，无权驳回' });
+        }
+      } else if (plan4reject.status === 'pending_dept_review') {
+        if (req.userId !== plan4reject.dept_head_id && !isAdminOrGM_r) {
+          return res.status(403).json({ code: 403, message: '您不是该计划的部门审批人，无权驳回' });
+        }
+      }
+
       const result = await transitionPlan(planId, 'rejected', req.userId!, { comment: reason, attachments });
       return res.json({ code: result.success ? 0 : 400, message: result.message });
     }
@@ -548,7 +631,21 @@ router.post('/plans/:id/review', authMiddleware, async (req: AuthRequest, res) =
       return res.status(400).json({ code: 400, message: '日常绩效评级后直接结案，无需经过发钱环节。悬赏任务请使用 /pool/rewards 流程' });
     }
     case 'return': {
-      // Allow returning to returned status, passing attachments too (custom logic if needed)
+      const plan4return = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+      if (!plan4return) return res.status(404).json({ code: 404, message: '计划不存在' });
+
+      if (plan4return.status !== 'in_progress') {
+        return res.status(400).json({ code: 400, message: '只有进行中的任务可以退回' });
+      }
+
+      // 执行人(R)、负责人(A)、admin/GM 可退回
+      const assignees = (plan4return.assignee_id || '').split(',').map((s: string) => s.trim().toLowerCase());
+      const isAssignee = assignees.includes(String(req.userId).toLowerCase());
+      const isApprover = plan4return.approver_id === req.userId;
+      if (!isAssignee && !isApprover && !isGM(req.userId) && !isSuperAdmin(req.userId)) {
+        return res.status(403).json({ code: 403, message: '仅执行人(R)或负责人(A)可退回任务' });
+      }
+
       const result = await transitionPlan(planId, 'returned', req.userId!, { comment: reason, attachments });
       return res.json({ code: result.success ? 0 : 400, message: result.message });
     }
@@ -611,38 +708,47 @@ router.post('/plans/:id/dispatch', authMiddleware, async (req: AuthRequest, res)
 router.post('/plans/:id/confirm-receipt', authMiddleware, async (req: AuthRequest, res) => {
   const db = getDb();
   const planId = Number(req.params.id);
-  const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
-  if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
-  if (plan.status !== 'pending_receipt') return res.status(400).json({ code: 400, message: '当前状态非待签收' });
 
-  let receiptStatus: Record<string, string> = {};
-  try { receiptStatus = JSON.parse(plan.receipt_status || '{}'); } catch {}
+  // 用事务包裹签收逻辑，防止并发签收丢失确认状态
+  const txResult = db.transaction(() => {
+    const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+    if (!plan) return { error: 404, message: '计划不存在' };
+    if (plan.status !== 'pending_receipt') return { error: 400, message: '当前状态非待签收' };
 
-  if (!receiptStatus[req.userId!]) {
-    return res.status(403).json({ code: 403, message: '您不在签收名单中' });
+    let receiptStatus: Record<string, string> = {};
+    try { receiptStatus = JSON.parse(plan.receipt_status || '{}'); } catch {}
+
+    if (!receiptStatus[req.userId!]) {
+      return { error: 403, message: '您不在签收名单中' };
+    }
+    if (receiptStatus[req.userId!] === 'confirmed') {
+      return { ok: true, message: '您已签收过', allConfirmed: false, plan };
+    }
+
+    receiptStatus[req.userId!] = 'confirmed';
+    db.prepare(`UPDATE perf_plans SET receipt_status = ?, updated_at = ? WHERE id = ?`)
+      .run(JSON.stringify(receiptStatus), new Date().toISOString(), planId);
+
+    db.prepare('INSERT INTO perf_logs (plan_id, user_id, action, old_value, new_value, comment) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(planId, req.userId, 'confirm_receipt', 'pending', 'confirmed', '已确认查收');
+
+    const allConfirmed = Object.values(receiptStatus).every(s => s === 'confirmed');
+    return { ok: true, allConfirmed, plan };
+  })();
+
+  if ('error' in txResult) {
+    return res.status(txResult.error).json({ code: txResult.error, message: txResult.message });
   }
-  if (receiptStatus[req.userId!] === 'confirmed') {
-    return res.json({ code: 0, message: '您已签收过' });
-  }
 
-  receiptStatus[req.userId!] = 'confirmed';
-  db.prepare(`UPDATE perf_plans SET receipt_status = ?, updated_at = ? WHERE id = ?`)
-    .run(JSON.stringify(receiptStatus), new Date().toISOString(), planId);
-
-  db.prepare('INSERT INTO perf_logs (plan_id, user_id, action, old_value, new_value, comment) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(planId, req.userId, 'confirm_receipt', 'pending', 'confirmed', '已确认查收');
-
-  // 检查是否全部签收
-  const allConfirmed = Object.values(receiptStatus).every(s => s === 'confirmed');
-  if (allConfirmed) {
+  // 检查是否全部签收（通知逻辑在事务外执行，避免事务内做异步IO）
+  if (txResult.allConfirmed && txResult.plan) {
     const { createNotification } = await import('./notifications');
-    // 通知 A 可以发车了
-    if (plan.approver_id) {
-      createNotification([plan.approver_id], 'workflow_pending', '🟢 全员已签收', `任务「${plan.title}」所有成员已确认签收，您可以发起任务了`, '/my-goals');
+    if (txResult.plan.approver_id) {
+      createNotification([txResult.plan.approver_id], 'workflow_pending', '🟢 全员已签收', `任务「${txResult.plan.title}」所有成员已确认签收，您可以发起任务了`, '/my-goals');
     }
   }
 
-  return res.json({ code: 0, message: '签收成功' + (allConfirmed ? '，全员已到齐' : '') });
+  return res.json({ code: 0, message: '签收成功' + (txResult.allConfirmed ? '，全员已到齐' : '') });
 });
 
 // R/A 拒签
@@ -685,12 +791,11 @@ router.post('/plans/:id/start-task', authMiddleware, async (req: AuthRequest, re
   if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
   if (plan.status !== 'pending_receipt') return res.status(400).json({ code: 400, message: '当前状态非待签收' });
 
-  // 发车权限: 允许负责人(A)或执行人(R)发车
-  const isR = typeof plan.assignee_id === 'string' && plan.assignee_id.toLowerCase().includes(String(req.userId).toLowerCase());
+  // 发车权限: 仅负责人(A)可启动任务
   const isA = typeof plan.approver_id === 'string' && plan.approver_id.toLowerCase() === String(req.userId).toLowerCase();
-  
-  if (!isR && !isA && !isGM(req.userId) && !isSuperAdmin(req.userId)) {
-    return res.status(403).json({ code: 403, message: '仅执行人(R)或负责人(A)可发起任务' });
+
+  if (!isA && !isGM(req.userId) && !isSuperAdmin(req.userId)) {
+    return res.status(403).json({ code: 403, message: '仅负责人(A)可启动任务' });
   }
 
   // 检查全员签收
@@ -779,10 +884,18 @@ router.get('/team-status', authMiddleware, (req: AuthRequest, res) => {
   } else {
   // ── 默认：按部门归属推算 ──────────────────────────────────────────────
   const leaderDepts = db.prepare('SELECT id FROM departments WHERE leader_user_id = ?').all(req.userId) as any[];
-  
-  let deptIds = new Set<any>();
+
+  // 递归收集该部门及所有子部门的 ID
+  function getAllDeptIds(id: number): number[] {
+    const children = db.prepare('SELECT id FROM departments WHERE parent_id = ?').all(id) as any[];
+    return [id, ...children.flatMap((c: any) => getAllDeptIds(c.id))];
+  }
+
+  let deptIds = new Set<number>();
   if (userDeptId) deptIds.add(userDeptId);
-  leaderDepts.forEach(d => deptIds.add(d.id));
+  leaderDepts.forEach(d => {
+    getAllDeptIds(d.id).forEach(id => deptIds.add(id));
+  });
   
   const finalDeptIds = Array.from(deptIds);
 

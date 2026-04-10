@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
+import SmartTaskModal from '../components/SmartTaskModal';
 
 interface EvalTask {
   reviewer_task_id: number;
@@ -129,6 +130,9 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
   const [targetTasks, setTargetTasks] = useState<any[]>([]);
   const [targetTasksLoading, setTargetTasksLoading] = useState(false);
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  const [previewTask, setPreviewTask] = useState<any>(null);
+  const [progressDetail, setProgressDetail] = useState<any>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
 
   // HR 管理专用状态
   const [hrEmployees, setHrEmployees] = useState<any[]>([]);
@@ -140,6 +144,7 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
   const [isPublishing, setIsPublishing] = useState(false);
   const [deadline, setDeadline] = useState('');   // 考评截止日
   const [remindMsg, setRemindMsg] = useState('');  // 折办反馈
+  const [hrSearch, setHrSearch] = useState('');     // HR控制台搜索
 
   const fetchTasks = async () => {
     setLoading(true);
@@ -163,6 +168,19 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
       setTargetTasks(data.data || []);
     } catch(e) {}
     setTargetTasksLoading(false);
+  };
+
+  const fetchEvalProgress = async (userId: string, userName: string) => {
+    setProgressLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/monthly-eval/hr/eval-progress?userId=${userId}&month=${triggerMonth}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0 && data.data) {
+        setProgressDetail({ ...data.data, user_name: userName });
+      }
+    } catch(e) {}
+    setProgressLoading(false);
   };
 
   const fetchHrData = async () => {
@@ -480,17 +498,37 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                     <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-widest">
                       <tr>
                         <th className="px-6 py-4 w-10 text-center text-slate-300">#</th>
-                        <th className="px-6 py-4">被评人名片</th>
+                        <th className="px-6 py-3">
+                          <div className="flex items-center gap-2">
+                            <span>被评人名片</span>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={hrSearch}
+                                onChange={e => setHrSearch(e.target.value)}
+                                placeholder="搜索姓名 / 部门..."
+                                className="pl-7 pr-7 py-1.5 text-xs font-medium normal-case tracking-normal rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 w-44 transition-all placeholder:text-slate-300"
+                              />
+                              <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[14px] text-slate-300">search</span>
+                              {hrSearch && (
+                                <button onClick={() => setHrSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors">
+                                  <span className="material-symbols-outlined text-[14px]">close</span>
+                                </button>
+                              )}
+                            </div>
+                            {hrSearch && <span className="text-[10px] font-medium text-indigo-400 normal-case tracking-normal">{hrEmployees.filter(u => u.user_name?.includes(hrSearch) || u.department_name?.includes(hrSearch)).length}/{hrEmployees.length}</span>}
+                          </div>
+                        </th>
                         <th className="px-6 py-4">月份进度追踪</th>
                         <th className="px-6 py-4 text-right">精细化操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {hrEmployees.map(u => {
+                      {hrEmployees.filter(u => !hrSearch || u.user_name?.includes(hrSearch) || u.department_name?.includes(hrSearch)).map(u => {
                         const isComplete = u.eval_status === 'completed';
                         let statusEl = <span className="text-slate-400 font-bold bg-slate-100 px-2.5 py-1 rounded-md">未排发</span>;
-                        if (u.eval_status === 'pending') statusEl = <span className="text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-md"><span className="animate-pulse mr-1">•</span> 打分采集中</span>;
-                        if (isComplete) statusEl = <span className="text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md">✅ 已轧帐 ({u.final_score}分)</span>;
+                        if (u.eval_status === 'pending') statusEl = <button onClick={() => fetchEvalProgress(u.user_id, u.user_name)} className="text-amber-600 font-bold bg-amber-50 px-2.5 py-1 rounded-md hover:bg-amber-100 hover:shadow-sm transition-all cursor-pointer border border-transparent hover:border-amber-200"><span className="animate-pulse mr-1">•</span> 打分采集中 <span className="material-symbols-outlined text-[14px] align-middle ml-0.5">visibility</span></button>;
+                        if (isComplete) statusEl = <button onClick={() => fetchEvalProgress(u.user_id, u.user_name)} className="text-emerald-600 font-bold bg-emerald-50 px-2.5 py-1 rounded-md hover:bg-emerald-100 hover:shadow-sm transition-all cursor-pointer border border-transparent hover:border-emerald-200">✅ 已轧帐 ({u.final_score}分) <span className="material-symbols-outlined text-[14px] align-middle ml-0.5">visibility</span></button>;
                         
                         return (
                           <tr key={u.user_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
@@ -607,7 +645,7 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                 <div className="p-6 border-b border-slate-100 dark:border-slate-700">
                   <h3 className="font-black text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-4">
                     <span className="material-symbols-outlined text-indigo-500">history_edu</span>
-                    被评人 {scoringTask.month} 核心任务交付参考
+                    被评人历史任务交付参考
                   </h3>
                   <div className="relative">
                     <span className="material-symbols-outlined absolute left-3 top-2.5 text-slate-400">search</span>
@@ -626,24 +664,41 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                   ) : targetTasks.length === 0 ? (
                     <div className="py-20 text-center text-slate-400 font-bold flex flex-col items-center gap-2">
                        <span className="material-symbols-outlined text-5xl">inventory_2</span>
-                       该员工当月未在系统中留下完结任务轨迹
+                       该员工暂无任务记录
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {targetTasks.filter(t => (t.title && t.title.includes(taskSearchQuery)) || (t.description && t.description.includes(taskSearchQuery))).map(t => (
-                        <div key={t.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
-                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-bold text-slate-800 dark:text-slate-200 flex-1">{t.title}</h4>
-                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-wider rounded-lg border border-emerald-100">完结</span>
+                      {targetTasks.filter(t => (t.title && t.title.includes(taskSearchQuery)) || (t.description && t.description.includes(taskSearchQuery))).map(t => {
+                        const statusMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
+                          completed: { label: '完结', bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-100' },
+                          approved: { label: '已审批', bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-100' },
+                          assessed: { label: '已评级', bg: 'bg-teal-50', text: 'text-teal-600', border: 'border-teal-100' },
+                          in_progress: { label: '进行中', bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-100' },
+                          pending_receipt: { label: '待签收', bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-100' },
+                          pending_assessment: { label: '待评级', bg: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-100' },
+                          submitted: { label: '已提交', bg: 'bg-sky-50', text: 'text-sky-600', border: 'border-sky-100' },
+                          rejected: { label: '已驳回', bg: 'bg-red-50', text: 'text-red-500', border: 'border-red-100' },
+                        };
+                        const st = statusMap[t.status] || { label: t.status, bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200' };
+                        return (
+                          <div key={t.id} onClick={() => setPreviewTask(t)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all group">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-bold text-slate-800 dark:text-slate-200 flex-1 group-hover:text-indigo-600 transition-colors">{t.title}</h4>
+                              <span className={`px-2 py-0.5 ${st.bg} ${st.text} text-[10px] font-black uppercase tracking-wider rounded-lg border ${st.border} shrink-0 ml-2`}>{st.label}</span>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-3 line-clamp-2 leading-relaxed">{t.description}</p>
+                            <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                              {t.progress != null && <span className="px-2 py-1 bg-blue-50 text-blue-500 rounded-md border border-blue-100">进度: {t.progress}%</span>}
+                              <span className="px-2 py-1 bg-slate-50 text-slate-500 rounded-md border border-slate-100">衡量标准: {t.metric || '-'}</span>
+                              <span className="px-2 py-1 bg-slate-50 text-slate-500 rounded-md border border-slate-100">验收得分: {t.score != null ? t.score : '未评'}</span>
+                              <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md border border-indigo-100">奖金标的: ¥{t.reward != null ? t.reward : 0}</span>
+                            </div>
+                            <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span className="material-symbols-outlined text-xs">open_in_new</span>点击查看详情
+                            </div>
                           </div>
-                          <p className="text-xs text-slate-500 mb-3 line-clamp-2 leading-relaxed">{t.description}</p>
-                          <div className="flex flex-wrap gap-2 text-[11px] font-bold">
-                            <span className="px-2 py-1 bg-slate-50 text-slate-500 rounded-md border border-slate-100">衡量标准: {t.metric || '-'}</span>
-                            <span className="px-2 py-1 bg-slate-50 text-slate-500 rounded-md border border-slate-100">验收得分: {t.score != null ? t.score : '未评'}</span>
-                            <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md border border-indigo-100">奖金标的: ¥{t.reward != null ? t.reward : 0}</span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -692,6 +747,108 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
             </div>
           </div>
         </div>
+      )}
+
+      {/* 打分进度详情弹窗 */}
+      {progressDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setProgressDetail(null)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+              <h3 className="text-lg font-black flex items-center gap-2">
+                <span className="material-symbols-outlined text-indigo-500">fact_check</span>
+                {progressDetail.user_name} · {triggerMonth} 打分进度
+              </h3>
+              <button onClick={() => setProgressDetail(null)} className="text-slate-400 hover:bg-slate-100 p-1.5 rounded-full transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              {(() => {
+                const roleLabels: Record<string, string> = { self: '自评', manager: '主管直评', prof: '专业环评', peer: '关联人环评' };
+                const roleWeights: Record<string, string> = { self: '20%', manager: '30%', prof: '40%', peer: '10%' };
+                const reviewers = progressDetail.reviewers || [];
+                const grouped = ['self', 'manager', 'prof', 'peer'].map(role => ({
+                  role,
+                  label: roleLabels[role] || role,
+                  weight: roleWeights[role] || '',
+                  items: reviewers.filter((r: any) => r.role === role),
+                }));
+                const totalCount = reviewers.length;
+                const doneCount = reviewers.filter((r: any) => r.status === 'submitted').length;
+                return (
+                  <>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex-1 bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                        <div className="bg-gradient-to-r from-indigo-500 to-blue-500 h-full rounded-full transition-all duration-500" style={{ width: totalCount > 0 ? `${(doneCount / totalCount) * 100}%` : '0%' }} />
+                      </div>
+                      <span className="text-sm font-black text-slate-600 tabular-nums">{doneCount}/{totalCount}</span>
+                    </div>
+                    {grouped.map(g => (
+                      <div key={g.role} className="bg-slate-50 dark:bg-slate-900/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-black text-slate-700 dark:text-slate-200">{g.label}</span>
+                          <span className="text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded border border-slate-200">权重 {g.weight}</span>
+                        </div>
+                        {g.items.length === 0 ? (
+                          <p className="text-xs text-slate-400">未配置</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {g.items.map((r: any) => (
+                              <div key={r.id} className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 h-6 flex items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600 text-[10px] font-black">{(r.reviewer_name || '?').charAt(0)}</div>
+                                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{r.reviewer_name || r.reviewer_id}</span>
+                                </div>
+                                {r.status === 'submitted' ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg font-black text-emerald-600 tabular-nums">{r.score}</span>
+                                    <span className="text-[10px] text-emerald-500 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">已提交</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-amber-500 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 animate-pulse">待打分</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {progressDetail.status === 'completed' && progressDetail.final_score != null && (
+                      <div className="mt-4 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl p-4 border border-indigo-100 text-center">
+                        <p className="text-xs text-indigo-400 font-bold mb-1">加权最终得分</p>
+                        <p className="text-4xl font-black text-indigo-600 tabular-nums">{Math.round(progressDetail.final_score * 10) / 10}</p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 任务详情弹窗 */}
+      {previewTask && (
+        <SmartTaskModal
+          isOpen={true}
+          onClose={() => setPreviewTask(null)}
+          onSubmit={() => {}}
+          title="任务详情"
+          type="personal"
+          users={[]}
+          initialData={{
+            id: String(previewTask.id),
+            title: previewTask.title,
+            description: previewTask.description,
+            status: previewTask.status,
+            metric: previewTask.metric,
+            target: previewTask.target,
+            score: previewTask.score,
+            progress: previewTask.progress,
+            reward: previewTask.reward,
+          }}
+          readonly={true}
+        />
       )}
 
     </div>
