@@ -42,7 +42,7 @@
 
 ### 5. 清理开发代码（临时）
 
-在构建前，临时修改以下文件以移除开发专用功能：
+**重要**：部署脚本内部会自行执行 `npm run build:all`，所以必须在运行脚本**之前**清理开发代码。
 
 #### 5.1 移除 DevRoleSwitcher
 
@@ -58,16 +58,17 @@
   - 从 `if (!token && (isDev || isTestServer)) {` 开始
   - 到对应的 `setIsAuthenticating(false); return; }` 结束
 
-### 6. 构建验证
+### 6. 执行生产部署脚本
 
-运行 `npm run build`。
+运行 `bash scripts/deploy-aliyun-win.sh`。
 
-- 如果构建失败，**先恢复文件**再报告错误
-- 构建成功则继续
+脚本自动完成：构建 → 打包 → SCP 上传 → SSH 解压 → Restart-Service HrmNiubility
+
+- 如果脚本失败，**先恢复文件**再报告错误
 
 ### 7. 恢复开发代码
 
-构建完成后，立即恢复被修改的文件：
+部署脚本执行完成后，立即恢复被修改的文件：
 
 ```bash
 git checkout -- src/App.tsx src/context/AuthContext.tsx
@@ -75,13 +76,7 @@ git checkout -- src/App.tsx src/context/AuthContext.tsx
 
 确保本地代码恢复到包含 DevRoleSwitcher 和 Mock 登录的完整状态。
 
-### 8. 执行生产部署脚本
-
-运行 `bash scripts/deploy-aliyun-win.sh`。
-
-脚本自动完成：打包 → SCP 上传 → SSH 解压 → Restart-Service HrmNiubility
-
-### 9. 汇报结果
+### 8. 汇报结果
 
 - commit hash
 - GitHub 推送状态
