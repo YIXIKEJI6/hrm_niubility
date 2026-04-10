@@ -4,7 +4,7 @@
 
 生产部署会 **临时移除** DevRoleSwitcher 和 Mock 登录代码后构建，确保生产包不含开发功能。
 
-用户可通过 `$ARGUMENTS` 提供 commit message，如未提供则自动生成。
+用户可通过 `$ARGUMENTS` 提供版本号或 commit message，如未提供则自动递增。
 
 ## 执行流程
 
@@ -13,7 +13,7 @@
 运行 `git status` 和 `git diff --stat` 查看当前更改。
 
 - 如果有未提交更改，**警告用户**并询问是否继续
-- 如果工作区干净，跳过提交步骤直接从步骤 5 开始
+- 如果工作区干净，跳过暂存步骤直接从步骤 4 开始
 
 ### 2. 暂存文件
 
@@ -28,29 +28,58 @@
 
 使用 `git add` 逐个添加安全文件，而非 `git add -A`。
 
-### 3. 生成 Commit Message
+### 3. 版本号递增
 
-- 如果用户通过 `$ARGUMENTS` 提供了 commit message，直接使用
-- 如果未提供，自动生成带 `release(prod):` 前缀的 commit message
-  - 分析 staged diff，汇总主要更改
-  - 格式：`release(prod): v{version} - 简要描述`
+读取 `package.json` 中的当前版本号，按以下规则递增：
 
-### 4. 提交并推送 GitHub
+- **`$ARGUMENTS` 中包含具体版本号**（如 `v2.8.0`）：直接使用该版本号
+- **`$ARGUMENTS` 中未提供版本号**：在当前版本基础上自动递增 patch 版本（如 `2.7.0` → `2.7.1`）
+- 如果本次包含新功能（feat），则递增 minor 版本（如 `2.7.1` → `2.8.0`）
 
-1. `git commit -m "<message>"`
+修改 `package.json` 中的 `"version"` 字段，然后 `git add package.json`。
+
+### 4. 生成 Release Commit Message
+
+生成详细的发版 commit message，格式如下：
+
+```
+release(prod): v{新版本号} - 一句话概要
+
+功能新增：
+- feat(模块): 具体描述
+
+功能修复：
+- fix(模块): 具体描述
+
+优化改进：
+- perf/refactor(模块): 具体描述
+
+其他：
+- chore: 具体描述
+```
+
+**生成方法**：
+1. 找到上一次 `release(prod):` 的 commit（使用 `git log --oneline --all | grep "release(prod):" | head -1`）
+2. 用 `git log --oneline {上次release}..HEAD` 获取本次发版包含的所有 commit
+3. 将这些 commit 按类型分类（feat/fix/perf/chore），生成清晰的中文变更说明
+4. 如果 `$ARGUMENTS` 中包含额外描述，合并到概要中
+
+### 5. 提交并推送 GitHub
+
+1. `git commit` — 使用上面生成的 release commit message
 2. `git push origin main` — 先备份到 GitHub
 
-### 5. 清理开发代码（临时）
+### 6. 清理开发代码（临时）
 
 **重要**：部署脚本内部会自行执行 `npm run build:all`，所以必须在运行脚本**之前**清理开发代码。
 
-#### 5.1 移除 DevRoleSwitcher
+#### 6.1 移除 DevRoleSwitcher
 
 编辑 `src/App.tsx`：
 - 删除 `import DevRoleSwitcher from './components/DevRoleSwitcher';` 行
 - 删除 `{showDevTools && <DevRoleSwitcher />}` 行
 
-#### 5.2 移除前端 Mock 自动登录
+#### 6.2 移除前端 Mock 自动登录
 
 编辑 `src/context/AuthContext.tsx`：
 - 删除 `if (!token && (isDev || isTestServer)) { ... }` 整个代码块（约 15 行）
@@ -58,7 +87,7 @@
   - 从 `if (!token && (isDev || isTestServer)) {` 开始
   - 到对应的 `setIsAuthenticating(false); return; }` 结束
 
-### 6. 执行生产部署脚本
+### 7. 执行生产部署脚本
 
 运行 `bash scripts/deploy-aliyun-win.sh`。
 
@@ -66,7 +95,7 @@
 
 - 如果脚本失败，**先恢复文件**再报告错误
 
-### 7. 恢复开发代码
+### 8. 恢复开发代码
 
 部署脚本执行完成后，立即恢复被修改的文件：
 
@@ -76,11 +105,12 @@ git checkout -- src/App.tsx src/context/AuthContext.tsx
 
 确保本地代码恢复到包含 DevRoleSwitcher 和 Mock 登录的完整状态。
 
-### 8. 汇报结果
+### 9. 汇报结果
 
+- 版本号：v{旧版本} → v{新版本}
 - commit hash
 - GitHub 推送状态
-- 构建状态（已确认不含开发功能）
+- 构建状态（已确认不含开发功能，modules 数量）
 - 生产部署是否成功
 - 生产服务器访问地址
 
@@ -94,5 +124,5 @@ git checkout -- src/App.tsx src/context/AuthContext.tsx
 ## 异常处理
 
 - 构建失败 → 先 `git checkout` 恢复文件 → 报告错误
-- 部署脚本失败 → 报告错误（文件已在步骤 7 恢复）
+- 部署脚本失败 → 报告错误（文件已在步骤 8 恢复）
 - GitHub 推送失败 → 停止，不继续部署到生产
