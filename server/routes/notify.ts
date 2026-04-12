@@ -162,7 +162,7 @@ router.post('/card/callback', async (req: Request, res: Response) => {
   // ── 审批/驳回 ──
   if (['approve', 'reject'].includes(actionType)) {
     const db = getDb();
-    const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+    const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
 
     if (!plan) {
       console.error('[WeCom Callback] 计划不存在:', planId);

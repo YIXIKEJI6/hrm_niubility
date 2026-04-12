@@ -432,19 +432,19 @@ router.get('/departments/:id/stats', authMiddleware, (req: AuthRequest, res) => 
   const placeholders = memberIds.map(() => '?').join(',');
 
   // Task statistics（基于含子部门的全员范围）
-  const totalTasks = (db.prepare(`SELECT COUNT(*) as c FROM perf_plans WHERE assignee_id IN (${placeholders})`).get(...memberIds) as any)?.c || 0;
-  const completed = (db.prepare(`SELECT COUNT(*) as c FROM perf_plans WHERE assignee_id IN (${placeholders}) AND status IN ('completed', 'assessed')`).get(...memberIds) as any)?.c || 0;
-  const inProgress = (db.prepare(`SELECT COUNT(*) as c FROM perf_plans WHERE assignee_id IN (${placeholders}) AND status = 'in_progress'`).get(...memberIds) as any)?.c || 0;
-  const pending = (db.prepare(`SELECT COUNT(*) as c FROM perf_plans WHERE assignee_id IN (${placeholders}) AND status IN ('pending_review', 'draft', 'pending_receipt')`).get(...memberIds) as any)?.c || 0;
+  const totalTasks = (db.prepare(`SELECT COUNT(*) as c FROM perf_tasks WHERE assignee_id IN (${placeholders})`).get(...memberIds) as any)?.c || 0;
+  const completed = (db.prepare(`SELECT COUNT(*) as c FROM perf_tasks WHERE assignee_id IN (${placeholders}) AND status IN ('completed', 'assessed')`).get(...memberIds) as any)?.c || 0;
+  const inProgress = (db.prepare(`SELECT COUNT(*) as c FROM perf_tasks WHERE assignee_id IN (${placeholders}) AND status = 'in_progress'`).get(...memberIds) as any)?.c || 0;
+  const pending = (db.prepare(`SELECT COUNT(*) as c FROM perf_tasks WHERE assignee_id IN (${placeholders}) AND status IN ('pending_review', 'draft', 'pending_receipt')`).get(...memberIds) as any)?.c || 0;
 
   // Average progress
-  const avgRow = db.prepare(`SELECT AVG(progress) as avg FROM perf_plans WHERE assignee_id IN (${placeholders}) AND status NOT IN ('completed', 'assessed')`).get(...memberIds) as any;
+  const avgRow = db.prepare(`SELECT AVG(progress) as avg FROM perf_tasks WHERE assignee_id IN (${placeholders}) AND status NOT IN ('completed', 'assessed')`).get(...memberIds) as any;
   const avgProgress = Math.round(avgRow?.avg || 0);
 
   // Recent tasks (top 5)
   const recentTasks = db.prepare(`
     SELECT pp.id, pp.title, pp.status, pp.progress, pp.deadline, u.name as assignee_name
-    FROM perf_plans pp
+    FROM perf_tasks pp
     LEFT JOIN users u ON pp.assignee_id = u.id
     WHERE pp.assignee_id IN (${placeholders})
     ORDER BY pp.created_at DESC LIMIT 5

@@ -269,7 +269,7 @@ router.post('/assignment/:id/submit', authMiddleware, (req: any, res) => {
          
          const libraryDef = db.prepare('SELECT default_max_score FROM competency_library WHERE id = ?').get(competencyId) as any;
          if (libraryDef) {
-            const maxScorePoints = libraryDef.default_max_score || 5.0;
+            const maxScorePoints = libraryDef.default_max_score || 10.0;
             const percent = maxTotalScore > 0 ? (totalScore / maxTotalScore) : 0;
             const capabilityScore = Number((percent * maxScorePoints).toFixed(1));
 
@@ -278,7 +278,7 @@ router.post('/assignment/:id/submit', authMiddleware, (req: any, res) => {
             
             let dimRecord = db.prepare(`SELECT id FROM competency_dimensions WHERE library_id = ? LIMIT 1`).get(competencyId) as any;
             if(!dimRecord) {
-                const createDim = db.prepare(`INSERT INTO competency_dimensions (model_id, library_id, category, name, max_score, weight, target_score) VALUES (0, ?, '测评直通', '考核系统自动导入', 5, 1, 3)`).run(competencyId);
+                const createDim = db.prepare(`INSERT INTO competency_dimensions (model_id, library_id, category, name, max_score, weight, target_score) VALUES (0, ?, '测评直通', '考核系统自动导入', 10, 1, 6)`).run(competencyId);
                 dimRecord = { id: createDim.lastInsertRowid };
             }
             
@@ -319,7 +319,7 @@ router.post('/bank/generate-ai', authMiddleware, async (req: any, res) => {
 `;
 
   const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-  if (!DEEPSEEK_API_KEY) return res.status(500).json({ code: 500, message: 'DEEPSEEK_API_KEY is not configured' });
+  if (!DEEPSEEK_API_KEY) return res.status(503).json({ code: 503, message: 'AI 功能暂未开通，请联系管理员' });
   try {
     const apiRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -358,7 +358,7 @@ router.post('/bank/generate-ai', authMiddleware, async (req: any, res) => {
     return res.json({ code: 0, data: generatedQuestions });
   } catch (error: any) {
     console.error('AI generate test error:', error.message);
-    return res.status(500).json({ code: 500, message: `AI 暂时不可用: ${error.message}` });
+    return res.status(500).json({ code: 500, message: 'AI 服务暂时不可用，请稍后重试' });
   }
 });
 

@@ -22,10 +22,10 @@ router.post('/library', authMiddleware, (req: any, res) => {
   try {
     if (id) {
       db.prepare('UPDATE competency_library SET category = ?, name = ?, description = ?, default_max_score = ? WHERE id = ?')
-        .run(category || '通用', name, description || '', default_max_score || 5, id);
+        .run(category || '通用', name, description || '', default_max_score || 10, id);
     } else {
       db.prepare('INSERT INTO competency_library (category, name, description, default_max_score) VALUES (?, ?, ?, ?)')
-        .run(category || '通用', name, description || '', default_max_score || 5);
+        .run(category || '通用', name, description || '', default_max_score || 10);
     }
     res.json({ code: 0, message: 'Saved successfully' });
   } catch (error: any) {
@@ -99,7 +99,7 @@ router.post('/models', authMiddleware, (req: any, res) => {
           d.library_id ? Number(d.library_id) : null,
           d.category || '通用', 
           d.name, 
-          d.max_score || 5, 
+          d.max_score || 10, 
           d.weight || 1, 
           d.target_score || 3,
           d.description || ''
@@ -194,21 +194,35 @@ router.post('/evaluations', authMiddleware, (req: any, res) => {
       VALUES (?, ?)
     `);
     
+    let created = 0;
+    let skipped = 0;
+    const skippedNames: string[] = [];
+
     db.transaction(() => {
       for (const uid of user_userIds) {
         // Prevent duplicate open evaluation for same user/model pair
         const active = db.prepare('SELECT id FROM competency_evaluations WHERE user_id = ? AND model_id = ? AND status != ?').get(uid, model_id, 'completed');
-        if (active) continue; // Skip if already being evaluated
-        
+        if (active) {
+          skipped++;
+          const u = db.prepare('SELECT name FROM users WHERE id = ?').get(uid) as any;
+          skippedNames.push(u?.name || uid);
+          continue;
+        }
+
         const result = insertEval.run(uid, evaluator_id, model_id);
         const evId = result.lastInsertRowid;
         for (const dim of dimensions as any[]) {
           insertScore.run(evId, dim.id);
         }
+        created++;
       }
     })();
-    
-    res.json({ code: 0, message: 'Initiated successfully' });
+
+    let message = `成功下发 ${created} 份评估`;
+    if (skipped > 0) {
+      message += `，跳过 ${skipped} 人（已有进行中的同模型评估：${skippedNames.join('、')}）`;
+    }
+    res.json({ code: 0, message, data: { created, skipped, skippedNames } });
   } catch (error: any) {
     res.status(500).json({ code: 500, message: error.message });
   }

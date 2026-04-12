@@ -154,7 +154,7 @@ router.post('/sheets/generate', authMiddleware, async (req: AuthRequest, res) =>
   const perfBonusMap: Record<string, number> = {};
   const completedPlans = db.prepare(`
     SELECT assignee_id, SUM(CAST(target_value AS REAL)) as bonus
-    FROM perf_plans
+    FROM perf_tasks
     WHERE status IN ('completed','assessed','rewarded')
       AND substr(deadline, 1, 7) = ?
     GROUP BY assignee_id

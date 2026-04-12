@@ -50,12 +50,12 @@ router.get('/overview', authMiddleware, (req: AuthRequest, res) => {
            pp.creator_id, pp.assignee_id, pp.approver_id,
            u1.name as creator_name, u2.name as assignee_name,
            u3.name as approver_name, d.name as department_name
-    FROM perf_plans pp
+    FROM perf_tasks pp
     LEFT JOIN users u1 ON pp.creator_id = u1.id
     LEFT JOIN users u2 ON pp.assignee_id = u2.id
     LEFT JOIN users u3 ON pp.approver_id = u3.id
     LEFT JOIN departments d ON u2.department_id = d.id
-    WHERE pp.status != 'draft'
+    WHERE pp.status != 'draft' AND pp.deleted_at IS NULL
     ORDER BY pp.deadline ASC
   `).all() as any[];
 

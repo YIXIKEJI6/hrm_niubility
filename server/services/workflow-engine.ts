@@ -35,10 +35,10 @@ export function bootstrapWorkflows() {
     insertNodeFunc.run(tpl2Id, 2, 'HRBP审核', 'approve', 'hrbp', 'auto_skip_if_self');
     insertNodeFunc.run(tpl2Id, 3, '总经理终审', 'approve', 'gm', 'auto_skip_if_self');
 
-    // 3. 奖励方案分配（含金主验收）
-    const tpl3Id = insertTplFunc.run(WORKFLOWS.REWARD_PLAN, '奖励分配方案审核', '金主验收→HRBP合规→GM终审→A分钱').lastInsertRowid;
+    // 3. 奖励方案分配
+    const tpl3Id = insertTplFunc.run(WORKFLOWS.REWARD_PLAN, '奖励分配方案审核', 'HRBP审核→GM终审→奖金生成').lastInsertRowid;
     insertNodeFunc.run(tpl3Id, 1, '制定分配方案', 'init', 'task_creator', null);
-    insertNodeFunc.run(tpl3Id, 2, '交付对象验收', 'approve', 'delivery_target', null);
+    insertNodeFunc.run(tpl3Id, 2, '知情人抄送(已弃用)', 'approve', 'delivery_target', 'always_skip');
     insertNodeFunc.run(tpl3Id, 3, '合规审计', 'approve', 'hrbp', 'auto_skip_if_self');
     insertNodeFunc.run(tpl3Id, 4, '总经理确认', 'approve', 'gm', 'auto_skip_if_self');
 
@@ -121,7 +121,7 @@ export class WorkflowEngine {
           // 优先从物理字段获取交付对象
           if (context.poolTaskId) {
             try {
-              const pt = db.prepare('SELECT delivery_target_id, roles_config FROM pool_tasks WHERE id = ?').get(context.poolTaskId) as any;
+              const pt = db.prepare('SELECT delivery_target_id, roles_config FROM perf_tasks WHERE id = ?').get(context.poolTaskId) as any;
               // 优先使用物理字段
               if (pt?.delivery_target_id) {
                 assignees = pt.delivery_target_id.split(',').filter(Boolean);
@@ -168,6 +168,10 @@ export class WorkflowEngine {
           }
         }
       } 
+      // 1.5 always_skip：业务流程调整，永久跳过此节点
+      else if (node.skip_rule === 'always_skip') {
+        skipReason = 'Node skipped: always_skip rule applied';
+      }
       // 2. 如果自己是发起人并且触发了 auto_skip_if_self 且并不是因为自审防线补救
       else if (node.skip_rule === 'auto_skip_if_self' && !escalatedReason) {
         if (assignees.length === 1 && assignees[0] === initiatorId) {

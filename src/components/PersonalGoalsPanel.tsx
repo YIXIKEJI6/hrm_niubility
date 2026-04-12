@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import SmartFormInputs, { SmartData, encodeSmartDescription, decodeSmartDescription } from '../components/SmartFormInputs';
+import SmartFormInputs, { SmartData, decodeSmartDescription } from '../components/SmartFormInputs';
 import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
 import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
+import { buildSmartTaskData, buildSmartDescription } from '../utils/taskDataMapper';
+import { parseUTC } from '../utils/dateUtils';
 
 interface PerfPlan {
   id: number;
@@ -18,6 +20,12 @@ interface PerfPlan {
   creator_id?: string;
   assignee_id?: string;
   approver_id?: string;
+  dept_head_id?: string;
+  smart_s?: string;
+  smart_m?: string;
+  smart_a?: string;
+  smart_r?: string;
+  smart_t?: string;
 }
 
 const statusMap: Record<string, { label: string, color: string, bg: string }> = {
@@ -71,6 +79,16 @@ export default function PersonalGoalsPanel() {
     }
   }, [currentUser]);
 
+  // 监听 STAR 广场评分完成事件
+  useEffect(() => {
+    const handleTaskUpdated = () => {
+      setSelectedPlan(null);
+      fetchPlans();
+    };
+    window.addEventListener('PERF_TASK_UPDATED', handleTaskUpdated);
+    return () => window.removeEventListener('PERF_TASK_UPDATED', handleTaskUpdated);
+  }, []);
+
   const fetchUsers = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -106,10 +124,10 @@ export default function PersonalGoalsPanel() {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           title: data.summary || '新目标',
-          description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+          description: buildSmartDescription(data),
           category: data.taskType || '常规任务',
           target_value: targetValue,
-          deadline: data.t,
+          deadline: data.actTime || data.planTime || null,
           quarter: data.quarter || undefined,
           collaborators: data.c,
           informed_parties: data.i || undefined,
@@ -119,7 +137,8 @@ export default function PersonalGoalsPanel() {
           reward_type: data.rewardType || 'money',
           attachments: data.attachments || [],
           assignee_id: data.r || currentUser?.id,
-          approver_id: data.a || currentUser?.id
+          approver_id: data.a || currentUser?.id,
+          flow_type: 'application'
         })
       });
 
@@ -127,7 +146,7 @@ export default function PersonalGoalsPanel() {
       const createData = await createRes.json();
 
       if (createData.code === 0 && createData.data?.id) {
-        await fetch(`/api/perf/plans/${createData.data.id}/submit`, {
+        await fetch(`/api/perf/plans/${createData.data.id}/dispatch`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -151,11 +170,11 @@ export default function PersonalGoalsPanel() {
       setSelectedPlan(prev => prev && prev.id === id ? { ...prev, progress } : prev);
 
       const token = localStorage.getItem('token');
-      // Pool tasks use pool_task_id for progress update
-      const isPoolPlan = String(id).startsWith('pool_');
       const plan = plans.find(p => p.id === id);
-      const url = isPoolPlan && (plan as any)?.pool_task_id
-        ? `/api/pool/tasks/${(plan as any).pool_task_id}/progress`
+      const isPoolTask = !!(plan as any)?.is_pool || ['bounty', 'proposal'].includes((plan as any)?.task_type);
+      const poolId = (plan as any)?.pool_task_id || (isPoolTask ? id : null);
+      const url = isPoolTask && poolId
+        ? `/api/pool/tasks/${poolId}/progress`
         : `/api/perf/plans/${id}/progress`;
       await fetch(url, {
         method: 'PUT',
@@ -193,7 +212,7 @@ export default function PersonalGoalsPanel() {
 
       const bodyPayload = {
         title: data.summary || editingPlan.title,
-        description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+        description: buildSmartDescription(data),
         category: data.taskType || editingPlan.category,
         target_value: targetValue,
         deadline: data.t,
@@ -213,7 +232,7 @@ export default function PersonalGoalsPanel() {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify(bodyPayload),
         });
-        await fetch(`/api/perf/plans/${editingPlan.id}/submit`, {
+        await fetch(`/api/perf/plans/${editingPlan.id}/dispatch`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -317,7 +336,7 @@ export default function PersonalGoalsPanel() {
                     {colPlans.map((plan) => {
                       const pct = plan.progress || 0;
                       const today = new Date();
-                      const dl = plan.deadline ? new Date(plan.deadline) : null;
+                      const dl = plan.deadline ? parseUTC(plan.deadline) : null;
                       const daysLeft = dl ? Math.ceil((dl.getTime() - today.getTime()) / 86400000) : null;
                       const dlColor = daysLeft === null ? 'text-slate-400'
                         : daysLeft < 0 ? 'text-red-500'
@@ -357,9 +376,9 @@ export default function PersonalGoalsPanel() {
                           </div>
 
                           {/* Description */}
-                          {plan.description && (
+                          {(plan.smart_s || plan.description) && (
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 mb-2.5 leading-relaxed">
-                              {plan.description}
+                              {plan.smart_s || plan.description?.replace(/\*?\*?【[^】]+】\*?\*?\s*/g, '').replace(/\n{2,}/g, ' ').trim()}
                             </p>
                           )}
 
@@ -453,10 +472,10 @@ export default function PersonalGoalsPanel() {
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿目标',
-                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+                description: buildSmartDescription(data),
                 category: data.taskType || '常规任务',
                 target_value: targetValue,
-                deadline: data.t,
+                deadline: data.actTime || data.planTime || null,
                 collaborators: data.c,
                 informed_parties: data.i || undefined,
                 delivery_target: data.dt || undefined,
@@ -465,6 +484,7 @@ export default function PersonalGoalsPanel() {
                 reward_type: data.rewardType || 'money',
                 assignee_id: data.r || currentUser?.id,
                 approver_id: data.a || currentUser?.id,
+                flow_type: 'application'
               })
             });
             const json = await res.json();
@@ -505,10 +525,10 @@ export default function PersonalGoalsPanel() {
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || editingPlan?.title,
-                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+                description: buildSmartDescription(data),
                 category: data.taskType || editingPlan?.category,
                 target_value: `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`,
-                deadline: data.t,
+                deadline: data.actTime || data.planTime || null,
                 collaborators: data.c,
                 informed_parties: data.i || undefined,
                 delivery_target: data.dt || undefined,
@@ -564,21 +584,49 @@ export default function PersonalGoalsPanel() {
         })()}
       />
 
-      {/* ── Plan Detail Modal (Readonly SmartTaskModal) ─────────────────────────────────────── */}
+      {/* ── Plan Detail Modal — 审批人看到审批按钮，其他人只读 ─────────────── */}
       <SmartTaskModal
         isOpen={!!selectedPlan}
         onClose={() => setSelectedPlan(null)}
         onSubmit={() => {}}
-        title="目标详情"
+        title={['pending_review', 'pending_dept_review'].includes(selectedPlan?.status || '') && (String(selectedPlan?.approver_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase() || String(selectedPlan?.dept_head_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase()) && String(selectedPlan?.creator_id || '').toLowerCase() !== String(currentUser?.id || '').toLowerCase() ? '流程审批' : '目标详情'}
         type="personal"
         users={users}
         readonly={true}
+        approverMode={['pending_review', 'pending_dept_review'].includes(selectedPlan?.status || '') && (String(selectedPlan?.approver_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase() || String(selectedPlan?.dept_head_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase()) && String(selectedPlan?.creator_id || '').toLowerCase() !== String(currentUser?.id || '').toLowerCase()}
+        onApprove={async (comment, updatedData, customAction, targetUser) => {
+          const action = customAction === 'transfer' ? 'transfer' : 'approve';
+          try {
+            const endpoint = action === 'transfer' ? `/api/perf/plans/${selectedPlan.id}/review` : `/api/perf/plans/${selectedPlan.id}/approve`;
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+              body: JSON.stringify({ action, reason: comment, transfer_to: targetUser })
+            });
+            const json = await res.json();
+            if (json.code === 0) { setSelectedPlan(null); fetchPlans(); }
+            else alert(json.message || '操作失败');
+          } catch { alert('网络错误'); }
+        }}
+        onReject={async (comment) => {
+          try {
+            const res = await fetch(`/api/perf/plans/${selectedPlan.id}/reject`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+              body: JSON.stringify({ action: 'reject', reason: comment })
+            });
+            const json = await res.json();
+            if (json.code === 0) { setSelectedPlan(null); fetchPlans(); }
+            else alert(json.message || '驳回失败');
+          } catch { alert('网络错误'); }
+        }}
         headerActions={['in_progress', 'pending_receipt', 'pending_assessment'].includes(selectedPlan?.status || '') ? (() => {
           const sp = selectedPlan;
           const isAssigned = sp.creator_id !== sp.assignee_id;
 
-          const isPoolTask = !!(sp as any).is_pool;
-          const poolTaskId = (sp as any).pool_task_id;
+          const isPoolTask = !!(sp as any).is_pool || (sp as any).task_type === 'bounty' || (sp as any).task_type === 'proposal';
+          const poolTaskId = (sp as any).pool_task_id || ((isPoolTask) ? sp.id : undefined);
+          const isPoolA = isPoolTask && ((sp as any).role_claims || []).some((c: any) => c.role_name === 'A' && (c.status === 'approved' || c.status === 'star_submitted') && String(c.user_id) === String(currentUser?.id));
 
           const handleComplete100 = () => {
             setActionPrompt({
@@ -650,32 +698,6 @@ export default function PersonalGoalsPanel() {
             });
           };
 
-          const handleReturnHeader = () => {
-            setActionPrompt({
-              type: 'return',
-              title: '退回任务',
-              desc: '退回后任务将可被执行人重新调整编辑。',
-              requireInput: true,
-              placeholder: '请输入退回原因（可选）...',
-              confirmText: '确认退回',
-              confirmClass: 'bg-orange-600 hover:bg-orange-700 text-white',
-              icon: 'reply',
-              iconClass: 'bg-orange-100 text-orange-600',
-              onConfirm: async (val) => {
-                try {
-                  const token = localStorage.getItem('token');
-                  await fetch(`/api/perf/plans/${sp.id}/return`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ reason: val })
-                  });
-                  setSelectedPlan(null);
-                  fetchPlans();
-                } catch { }
-              }
-            });
-          };
-
           const isPendingReceipt = sp.status === 'pending_receipt';
           const isInProgress = sp.status === 'in_progress';
           const isPendingAssessment = sp.status === 'pending_assessment';
@@ -686,38 +708,22 @@ export default function PersonalGoalsPanel() {
           const myReceiptDone = receiptStatus[currentUser?.id || ''] === 'confirmed';
           const allReceiptsConfirmed = Object.keys(receiptStatus).length > 0 && Object.values(receiptStatus).every(s => s === 'confirmed');
           const isApprover = currentUser?.id === sp.approver_id;
+          const canFinishTask = isPoolTask ? isPoolA : (isApprover || sp.creator_id === currentUser?.id);
 
+          // 评级打分权限：优先 judge_id，兜底按流程类型
+          const isScorerJudge = (() => {
+            const uid = String(currentUser?.id || '');
+            if ((sp as any).judge_id) return String((sp as any).judge_id) === uid;
+            if ((sp as any).flow_type === 'application') {
+              return (sp as any).dept_head_id && String((sp as any).dept_head_id) === uid;
+            }
+            // flow1: creator_id 是评分人
+            return sp.creator_id && String(sp.creator_id) === uid;
+          })();
+
+          // 评级打分：跳转到 STAR 广场 tab，查看所有 STAR 报告后评分
           const handleAssessScore = () => {
-            setActionPrompt({
-              type: 'assess_score',
-              title: '评级打分',
-              desc: '请为该任务的完成质量打分（1-100分）。\n评级完成后任务将自动结案归档。',
-              requireInput: true,
-              placeholder: '请输入评分(1-100)',
-              confirmText: '确认评级',
-              confirmClass: 'bg-violet-500 hover:bg-violet-600 text-white',
-              icon: 'grade',
-              iconClass: 'bg-violet-100 text-violet-500',
-              onConfirm: async (val) => {
-                const score = parseInt(val);
-                if (isNaN(score) || score < 1 || score > 100) {
-                  alert('请输入1-100之间的整数分数'); return;
-                }
-                try {
-                  const token = localStorage.getItem('token');
-                  const res = await fetch(`/api/perf/plans/${sp.id}/review`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ action: 'assess', score })
-                  });
-                  const json = await res.json();
-                  if (json.code === 0) {
-                    setSelectedPlan(null);
-                    fetchPlans();
-                  } else { alert(json.message || '评级失败'); }
-                } catch { alert('网络错误'); }
-              }
-            });
+            document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'));
           };
 
           const handleConfirmReceipt = () => {
@@ -797,43 +803,25 @@ export default function PersonalGoalsPanel() {
 
           return (
             <div className="flex items-center gap-2">
-              {/* 待签收：根据状态显示不同按钮 */}
-              {isPendingReceipt && allReceiptsConfirmed && isApprover && (
-                <button onClick={handleStartTask}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm transition-colors shrink-0">
-                  <span className="material-symbols-outlined text-[14px]">rocket_launch</span>
-                  启动执行
-                </button>
-              )}
-              {isPendingReceipt && !allReceiptsConfirmed && !myReceiptDone && (
+              {/* 签收/启动按钮已统一由 SmartTaskModal 内置 footer 处理，不在 header 重复 */}
+              {/* 待评级：写STAR (所有人) + 评级打分 (仅管理者) */}
+              {isPendingAssessment && (
                 <>
-                  <button onClick={handleRejectReceipt}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 shadow-sm transition-colors shrink-0">
-                    <span className="material-symbols-outlined text-[14px]">cancel</span>
-                    拒签
+                  <button onClick={() => document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'))}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">star</span>
+                    写STAR
                   </button>
-                  <button onClick={handleConfirmReceipt}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-cyan-500 hover:bg-cyan-600 shadow-sm transition-colors shrink-0">
-                    <span className="material-symbols-outlined text-[14px]">inbox</span>
-                    确认查收
-                  </button>
+                  {isScorerJudge && (
+                    <button onClick={handleAssessScore}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-500 hover:bg-violet-600 shadow-sm transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">grade</span>
+                      评级打分
+                    </button>
+                  )}
                 </>
               )}
-              {isPendingReceipt && !allReceiptsConfirmed && myReceiptDone && (
-                <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-600 bg-emerald-50 shrink-0">
-                  <span className="material-symbols-outlined text-[14px]">check_circle</span>
-                  已签收，等待其他成员
-                </span>
-              )}
-              {/* 待评级：评级打分 */}
-              {isPendingAssessment && (
-                <button onClick={handleAssessScore}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-500 hover:bg-violet-600 shadow-sm transition-colors shrink-0">
-                  <span className="material-symbols-outlined text-[14px]">grade</span>
-                  评级打分
-                </button>
-              )}
-              {/* 进行中：完结 / 退回 操作 */}
+              {/* 进行中：写STAR (所有人), 完结/退回 (仅A角色) */}
               {isInProgress && (
                 <>
                   <button onClick={() => document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'))}
@@ -841,104 +829,27 @@ export default function PersonalGoalsPanel() {
                     <span className="material-symbols-outlined text-[14px]">star</span>
                     写STAR
                   </button>
-                  <button onClick={handleComplete100}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0">
-                    <span className="material-symbols-outlined text-[14px]">task_alt</span>
-                    100%完结
-                  </button>
-                  <button onClick={handleEarlyComplete}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0">
-                    <span className="material-symbols-outlined text-[14px]">stop_circle</span>
-                    提前完结
-                  </button>
-                  {isAssigned && !(sp as any).is_pool && (
-                    <button onClick={handleReturnHeader}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 shadow-sm transition-colors shrink-0">
-                      <span className="material-symbols-outlined text-[14px]">reply</span>
-                      退回
-                    </button>
+                  {canFinishTask && (
+                    <>
+                      <button onClick={handleComplete100}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0">
+                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                        100%完结
+                      </button>
+                      <button onClick={handleEarlyComplete}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0">
+                        <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                        提前完结
+                      </button>
+                    </>
                   )}
+                  {/* Flow1(任务下发)已移除退回按钮 */}
                 </>
               )}
             </div>
           );
         })() : undefined}
-        initialData={(() => {
-          if (!selectedPlan) return {};
-          const decoded = decodeSmartDescription(selectedPlan.description || '');
-          // Safely parse attachments
-          let parsedAttachments: any[] = [];
-          try {
-            if (Array.isArray((selectedPlan as any).attachments)) {
-              parsedAttachments = (selectedPlan as any).attachments;
-            } else if (typeof (selectedPlan as any).attachments === 'string' && (selectedPlan as any).attachments) {
-              parsedAttachments = JSON.parse((selectedPlan as any).attachments);
-            }
-          } catch { parsedAttachments = []; }
-          const desc = selectedPlan.description || '';
-          const descHasSmart = desc.includes('【目标 S】');
-          // Proper SMART field extraction with regex — prevents marker duplication
-          const cleanMarkers = (v: string) => v.replace(/【目标 S】\s*/g, '').replace(/【指标 M】\s*/g, '').replace(/【方案 A】\s*/g, '').replace(/【相关 R】\s*/g, '').replace(/【时限 T】\s*/g, '').replace(/【PDCA】[\s\S]*/g, '').trim();
-          let s_val = '', m_val = '', t_val = '', a_smart_val = '', r_smart_val = '';
-          if (descHasSmart) {
-            const sMatch = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
-            const mMatch = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
-            const aMatch = desc.match(/【方案 A】\n?([\s\S]*?)(?=\n【相关 R】|$)/);
-            const rMatch = desc.match(/【相关 R】\n?([\s\S]*?)(?=\n【时限 T】|$)/);
-            const tMatch = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
-            const preMarker = desc.substring(0, desc.indexOf('【目标 S】')).trim();
-            const sContent = cleanMarkers(sMatch?.[1] || '');
-            s_val = [preMarker, sContent].filter(Boolean).join('\n\n');
-            m_val = mMatch ? cleanMarkers(mMatch[1]) : '';
-            a_smart_val = aMatch ? cleanMarkers(aMatch[1]) : '';
-            r_smart_val = rMatch ? cleanMarkers(rMatch[1]) : '';
-            t_val = tMatch ? cleanMarkers(tMatch[1]) : '';
-          } else {
-            s_val = selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[0]?.replace('S: ', '') : '';
-            m_val = selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[1]?.replace('M: ', '') : '';
-            t_val = selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[2]?.replace('T: ', '') : '';
-            a_smart_val = decoded.resource;
-            r_smart_val = decoded.relevance;
-          }
-          return {
-            id: selectedPlan.id,
-            status: selectedPlan.status,
-            flow_type: (selectedPlan as any).is_pool ? 'proposal' : 'perf_plan',
-            pool_task_id: (selectedPlan as any).pool_task_id,
-            summary: selectedPlan.title,
-            s: s_val,
-            m: m_val,
-            t: selectedPlan.deadline || t_val || '',
-            a_smart: a_smart_val,
-            r_smart: r_smart_val,
-            taskType: selectedPlan.category,
-            c: (selectedPlan as any).is_pool
-              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'C' && c.status === 'approved').map((c: any) => c.user_id).join(',')
-              : (selectedPlan.collaborators || ''),
-            a: (selectedPlan as any).is_pool
-              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'A' && c.status === 'approved').map((c: any) => c.user_id).join(',')
-              : (selectedPlan.approver_id || currentUser?.id),
-            r: (selectedPlan as any).is_pool
-              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'R' && c.status === 'approved').map((c: any) => c.user_id).join(',')
-              : (selectedPlan.assignee_id || currentUser?.id),
-            i: (selectedPlan as any).is_pool
-              ? ((selectedPlan as any).role_claims || []).filter((c: any) => c.role_name === 'I' && c.status === 'approved').map((c: any) => c.user_id).join(',')
-              : ((selectedPlan as any).informed_parties || ''),
-            dt: (selectedPlan as any).delivery_target || '',
-            bonus: String((selectedPlan as any).bonus || ''),
-            maxParticipants: String((selectedPlan as any).max_participants || '5'),
-            rewardType: (selectedPlan as any).reward_type || 'money',
-            role_claims: (selectedPlan as any).role_claims,
-            planTime: decoded.planTime,
-            doTime: decoded.doTime,
-            checkTime: decoded.checkTime,
-            actTime: decoded.actTime,
-            approver_id: selectedPlan.approver_id,
-            creator_id: selectedPlan.creator_id,
-            assignee_id: selectedPlan.assignee_id,
-            attachments: parsedAttachments
-          };
-        })()}
+        initialData={selectedPlan ? buildSmartTaskData(selectedPlan as any, ((selectedPlan as any).is_pool || (selectedPlan as any).task_type === 'bounty' || (selectedPlan as any).task_type === 'proposal') ? 'pool_task' : 'perf_plan') : {}}
         customFooter={(() => {
           if (!selectedPlan) return null;
           const sp = selectedPlan;
@@ -949,36 +860,6 @@ export default function PersonalGoalsPanel() {
             approved: '#10b981', rejected: '#ef4444', draft: '#94a3b8', returned: '#f97316',
             pending_assessment: '#8b5cf6', assessed: '#8b5cf6', pending_dept_review: '#f59e0b', pending_receipt: '#06b6d4',
           }[sp.status] || '#94a3b8';
-
-          // 退回操作
-          const handleReturn = () => {
-             setActionPrompt({
-               type: 'return',
-               title: '退回任务',
-               desc: '退回后任务将退给执行人重新调整编辑。',
-               requireInput: true,
-               placeholder: '请输入退回原因（可选）...',
-               confirmText: '确认退回',
-               confirmClass: 'bg-orange-500 hover:bg-orange-600 text-white',
-               icon: 'reply',
-               iconClass: 'bg-orange-100 text-orange-500',
-               onConfirm: async (val) => {
-                 try {
-                   const token = localStorage.getItem('token');
-                   const res = await fetch(`/api/perf/plans/${sp.id}/return`, {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                     body: JSON.stringify({ reason: val || '经线下沟通，退回调整' })
-                   });
-                   const data = await res.json();
-                   if (data.code === 0) {
-                     setSelectedPlan(null);
-                     fetchPlans();
-                   } else { alert(data.message || '退回失败'); }
-                 } catch { alert('操作失败'); }
-               }
-             });
-          };
 
           // 删除草稿
           const handleDeleteDraft = () => {
@@ -1007,17 +888,22 @@ export default function PersonalGoalsPanel() {
              });
           };
 
-          // 提交审批
+          // 提交草稿（Flow1: 下发签收 / Flow2: 提交审批 → 签收 → 上级审批）
           const handleSubmitDraft = async () => {
             try {
               const token = localStorage.getItem('token');
-              await fetch(`/api/perf/plans/${sp.id}/submit`, {
+              const res = await fetch(`/api/perf/plans/${sp.id}/dispatch`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
               });
-              setSelectedPlan(null);
-              fetchPlans();
-            } catch (err) { console.error(err); }
+              const json = await res.json();
+              if (json.code === 0) {
+                setSelectedPlan(null);
+                fetchPlans();
+              } else {
+                alert(json.message || '提交失败');
+              }
+            } catch { alert('网络错误'); }
           };
           
           return (
@@ -1072,7 +958,7 @@ export default function PersonalGoalsPanel() {
                       <button onClick={handleSubmitDraft}
                         className="flex items-center gap-1.5 px-4 py-2.5 bg-[#005ea4] text-white text-sm font-bold rounded-lg hover:bg-[#0077ce] transition-colors shadow-sm">
                         <span className="material-symbols-outlined text-[16px]">send</span>
-                        提交审批
+                        {(sp as any).flow_type === 'application' ? '提交审批' : '下发任务'}
                       </button>
                     </>
                   )}

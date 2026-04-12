@@ -3,6 +3,7 @@ import { changelogData, getLatestVersion } from '../data/changelog';
 import { useAuth } from '../context/AuthContext';
 import UserGuide from './UserGuide';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { parseUTC } from '../utils/dateUtils';
 
 interface SidebarProps {
   currentView: string;
@@ -97,7 +98,7 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
   };
 
   const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr);
+    const d = parseUTC(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - d.getTime();
     const diffMin = Math.floor(diffMs / 60000);

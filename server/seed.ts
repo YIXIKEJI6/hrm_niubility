@@ -25,6 +25,7 @@ export function seedData(): void {
 
   // 用户
   const users = [
+    ['CaoGuiQiang', '曹贵强', '总经理', 1, 'admin', passwordHash],
     ['admin', '管理员', '系统管理员', 1, 'admin', passwordHash],
     ['zhangwei', '张伟', '高级产品经理', 2, 'manager', passwordHash],
     ['lifang', '李芳', '人力资源总监', 5, 'hr', passwordHash],
@@ -48,14 +49,14 @@ export function seedData(): void {
   ];
   for (const p of plans) {
     db.prepare(
-      `INSERT INTO perf_plans (title, category, creator_id, assignee_id, approver_id, department_id, status, progress, difficulty, deadline, quarter, alignment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO perf_tasks (title, category, creator_id, assignee_id, approver_id, department_id, status, progress, difficulty, deadline, quarter, alignment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(...p);
   }
 
   // 绩效池任务
-  db.prepare(`INSERT INTO pool_tasks (title, department, difficulty, bonus, status, max_participants, progress, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run('Azure Horizon 3.0 性能优化', '技术部', '专家', 15000, 'open', 3, 0, 'wangming');
-  db.prepare(`INSERT INTO pool_tasks (title, department, difficulty, bonus, status, max_participants, progress, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run('Q3 市场推广方案', '市场部', '高', 8000, 'open', 5, 0, 'huangli');
-  db.prepare(`INSERT INTO pool_tasks (title, department, difficulty, bonus, status, max_participants, progress, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run('新员工入职培训体系', '人力资源部', '中', 5000, 'in_progress', 2, 40, 'lifang');
+  db.prepare(`INSERT INTO perf_tasks (task_type, title, department, difficulty, bonus, status, max_participants, progress, creator_id, proposal_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('bounty', 'Azure Horizon 3.0 性能优化', '技术部', '专家', 15000, 'open', 3, 0, 'wangming', 'approved');
+  db.prepare(`INSERT INTO perf_tasks (task_type, title, department, difficulty, bonus, status, max_participants, progress, creator_id, proposal_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('bounty', 'Q3 市场推广方案', '市场部', '高', 8000, 'open', 5, 0, 'huangli', 'approved');
+  db.prepare(`INSERT INTO perf_tasks (task_type, title, department, difficulty, bonus, status, max_participants, progress, creator_id, proposal_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('bounty', '新员工入职培训体系', '人力资源部', '中', 5000, 'in_progress', 2, 40, 'lifang', 'approved');
 
   // 团队动态
   db.prepare(`INSERT INTO team_feeds (type, title, content, user_id) VALUES (?, ?, ?, ?)`).run('announcement', '公司年会活动报名已开始', '各位同事，本年度公司年会将于下月15日举行，请在周五前提交报名...', null);

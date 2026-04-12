@@ -1,0 +1,42 @@
+flowchart TD
+    A["赏金榜展示\nstatus=published\n全员可见"] --> B["员工申请认领 RACI 角色\nPOST /tasks/:id/claim"]
+
+    B --> C["创建 pool_role_claims\nstatus=pending"]
+
+    C --> D{"HR/创建者 审批认领"}
+    D -->|通过| E["claims.status=approved"]
+    D -->|拒绝| F["claims.status=rejected"]
+
+    E --> G{"自动检测:\nA角色已有 approved?"}
+    G -->|是| H["tasks.status=claiming\n开始组队阶段"]
+    G -->|否| I["继续等待\nstatus=published"]
+
+    H --> J{"HR面板检查角色"}
+    J -->|"R+A未满员"| K["继续等待认领\n或HR直接分配"]
+    J -->|"R+A到位"| L["HR/A点击启动项目\nPOST /tasks/:id/start-project"]
+
+    L --> M{"校验必填角色"}
+    M -->|缺角色| N["报错: 必填角色未满员"]
+    M -->|到位| O["status=in_progress\n项目正式启动\n通知RA成员"]
+
+    O --> P{"项目执行中"}
+    P -->|更新进度| O
+    P -->|"进度100%正常完结"| Q["POST /tasks/:id/complete\nstatus=completed\n进入STAR阶段"]
+    P -->|"A提前完结"| R["POST /tasks/:id/terminate\nstatus=terminated\n需填原因+完成度+交付物"]
+
+    Q --> S["RA成员填写STAR报告\nS-情境 T-任务 A-行动 R-结果"]
+    R --> S
+
+    S --> T["HR分配奖励\nPOST /tasks/:id/distribute-rewards\n按claim分配reward"]
+    T --> U["status=rewarded\n通知所有参与者"]
+
+    U --> V["HR归档\nPOST /tasks/:id/close"]
+    V --> W["status=closed\n流程完结"]
+
+    style A fill:#e3f2fd
+    style O fill:#e8f5e9
+    style Q fill:#fff3e0
+    style R fill:#fff3e0
+    style U fill:#c8e6c9
+    style W fill:#f5f5f5
+    style N fill:#ffebee

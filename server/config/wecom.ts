@@ -12,4 +12,7 @@ export const wecomConfig = {
   // 回调验证（交互式卡片按钮回调）
   callbackToken: process.env.WECOM_CALLBACK_TOKEN || '',
   callbackAesKey: process.env.WECOM_CALLBACK_AES_KEY || '',
+  // OA 审批（请假等）
+  approvalSecret: process.env.WECOM_APPROVAL_SECRET || '',
+  leaveTemplateId: process.env.WECOM_LEAVE_TEMPLATE_ID || '',
 };

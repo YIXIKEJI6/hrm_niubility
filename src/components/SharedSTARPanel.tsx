@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, Paperclip, File, X, Loader2, MessageSquare, Trash2, ExternalLink, FileText, Save, CheckCircle2 } from 'lucide-react';
 import MDEditor from '@uiw/react-md-editor';
+import { parseUTC } from '../utils/dateUtils';
 
 function formatTimeAgo(dateString: string) {
-  const safeDate = dateString.includes('T') ? dateString : dateString.replace(' ', 'T') + 'Z';
-  const date = new Date(safeDate);
+  const date = parseUTC(dateString);
   const now = new Date();
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
   if (seconds < 60) return '刚刚';
@@ -61,6 +61,15 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
   const [starExpanded, setStarExpanded] = useState(true);
   const [starConfirming, setStarConfirming] = useState(false);
 
+  // ── 管理者查看所有 STAR 报告 + 评分 ──
+  const [allStarReports, setAllStarReports] = useState<any[]>([]);
+  const [allStarLoading, setAllStarLoading] = useState(false);
+  const [scoreInput, setScoreInput] = useState('');
+  const [scoring, setScoring] = useState(false);
+  // A角色自评
+  const [selfScoreInput, setSelfScoreInput] = useState('');
+  const [selfScoring, setSelfScoring] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -72,28 +81,91 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
   }
 
   const isPoolTask = targetType === 'proposal';
+  // STAR API 端点：perf 任务走 /api/perf/star，pool 任务走 /api/pool/star
+  const starApiBase = isPoolTask ? `/api/pool/star/${taskId}` : `/api/perf/star/${taskId}`;
   const isRaUser = myRole === 'R' || myRole === 'A';
   const starSubmitted = starReport?.is_submitted === 1;
 
-  // ── 加载我的 STAR 报告（赏金榜任务）──
-  useEffect(() => {
-    if (!isPoolTask) return;
+  // 管理者评分权限判断（仅 perf 任务，pool 任务走奖励分配流程）
+  const isPendingAssessment = initialData?.status === 'pending_assessment';
+  const isManager = (() => {
+    if (!currentUser?.id) return false;
+    const uid = String(currentUser.id);
+    // 优先使用后端动态计算的 judge_id（最准确）
+    if (initialData?.judge_id) {
+      return String(initialData.judge_id) === uid;
+    }
+    // 兜底：无 judge_id 时按流程类型判断
+    // flow1(下发): 评分人=creator_id（任务创建者/发起人），approver_id是A角色不应有评级权
+    // flow2(申请): 评分人=上级主管（由getAssessmentJudge动态计算），兜底用dept_head_id
+    if (initialData?.flow_type === 'application') {
+      if (initialData?.dept_head_id && String(initialData.dept_head_id) === uid) return true;
+    } else {
+      // flow1: 只有 creator_id 有评级权，approver_id 是负责人A，不评分
+      if (initialData?.creator_id && String(initialData.creator_id) === uid) return true;
+    }
+    if (currentUser?.is_super_admin) return true;
+    return false;
+  })();
+  const canScore = isPendingAssessment && isManager && !isPoolTask;
 
+  // A角色自评权限：pending_assessment 状态下，approver_id 可以自评
+  const isApproverA = (() => {
+    if (!currentUser?.id || !isPendingAssessment || isPoolTask) return false;
+    const uid = String(currentUser.id);
+    return initialData?.approver_id && String(initialData.approver_id) === uid;
+  })();
+  const hasSelfScore = initialData?.self_score != null && initialData.self_score > 0;
+  const canSelfScore = isApproverA && !hasSelfScore;
+
+  // A自评提交
+  const handleSelfScore = async () => {
+    const s = Number(selfScoreInput);
+    if (!s || s < 1 || s > 100) return alert('请输入1-100的分数');
+    setSelfScoring(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/perf/plans/${taskId}/self-score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ score: s }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        alert('自评提交成功');
+        if (initialData) initialData.self_score = s;
+        setSelfScoreInput('');
+      } else {
+        alert(json.message || '自评提交失败');
+      }
+    } catch { alert('网络错误'); }
+    finally { setSelfScoring(false); }
+  };
+
+  // ── 加载我的 STAR 报告（perf + pool 任务通用）──
+  useEffect(() => {
     // 先从 initialData 的 RACI 字段判断角色（兜底，不依赖新API）
     if (currentUser?.id && !myRole) {
       const uid = String(currentUser.id);
-      const aUsers = (initialData?.a || '').split(',').map((s: string) => s.trim()).filter(Boolean);
-      const rUsers = (initialData?.r || '').split(',').map((s: string) => s.trim()).filter(Boolean);
-      if (aUsers.includes(uid)) setMyRole('A');
-      else if (rUsers.includes(uid)) setMyRole('R');
+      if (isPoolTask) {
+        const aUsers = (initialData?.a || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+        const rUsers = (initialData?.r || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+        if (aUsers.includes(uid)) setMyRole('A');
+        else if (rUsers.includes(uid)) setMyRole('R');
+      } else {
+        // perf 任务：从 assignee_id / approver_id / creator_id 判断
+        if (initialData?.assignee_id && String(initialData.assignee_id).includes(uid)) setMyRole('R');
+        else if (initialData?.approver_id && String(initialData.approver_id) === uid) setMyRole('A');
+        else if (initialData?.creator_id && String(initialData.creator_id) === uid) setMyRole('A');
+      }
     }
 
     const token = localStorage.getItem('token');
-    fetch(`/api/pool/star/${taskId}/mine`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${starApiBase}/mine`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
         if (data.code === 0 && data.data) {
-          // 新格式: { report, role }；旧格式: report 直接
+          // 统一格式: { report, role }
           const report = data.data.report !== undefined ? data.data.report : (data.data.is_submitted !== undefined ? data.data : null);
           const role = data.data.role || null;
           if (role) setMyRole(role);
@@ -110,14 +182,31 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
         }
       })
       .catch(() => {});
-  }, [taskId, isPoolTask]);
+  }, [taskId, starApiBase]);
+
+  // ── 管理者：加载所有成员 STAR 报告 ──
+  useEffect(() => {
+    if (!canScore) return;
+    setAllStarLoading(true);
+    const token = localStorage.getItem('token');
+    // perf-star GET /:planId 返回所有 STAR 报告
+    fetch(starApiBase, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (data.code === 0 && data.data) {
+          setAllStarReports(Array.isArray(data.data) ? data.data : []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setAllStarLoading(false));
+  }, [canScore, starApiBase]);
 
   // ── 保存 STAR 草稿 ──
   const handleStarSave = async () => {
     setStarSaving(true);
     setStarMsg(null);
     try {
-      const res = await fetch(`/api/pool/star/${taskId}`, {
+      const res = await fetch(`${starApiBase}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ ...starForm, submit: false }),
@@ -142,7 +231,7 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
     setStarSubmitting(true);
     setStarMsg(null);
     try {
-      const res = await fetch(`/api/pool/star/${taskId}`, {
+      const res = await fetch(`${starApiBase}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ ...starForm, submit: true }),
@@ -157,6 +246,33 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
       }
     } catch { setStarMsg({ type: 'err', text: '网络错误' }); }
     setStarSubmitting(false);
+  };
+
+  // ── 管理者评级打分 ──
+  const handleManagerScore = async () => {
+    const score = parseInt(scoreInput);
+    if (isNaN(score) || score < 1 || score > 100) {
+      alert('请输入1-100之间的整数分数');
+      return;
+    }
+    setScoring(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/perf/plans/${taskId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'assess', score })
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        alert('评级完成！任务已归档。');
+        // 通知父组件刷新
+        window.dispatchEvent(new CustomEvent('PERF_TASK_UPDATED'));
+      } else {
+        alert(json.message || '评级失败');
+      }
+    } catch { alert('网络错误'); }
+    setScoring(false);
   };
 
   const fetchDiscussions = async () => {
@@ -298,8 +414,8 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
         </div>
       </div>
 
-      {/* ── STAR 报告区（赏金榜 R/A 角色） ── */}
-      {isPoolTask && isRaUser && (
+      {/* ── STAR 报告区（R/A 角色，perf + pool 通用） ── */}
+      {isRaUser && (
         <div className="shrink-0 border-b border-slate-200">
           {/* 折叠标题 */}
           <button
@@ -405,6 +521,164 @@ export default function SharedSTARPanel({ taskId, taskType, taskTitle, initialDa
               </motion.div>
             )}
           </AnimatePresence>
+        </div>
+      )}
+
+      {/* ── A角色自评区 ── */}
+      {isPendingAssessment && isApproverA && !isPoolTask && (
+        <div className="shrink-0 border-b border-slate-200 bg-gradient-to-b from-amber-50/50 to-white">
+          <div className="px-5 py-3 flex items-center gap-2 border-b border-slate-100">
+            <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[16px]">person</span>
+            </div>
+            <span className="text-sm font-bold text-slate-700">负责人自评</span>
+            {hasSelfScore ? (
+              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold ml-auto">
+                已自评: {initialData.self_score}分
+              </span>
+            ) : (
+              <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-bold ml-auto">
+                待自评
+              </span>
+            )}
+          </div>
+          {canSelfScore ? (
+            <div className="px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-bold text-slate-600 mb-1.5 block">自评打分 (1-100分)</label>
+                  <input
+                    type="number" min="1" max="100"
+                    value={selfScoreInput}
+                    onChange={e => setSelfScoreInput(e.target.value)}
+                    placeholder="请输入自评分数"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                  />
+                </div>
+                <button
+                  onClick={handleSelfScore}
+                  disabled={selfScoring || !selfScoreInput}
+                  className="mt-5 px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-400 text-white rounded-lg text-sm font-bold hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-amber-500/20 shrink-0"
+                >
+                  {selfScoring ? <Loader2 size={16} className="animate-spin" /> : <span className="material-symbols-outlined text-[16px]">check</span>}
+                  提交自评
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-2">自评将在主管考评前展示，请客观评估任务完成情况</p>
+            </div>
+          ) : hasSelfScore ? (
+            <div className="px-5 py-3">
+              <p className="text-sm text-slate-500">您的自评分数：<span className="font-bold text-amber-600">{initialData.self_score}分</span></p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* ── 管理者 STAR 审阅 + 评分区 ── */}
+      {canScore && (
+        <div className="shrink-0 border-b border-slate-200 bg-gradient-to-b from-violet-50/50 to-white">
+          <div className="px-5 py-3 flex items-center gap-2 border-b border-slate-100">
+            <div className="w-7 h-7 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[16px]">analytics</span>
+            </div>
+            <span className="text-sm font-bold text-slate-700">STAR 报告审阅 & 评级打分</span>
+            <span className="text-[10px] text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200 font-bold ml-auto">
+              待评级
+            </span>
+          </div>
+
+          <div className="px-5 py-4 space-y-4 max-h-[400px] overflow-y-auto">
+            {allStarLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="animate-spin text-violet-400" size={24} />
+                <span className="ml-2 text-sm text-slate-500">加载 STAR 报告...</span>
+              </div>
+            ) : allStarReports.length === 0 ? (
+              <div className="text-center py-6">
+                <span className="material-symbols-outlined text-slate-300 text-[40px]">description</span>
+                <p className="text-sm text-slate-400 mt-2">暂无成员提交 STAR 报告</p>
+                <p className="text-xs text-slate-400 mt-1">成员完成任务后可在此填写 STAR 绩效报告</p>
+              </div>
+            ) : (
+              allStarReports.map((item: any, idx: number) => {
+                const star = item.star || item;
+                const userName = item.name || item.user_name || star.user_name || '未知';
+                const roleName = item.role_name || star.role_name || '';
+                const submitted = (item.star_submitted) || (star.is_submitted === 1);
+                return (
+                  <div key={idx} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-400 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                        {userName[0]}
+                      </div>
+                      <div>
+                        <span className="text-sm font-bold text-slate-700">{userName}</span>
+                        {roleName && <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">{roleName}</span>}
+                      </div>
+                      <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${submitted ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
+                        {submitted ? '已提交' : '未提交'}
+                      </span>
+                    </div>
+                    {submitted ? (
+                      <div className="space-y-2 text-sm">
+                        {[
+                          { label: 'S — 情境', value: star.situation },
+                          { label: 'T — 任务', value: star.task_desc },
+                          { label: 'A — 行动', value: star.action },
+                          { label: 'R — 结果', value: star.result },
+                        ].map(f => (
+                          <div key={f.label}>
+                            <span className="text-xs font-bold text-violet-500">{f.label}</span>
+                            <p className="text-slate-600 mt-0.5 whitespace-pre-wrap leading-relaxed">{f.value || '(未填写)'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400 italic">该成员尚未提交 STAR 报告</p>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* A自评分数展示（评分人可见） */}
+          {initialData?.self_score != null && initialData.self_score > 0 && (
+            <div className="px-5 py-3 border-t border-slate-100 bg-amber-50/50">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-500 text-[16px]">person</span>
+                <span className="text-xs font-bold text-slate-600">负责人自评分数：</span>
+                <span className="text-sm font-bold text-amber-600">{initialData.self_score}分</span>
+              </div>
+            </div>
+          )}
+
+          {/* 评分输入区 */}
+          <div className="px-5 py-4 border-t border-slate-100 bg-white/80">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-600 mb-1.5 block">综合评级打分 (1-100分)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={scoreInput}
+                  onChange={e => setScoreInput(e.target.value)}
+                  placeholder="请输入评分"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <button
+                onClick={handleManagerScore}
+                disabled={scoring || !scoreInput}
+                className="mt-5 px-6 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white rounded-lg text-sm font-bold hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-violet-500/20 shrink-0"
+              >
+                {scoring ? <Loader2 size={16} className="animate-spin" /> : <span className="material-symbols-outlined text-[16px]">grade</span>}
+                确认评级
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">评级完成后任务将自动结案归档，请审阅上方 STAR 报告后慎重打分</p>
+          </div>
         </div>
       )}
 

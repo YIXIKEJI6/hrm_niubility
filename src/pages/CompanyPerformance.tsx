@@ -3,7 +3,9 @@ import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import SmartGoalDisplay from '../components/SmartGoalDisplay';
 import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
+import { parseUTC } from '../utils/dateUtils';
 import { decodeSmartDescription } from '../components/SmartFormInputs';
+import { buildSmartTaskData, buildSmartDescription, parseSmartDescription, parseAttachments } from '../utils/taskDataMapper';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 import RewardDistributionModal from '../components/RewardDistributionModal';
@@ -57,7 +59,7 @@ interface ConfirmDialog {
 
 type ModalStep = 'detail' | 'apply' | 'success' | 'star_space';
 
-export default function CompanyPerformance({ navigate }: { navigate: (view: string) => void }) {
+export default function CompanyPerformance({ navigate, initialTaskId }: { navigate: (view: string) => void; initialTaskId?: number }) {
   const [tasks, setTasks] = useState<PoolTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletedTasks, setDeletedTasks] = useState<PoolTask[]>([]);
@@ -105,6 +107,10 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
   const [showExtendModal, setShowExtendModal] = useState<PoolTask | null>(null);
   const [showTerminateModal, setShowTerminateModal] = useState<PoolTask | null>(null);
   const [showRewardModal, setShowRewardModal] = useState<PoolTask | null>(null);
+  const [showReviewRewardModal, setShowReviewRewardModal] = useState<{ task: PoolTask; planId: number } | null>(null);
+  const [reviewRewardData, setReviewRewardData] = useState<{ plan: any; distributions: any[] } | null>(null);
+  const [reviewRewardLoading, setReviewRewardLoading] = useState(false);
+  const [reviewRejectReason, setReviewRejectReason] = useState('');
   const [extendForm, setExtendForm] = useState({ new_deadline: '', reason: '', impact_analysis: '' });
   const [terminateForm, setTerminateForm] = useState({ reason: '', actual_completion: '80', delivered_content: '' });
   const [actionLoading, setActionLoading] = useState(false);
@@ -132,7 +138,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
       const token = localStorage.getItem('token');
       const res = await fetch('/api/pool/my-proposals', { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
-      if (json.code === 0) setMyProposals(json.data.filter((p: any) => p.proposal_status !== 'approved'));
+      if (json.code === 0) setMyProposals(json.data);
     } catch {}
   };
 
@@ -180,33 +186,56 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
   useEffect(() => { fetchTasks(); fetchTopDepts(); fetchMyProposals(); fetchMyClaims(); fetchLeaderboard(); fetchUsers(); fetchTrash(); }, []);
 
+  // 从 URL 参数自动打开指定任务（如从我的流程点击奖励分配卡片跳转过来）
+  useEffect(() => {
+    if (initialTaskId && tasks.length > 0 && !selectedTask) {
+      const task = tasks.find(t => t.id === initialTaskId);
+      if (task) { setSelectedTask(task); setModalStep('detail'); }
+    }
+  }, [initialTaskId, tasks]);
+
+  // 加载奖金审核详情
+  useEffect(() => {
+    if (!showReviewRewardModal) { setReviewRewardData(null); setReviewRejectReason(''); return; }
+    const load = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`/api/pool/rewards/task/${showReviewRewardModal.task.id}`, { headers: { Authorization: `Bearer ${token}` } });
+        const json = await res.json();
+        if (json.code === 0 && json.data) setReviewRewardData(json.data);
+      } catch {}
+    };
+    load();
+  }, [showReviewRewardModal]);
+
   const handleProposeSmart = async (data: SmartTaskData) => {
     if (!data.summary.trim()) return;
     setProposing(true);
     try {
       const token = localStorage.getItem('token');
-      const pdcaStr = [
-        data.planTime ? `Plan: ${data.planTime}` : '',
-        data.doTime ? `Do: ${data.doTime}` : '',
-        data.checkTime ? `Check: ${data.checkTime}` : '',
-        data.actTime ? `Act: ${data.actTime}` : ''
-      ].filter(Boolean).join(' | ');
-      
-      const descText = data.s || '';
-      const hasPDCA = descText.includes('【PDCA】');
-      const smartDescription = descText + (pdcaStr && !hasPDCA ? `\n\n【PDCA】\n${pdcaStr}` : '');
+      const usedSmart = !!(data.m || data.a_smart || data.r_smart || data.t);
       const res = await fetch('/api/pool/tasks/propose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           title: data.summary || '新提案',
-          description: smartDescription,
+          description: buildSmartDescription(data),
           department: data.taskType || '全部部门',
+          category: data.taskType || '',
           difficulty: '中',
           reward_type: data.rewardType,
           bonus: Number(data.bonus) || 0,
           max_participants: Number(data.maxParticipants) || 5,
-          attachments: data.attachments || []
+          attachments: data.attachments || [],
+          s: usedSmart ? (data.s || '') : '',
+          m: data.m || '',
+          a_smart: data.a_smart || '',
+          r_smart: data.r_smart || '',
+          t: data.t || '',
+          planTime: data.planTime || '',
+          doTime: data.doTime || '',
+          checkTime: data.checkTime || '',
+          actTime: data.actTime || '',
         }),
       });
       const json = await res.json();
@@ -482,6 +511,15 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
 
   const handleStartProject = (extraData?: any) => {
     if (!selectedTask) return;
+    // 校验 R+A 角色是否已分派
+    const claims = (selectedTask as any).role_claims || [];
+    const approvedOrPending = claims.filter((c: any) => ['approved', 'star_submitted', 'pending'].includes(c.status));
+    const hasR = approvedOrPending.some((c: any) => c.role_name === 'R');
+    const hasA = approvedOrPending.some((c: any) => c.role_name === 'A');
+    if (!hasR || !hasA) {
+      alert('R(执行人)和A(负责人)角色必须至少各分派1人才能启动项目');
+      return;
+    }
     setDialog({
       title: '正式启动项目',
       description: '确认完成全员 RACI 角色分派并正式启动？\n系统将自动通过当前在面板选中的成员，并驳回未入选的人员。项目一旦启动，核心执行者（R/A）将不再支持随意更换。',
@@ -547,7 +585,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {(() => {
                 const activeTasks = tasks.filter(t => t.status === 'in_progress' || t.status === 'claiming');
-                const totalBonus = tasks.filter(t => t.reward_type !== 'score').reduce((sum, t) => sum + (t.bonus || 0), 0);
+                const totalBonus = leaderboard.reduce((sum: number, u: any) => sum + (u.total_money || 0), 0);
                 const totalParticipants = leaderboard.length;
                 const completedTasks = tasks.filter(t => t.status === 'rewarded').length;
                 const stats = [
@@ -572,13 +610,27 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
           {/* Title Row (Action Buttons) */}
           <div className={`flex justify-end mb-3 ${isMobile ? '' : ''}`}>
             <div className={`flex items-center ${isMobile ? 'gap-1.5 w-full' : 'gap-2'}`}>
-              {canManagePool && (
+              {canManagePool && (() => {
+                const userRole = currentUser?.role || '';
+                const pendingCount = tasks.filter(t => {
+                  // 提案审批：HR只看pending_hr，Admin只看pending_admin
+                  if (t.proposal_status === 'pending_hr' && ['hr', 'admin'].includes(userRole)) return true;
+                  if (t.proposal_status === 'pending_admin' && userRole === 'admin') return true;
+                  // 认领审批
+                  if (t.status === 'claiming' && t.role_claims?.some(rc => rc.status === 'pending')) return true;
+                  return false;
+                }).length;
+                return (
                 <button onClick={() => navigate('workflows?tab=pending')}
-                  className={`flex items-center gap-1 bg-white dark:bg-slate-800 rounded-lg text-primary hover:bg-primary/5 shadow-sm transition-all border border-primary/20 ${isMobile ? 'p-2' : 'px-4 py-2 text-xs font-bold'}`}>
+                  className={`relative flex items-center gap-1 bg-white dark:bg-slate-800 rounded-lg text-primary hover:bg-primary/5 shadow-sm transition-all border border-primary/20 ${isMobile ? 'p-2' : 'px-4 py-2 text-xs font-bold'}`}>
                   <span className={`material-symbols-outlined ${isMobile ? 'text-[18px]' : 'text-[16px]'}`}>rule</span>
                   {!isMobile && '审批'}
+                  {pendingCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-sm">{pendingCount}</span>
+                  )}
                 </button>
-              )}
+                );
+              })()}
               {canDeleteTask && (
                 <button onClick={() => { setShowTrash(true); fetchTrash(); }}
                   className={`relative flex items-center gap-1 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-all border border-outline-variant/10 bg-surface-container-low ${isMobile ? 'p-2' : 'px-3 py-2 text-xs font-medium'}`}>
@@ -702,7 +754,9 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
               {displayed.map(task => {
                 const badge = getBadge(task);
                 const full = isFull(task);
-                const pct = task.max_participants > 0 ? Math.round((task.current_participants / task.max_participants) * 100) : 0;
+                const claimingApplicants = task.status === 'claiming' ? (task.role_claims || []).filter((rc: any) => rc.status === 'pending') : [];
+                const displayParticipants = task.status === 'claiming' ? claimingApplicants.length : task.current_participants;
+                const pct = task.max_participants > 0 ? Math.round((displayParticipants / task.max_participants) * 100) : 0;
                 const isScore = task.reward_type === 'score';
                 return isMobile ? (
                   /* ── 移动端紧凑卡片 ── */
@@ -733,7 +787,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                           </span>
                           {/* 截止日期倒计时 */}
                           {task.deadline && (() => {
-                            const daysLeft = Math.ceil((new Date(task.deadline).getTime() - Date.now()) / 86400000);
+                            const daysLeft = Math.ceil((parseUTC(task.deadline).getTime() - Date.now()) / 86400000);
                             const isOverdue = daysLeft < 0;
                             return (
                               <span className={`text-[9px] font-bold px-1.5 py-px rounded-full flex items-center gap-0.5 shrink-0 ${
@@ -750,7 +804,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                               <div className="flex-1 max-w-[60px] bg-surface-container-highest h-1 rounded-full overflow-hidden">
                                 <div className={`h-full rounded-full transition-all ${pct >= 100 ? 'bg-red-400' : 'bg-primary'}`} style={{ width: `${pct}%` }}></div>
                               </div>
-                              <span className="text-[10px] text-on-surface-variant whitespace-nowrap">{task.current_participants}/{task.max_participants}</span>
+                              <span className="text-[10px] text-on-surface-variant whitespace-nowrap">{task.status === 'claiming' ? `${claimingApplicants.length}报名` : `${task.current_participants}/${task.max_participants}`}</span>
                             </div>
                           )}
                           {/* 操作按钮 */}
@@ -815,7 +869,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                         难度: {DIFFICULTY_MAP[task.difficulty] || task.difficulty}
                       </span>
                       {task.deadline && (() => {
-                        const daysLeft = Math.ceil((new Date(task.deadline).getTime() - Date.now()) / 86400000);
+                        const daysLeft = Math.ceil((parseUTC(task.deadline).getTime() - Date.now()) / 86400000);
                         const isOverdue = daysLeft < 0;
                         const isUrgent = daysLeft >= 0 && daysLeft <= 3;
                         return (
@@ -832,20 +886,22 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                     </div>
                     <div className="mt-auto">
                       <div className="flex items-center text-[10px] text-on-surface-variant mb-1.5 w-full">
-                        <span className="mr-2 shrink-0">{task.current_participants}/{task.max_participants} 人参与</span>
+                        <span className="mr-2 shrink-0">{task.status === 'claiming' ? `${claimingApplicants.length}人报名` : `${task.current_participants}/${task.max_participants} 人参与`}</span>
                         {(() => {
-                           const participants = task.role_claims?.filter(rc => (rc.status === 'approved' || rc.status === 'star_submitted')).map(rc => rc.user_name) || task.participant_names || [];
-                           if (participants.length === 0) return null;
+                           const showList = task.status === 'claiming'
+                             ? claimingApplicants.map((rc: any) => ({ name: rc.user_name, role: rc.role_name }))
+                             : (task.role_claims?.filter((rc: any) => rc.status === 'approved' || rc.status === 'star_submitted').map((rc: any) => ({ name: rc.user_name, role: '' })) || task.participant_names?.map((n: string) => ({ name: n, role: '' })) || []);
+                           if (showList.length === 0) return null;
                            return (
                              <div className="flex -space-x-1.5 opacity-90 shrink-0">
-                               {participants.slice(0, 3).map((name, idx) => (
-                                 <div key={idx} className="w-4 h-4 rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-400 text-white flex items-center justify-center text-[8px] font-bold border border-white shadow-sm z-10 relative" title={name} style={{ zIndex: 10 - idx }}>
-                                   {name?.charAt(0)}
+                               {showList.slice(0, 3).map((item: any, idx: number) => (
+                                 <div key={idx} className={`w-4 h-4 rounded-full text-white flex items-center justify-center text-[8px] font-bold border border-white shadow-sm z-10 relative ${task.status === 'claiming' ? 'bg-gradient-to-br from-blue-400 to-indigo-400' : 'bg-gradient-to-br from-violet-400 to-fuchsia-400'}`} title={item.role ? `${item.name} (意向${item.role})` : item.name} style={{ zIndex: 10 - idx }}>
+                                   {item.name?.charAt(0)}
                                  </div>
                                ))}
-                               {participants.length > 3 && (
+                               {showList.length > 3 && (
                                  <div className="w-4 h-4 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[8px] font-bold border border-white shadow-sm z-0 relative">
-                                   +{participants.length - 3}
+                                   +{showList.length - 3}
                                  </div>
                                )}
                              </div>
@@ -973,7 +1029,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-700/60 mt-auto">
-                                  <span className="text-[10px] text-slate-400 font-medium">{new Date(t.created_at || '').toLocaleDateString()}</span>
+                                  <span className="text-[10px] text-slate-400 font-medium">{parseUTC(t.created_at || '').toLocaleDateString()}</span>
                                   {t.reward_type === 'score' ? (
                                     <span className="text-sm font-black text-orange-500">{t.bonus.toLocaleString()}分</span>
                                   ) : (
@@ -1026,93 +1082,51 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         onApprove={async (action, data) => {
           if (action === 'batch_approve_and_start') {
             handleStartProject(data);
+            return;
+          }
+          // HR/Admin 编辑保存
+          if (data && selectedTask?.id) {
+            try {
+              const token = localStorage.getItem('token');
+              const res = await fetch(`/api/pool/tasks/${selectedTask.id}`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: data.summary || data.s?.substring(0, 30),
+                  description: buildSmartDescription(data),
+                  s: data.s, m: data.m, a_smart: data.a_smart, r_smart: data.r_smart, t: data.t,
+                  planTime: data.planTime, doTime: data.doTime, checkTime: data.checkTime, actTime: data.actTime,
+                  bonus: data.bonus ? Number(data.bonus) : undefined,
+                  difficulty: data.difficulty,
+                  category: data.taskType,
+                  max_participants: data.maxParticipants ? Number(data.maxParticipants) : undefined,
+                  attachments: data.attachments,
+                }),
+              });
+              const json = await res.json();
+              if (json.code === 0) {
+                alert('保存成功');
+                fetchTasks();
+                const taskRes = await fetch(`/api/pool/tasks/${selectedTask.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                const taskJson = await taskRes.json();
+                if (taskJson.code === 0) setSelectedTask(taskJson.data);
+              } else alert(json.message || '保存失败');
+            } catch { alert('网络异常'); }
           }
         }}
         title="任务详情"
         type="pool_publish"
         users={users}
-        readonly={true}
-        initialData={(() => {
-          if (!selectedTask) return {};
-          const desc = selectedTask.description || '';
-          const decoded = decodeSmartDescription(desc);
-          // 正确解析 SMART 格式描述，避免标记重复显示
-          const sMatch = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
-          const mMatch = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
-          const tMatch = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
-          // 清理被重复嵌套的 SMART 标记
-          const cleanMarkers = (v: string) => v.replace(/【目标 S】\s*/g, '').replace(/【指标 M】\s*/g, '').replace(/【方案 A】\s*/g, '').replace(/【相关 R】\s*/g, '').replace(/【时限 T】\s*/g, '').replace(/【PDCA】[\s\S]*/g, '').trim();
-          let s_val: string, m_val: string, t_val: string;
-          if (sMatch) {
-            // 提取【目标 S】之前的内容（员工在插入模板前写的文本）
-            const preMarker = desc.substring(0, desc.indexOf('【目标 S】')).trim();
-            const sContent = cleanMarkers(sMatch[1]);
-            s_val = [preMarker, sContent].filter(Boolean).join('\n\n');
-            m_val = mMatch ? cleanMarkers(mMatch[1]) : '';
-            t_val = tMatch ? cleanMarkers(tMatch[1]) : '';
-          } else {
-            const pdcaIdx = desc.indexOf('\n\n【PDCA】');
-            s_val = pdcaIdx >= 0 ? desc.substring(0, pdcaIdx).trim() : desc;
-            s_val = cleanMarkers(s_val);
-            m_val = '';
-            t_val = '';
-          }
-          return {
-            id: selectedTask.id,
-            status: selectedTask.status || (selectedTask as any).proposal_status,
-            flow_type: 'proposal',
-            creator_name: selectedTask.creator_name,
-            summary: selectedTask.title,
-            s: s_val || selectedTask.title,
-            m: m_val,
-            a_smart: decoded.resource,
-            r_smart: decoded.relevance,
-            t: t_val || selectedTask.deadline || '',
-            planTime: decoded.planTime,
-            doTime: decoded.doTime,
-            checkTime: decoded.checkTime,
-            actTime: decoded.actTime,
-            taskType: selectedTask.category || '',
-            bonus: String(selectedTask.bonus),
-            rewardType: selectedTask.reward_type,
-            maxParticipants: String(selectedTask.max_participants),
-            attachments: (selectedTask as any).attachments ? JSON.parse((selectedTask as any).attachments) : [],
-            role_claims: selectedTask.role_claims,
-            roles_config: selectedTask.roles_config,
-            // 从已审核通过的 role_claims 中提取 RACI 人员 ID，供弹窗头部属性栏展示；若无则从 roles_config 兜底
-            r: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'R' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
-              if (fromClaims) return fromClaims;
-              const rc = selectedTask.roles_config || [];
-              return (rc.find?.((r: any) => r.name === 'R')?.users || []).map((u: any) => u.id).join(',');
-            })(),
-            a: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'A' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
-              if (fromClaims) return fromClaims;
-              const rc = selectedTask.roles_config || [];
-              return (rc.find?.((r: any) => r.name === 'A')?.users || []).map((u: any) => u.id).join(',');
-            })(),
-            c: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'C' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
-              if (fromClaims) return fromClaims;
-              const rc = selectedTask.roles_config || [];
-              return (rc.find?.((r: any) => r.name === 'C')?.users || []).map((u: any) => u.id).join(',');
-            })(),
-            i: (() => {
-              const fromClaims = (selectedTask.role_claims || []).filter((c: any) => c.role_name === 'I' && (c.status === 'approved' || c.status === 'star_submitted')).map((c: any) => c.user_id).join(',');
-              if (fromClaims) return fromClaims;
-              const rc = selectedTask.roles_config || [];
-              return (rc.find?.((r: any) => r.name === 'I')?.users || []).map((u: any) => u.id).join(',');
-            })(),
-          };
-        })()}
+        readonly
+        approverMode={isHrOrAdmin && ['approved', 'published', 'claiming'].includes(selectedTask?.status || '')}
+        initialData={selectedTask ? buildSmartTaskData(selectedTask as any, 'pool_task') : {}}
         headerActions={
           <div className="flex items-center gap-2">
             {selectedTask?.status === 'claiming' ? (
               <>
                 <button onClick={() => setModalStep('apply')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${canManagePool ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-white text-violet-700 hover:bg-slate-50 shadow-sm'}`}>
-                  认领角色
+                  报名角色
                 </button>
                 {isHrOrAdmin && (
                   <button onClick={() => document.dispatchEvent(new CustomEvent('TRIGGER_TASK_FINISH_ALLOCATION'))}
@@ -1137,11 +1151,19 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             ) : null}
 
             {['in_progress', 'completed', 'terminated'].includes(selectedTask?.status || '') && (() => {
-              const myClaim = (selectedTask?.role_claims || []).find((c: any) => c.user_id === currentUser?.id && (c.status === 'approved' || c.status === 'star_submitted'));
-              const myRole = myClaim?.role_name;
-              if (!myClaim) return null;
-              const isA = myRole === 'A';
-              const isRA = myRole === 'R' || myRole === 'A';
+              const myClaims = (selectedTask?.role_claims || []).filter((c: any) => String(c.user_id) === String(currentUser?.id) && ['approved', 'star_submitted'].includes(c.status));
+              // Also check roles_config JSON for A role (fallback when role_claims table doesn't have A entry)
+              const rolesConfig = (() => {
+                try {
+                  const rc = selectedTask?.roles_config;
+                  return Array.isArray(rc) ? rc : (typeof rc === 'string' ? JSON.parse(rc) : []);
+                } catch { return []; }
+              })();
+              const isAFromConfig = rolesConfig.some((r: any) => r.name === 'A' && Array.isArray(r.users) && r.users.some((u: any) => String(u.id) === String(currentUser?.id)));
+              const isRFromConfig = rolesConfig.some((r: any) => (r.name === 'R' || r.name === 'A') && Array.isArray(r.users) && r.users.some((u: any) => String(u.id) === String(currentUser?.id)));
+              if (myClaims.length === 0 && !isAFromConfig && !isRFromConfig) return null;
+              const isA = myClaims.some((c: any) => c.role_name === 'A') || isAFromConfig;
+              const isRA = myClaims.some((c: any) => c.role_name === 'R' || c.role_name === 'A') || isRFromConfig;
               
               return (
                 <div className="flex items-center gap-2 pl-2 border-l border-white/20 ml-1">
@@ -1159,7 +1181,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       延期
                     </button>
                   )}
-                  {isRA && selectedTask?.status === 'in_progress' && (
+                  {isA && selectedTask?.status === 'in_progress' && (
                     <button onClick={() => setShowCompleteModal(selectedTask!)}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0">
                       <span className="material-symbols-outlined text-[14px]">task_alt</span>
@@ -1173,7 +1195,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       提前终止
                     </button>
                   )}
-                  {isA && ['completed', 'terminated'].includes(selectedTask?.status || '') && (
+                  {isA && ['completed', 'terminated'].includes(selectedTask?.status || '') && !(selectedTask as any)?.reward_plan_status && (
                     <button onClick={() => setShowRewardModal(selectedTask!)}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-orange-400 to-amber-500 shadow-sm hover:opacity-90 transition-colors shrink-0">
                       <span className="material-symbols-outlined text-[14px]">workspace_premium</span>
@@ -1182,6 +1204,53 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                   )}
                 </div>
               );
+            })()}
+
+            {/* 奖金方案状态/审核按钮（独立于角色，HR也可见） */}
+            {['completed', 'terminated'].includes(selectedTask?.status || '') && (() => {
+              const rps = (selectedTask as any)?.reward_plan_status;
+              const rewardPlanId = (selectedTask as any)?.reward_plan_id;
+              if (!rps) return null;
+              if (rps === 'paid') return (
+                <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                  已发赏
+                </span>
+              );
+              if (rps === 'approved' && canManagePool && rewardPlanId) return (
+                <button onClick={() => { setShowReviewRewardModal({ task: selectedTask!, planId: rewardPlanId }); }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-sm transition-colors shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">payments</span>
+                  确认打款
+                </button>
+              );
+              if (rps === 'approved') return (
+                <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">schedule</span>
+                  待打款
+                </span>
+              );
+              if (rps === 'pending_hr' && canManagePool && rewardPlanId) return (
+                <button onClick={() => { setShowReviewRewardModal({ task: selectedTask!, planId: rewardPlanId }); }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-500 shadow-sm hover:opacity-90 transition-colors shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">fact_check</span>
+                  审核奖金
+                </button>
+              );
+              if (rps === 'pending_admin' && isHrOrAdmin && rewardPlanId) return (
+                <button onClick={() => { setShowReviewRewardModal({ task: selectedTask!, planId: rewardPlanId }); }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-sm hover:opacity-90 transition-colors shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">gavel</span>
+                  总经理审批
+                </button>
+              );
+              if (['pending_hr', 'pending_admin'].includes(rps)) return (
+                <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 shrink-0">
+                  <span className="material-symbols-outlined text-[14px]">hourglass_top</span>
+                  审核中
+                </span>
+              );
+              return null;
             })()}
           </div>
         }
@@ -1398,20 +1467,30 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
         onDraft={async (data) => {
           try {
             const token = localStorage.getItem('token');
-            const smartDescription = data.s || '';
+            const usedSmart = !!(data.m || data.a_smart || data.r_smart || data.t);
             const res = await fetch('/api/pool/tasks/propose', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿提案',
-                description: smartDescription,
+                description: buildSmartDescription(data),
                 department: data.taskType || '',
+                category: data.taskType || '',
                 difficulty: '中',
                 reward_type: data.rewardType,
                 bonus: Number(data.bonus) || 0,
                 max_participants: Number(data.maxParticipants) || 5,
                 attachments: data.attachments || [],
                 is_draft: true,
+                s: usedSmart ? (data.s || '') : '',
+                m: data.m || '',
+                a_smart: data.a_smart || '',
+                r_smart: data.r_smart || '',
+                t: data.t || '',
+                planTime: data.planTime || '',
+                doTime: data.doTime || '',
+                checkTime: data.checkTime || '',
+                actTime: data.actTime || '',
               }),
             });
             const json = await res.json();
@@ -1465,11 +1544,16 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                       <div className="flex items-center gap-3 text-[10px] text-slate-400">
                         <span>奖金: ¥{p.bonus || 0}</span>
                         <span>难度: {p.difficulty || '中'}</span>
-                        <span>{new Date(p.created_at).toLocaleDateString()}</span>
+                        <span>{parseUTC(p.created_at).toLocaleDateString()}</span>
                       </div>
-                      {p.reject_reason && (
+                      {p.reject_reason && p.proposal_status === 'rejected' && (
                         <div className="mt-2 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-1.5 text-xs text-red-600">
                           <span className="font-bold">驳回原因：</span>{p.reject_reason}
+                        </div>
+                      )}
+                      {p.reject_reason && p.proposal_status === 'approved' && (
+                        <div className="mt-2 bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-1.5 text-xs text-green-600">
+                          <span className="font-bold">审批意见：</span>{p.reject_reason}
                         </div>
                       )}
                     </div>
@@ -1551,7 +1635,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                 <div className="text-center py-8">
                   <span className="material-symbols-outlined text-[40px] text-slate-300 mb-2 block">assignment</span>
                   <p className="text-slate-400 text-sm">暂未认领任何任务</p>
-                  <p className="text-slate-300 text-xs mt-1">可在赏金榜中选择感兴趣的任务认领角色</p>
+                  <p className="text-slate-300 text-xs mt-1">可在赏金榜中选择感兴趣的任务报名角色</p>
                 </div>
               ) : myClaims.map((c: any) => {
                 const ROLE_LABELS: Record<string, string> = { R: '执行者', A: '责任验收者', C: '被咨询者', I: '被告知者' };
@@ -1606,7 +1690,7 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
                         <span className="text-emerald-500 font-bold">个人奖: {isScore ? `${c.reward}分` : `¥${c.reward}`}</span>
                       )}
                       {c.task_department && <span>{c.task_department}</span>}
-                      <span>{new Date(c.created_at).toLocaleDateString()}</span>
+                      <span>{parseUTC(c.created_at).toLocaleDateString()}</span>
                     </div>
                     {/* Reason if exists */}
                     {c.reason && (
@@ -1631,20 +1715,30 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
             // For drafts: submit as proposal
             try {
               const token = localStorage.getItem('token');
-              const smartDescription = data.s || '';
+              const usedSmart = !!(data.m || data.a_smart || data.r_smart || data.t);
               await fetch(`/api/pool/tasks/${viewingProposal.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                   title: data.summary || viewingProposal.title,
-                  description: smartDescription,
+                  description: buildSmartDescription(data),
                   department: data.taskType || viewingProposal.department,
+                  category: data.taskType || viewingProposal.category || '',
                   difficulty: viewingProposal.difficulty || '中',
                   reward_type: data.rewardType || viewingProposal.reward_type,
                   bonus: Number(data.bonus) || viewingProposal.bonus || 0,
                   max_participants: Number(data.maxParticipants) || viewingProposal.max_participants || 5,
                   proposal_status: 'pending_hr',
-                  attachments: data.attachments || viewingProposal.attachments || []
+                  attachments: data.attachments || viewingProposal.attachments || [],
+                  s: usedSmart ? (data.s || '') : '',
+                  m: data.m || '',
+                  a_smart: data.a_smart || '',
+                  r_smart: data.r_smart || '',
+                  t: data.t || '',
+                  planTime: data.planTime || '',
+                  doTime: data.doTime || '',
+                  checkTime: data.checkTime || '',
+                  actTime: data.actTime || '',
                 }),
               });
               setViewingProposal(null);
@@ -1656,60 +1750,35 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
           users={users}
           submitting={false}
           readonly={viewingProposal.proposal_status !== 'draft'}
-          initialData={(() => {
-            const p = viewingProposal;
-            const desc = p.description || '';
-            const extract = (label: string) => {
-              const m = desc.match(new RegExp(`【${label}】([\\s\\S]*?)(?=【|$)`));
-              return m ? m[1].trim() : '';
-            };
-            // Safely parse attachments: handle string, array, null
-            let parsedAttachments: any[] = [];
-            try {
-              if (Array.isArray(p.attachments)) {
-                parsedAttachments = p.attachments;
-              } else if (typeof p.attachments === 'string' && p.attachments) {
-                parsedAttachments = JSON.parse(p.attachments);
-              }
-            } catch { parsedAttachments = []; }
-            return {
-              id: p.id,
-              status: p.proposal_status,
-              flow_type: 'proposal',
-              summary: p.title,
-              s: p.description || p.title,
-              m: '',
-              a_smart: '',
-              r_smart: '',
-              t: p.deadline || '',
-              taskType: p.department || '',
-              bonus: String(p.bonus || 0),
-              rewardType: p.reward_type || 'money',
-              maxParticipants: p.max_participants || 5,
-              hr_reviewer_name: p.hr_reviewer_name,
-              hr_reviewer_id: p.hr_reviewer_id,
-              admin_reviewer_name: p.admin_reviewer_name,
-              admin_reviewer_id: p.admin_reviewer_id,
-              creator_name: p.creator_name || currentUser?.name,
-              attachments: parsedAttachments
-            };
-          })()}
+          initialData={{
+            ...buildSmartTaskData(viewingProposal as any, 'proposal'),
+            creator_name: viewingProposal.creator_name || currentUser?.name,
+          }}
           onDraft={async (data) => {
             try {
               const token = localStorage.getItem('token');
-              const smartDescription = data.s || '';
+              const usedSmart = !!(data.m || data.a_smart || data.r_smart || data.t);
               const res = await fetch(`/api/pool/tasks/${viewingProposal.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                   title: data.summary || viewingProposal.title,
-                  description: smartDescription,
+                  description: buildSmartDescription(data),
                   department: data.taskType || viewingProposal.department,
                   difficulty: viewingProposal.difficulty || '中',
                   reward_type: data.rewardType || viewingProposal.reward_type,
                   bonus: Number(data.bonus) || viewingProposal.bonus || 0,
                   max_participants: Number(data.maxParticipants) || viewingProposal.max_participants || 5,
                   attachments: data.attachments || [],
+                  s: usedSmart ? (data.s || '') : '',
+                  m: data.m || '',
+                  a_smart: data.a_smart || '',
+                  r_smart: data.r_smart || '',
+                  t: data.t || '',
+                  planTime: data.planTime || '',
+                  doTime: data.doTime || '',
+                  checkTime: data.checkTime || '',
+                  actTime: data.actTime || '',
                 }),
               });
               const json = await res.json();
@@ -2011,6 +2080,235 @@ export default function CompanyPerformance({ navigate }: { navigate: (view: stri
           onClose={() => setShowRewardModal(null)}
           onSubmitted={() => { setShowRewardModal(null); fetchTasks(); }}
         />
+      )}
+
+      {/* ── HR 奖金审核弹窗 ─────────────────────────────────────────────── */}
+      {showReviewRewardModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowReviewRewardModal(null)} />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 fade-in duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-white">
+                <span className="material-symbols-outlined text-[20px]">fact_check</span>
+                <span className="font-bold">奖金方案审核</span>
+              </div>
+              <button onClick={() => setShowReviewRewardModal(null)} className="text-white/70 hover:text-white">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              {!reviewRewardData ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <>
+                  {/* 方案概要 */}
+                  <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">任务</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-white">{showReviewRewardModal.task.title}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">发起人</span>
+                      <span className="text-sm font-medium">{reviewRewardData.plan.initiator_name || '-'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">奖金总额</span>
+                      <span className="text-sm font-black text-rose-500">¥{(reviewRewardData.plan.total_bonus_awarded || reviewRewardData.plan.total_bonus || 0).toLocaleString()}</span>
+                    </div>
+                    {reviewRewardData.plan.pay_period && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">发放月份</span>
+                        <span className="text-sm font-medium">{reviewRewardData.plan.pay_period}</span>
+                      </div>
+                    )}
+                    {reviewRewardData.plan.notes && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">备注</span>
+                        <span className="text-sm text-slate-600 dark:text-slate-300">{reviewRewardData.plan.notes}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">当前状态</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        reviewRewardData.plan.status === 'pending_hr' ? 'bg-amber-100 text-amber-700' :
+                        reviewRewardData.plan.status === 'pending_admin' ? 'bg-blue-100 text-blue-700' :
+                        reviewRewardData.plan.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {reviewRewardData.plan.status === 'pending_hr' ? '待人事审核' :
+                         reviewRewardData.plan.status === 'pending_admin' ? '待高管审批' :
+                         reviewRewardData.plan.status === 'approved' ? '已批准·待打款' :
+                         reviewRewardData.plan.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 分配明细 */}
+                  <h4 className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">group</span>
+                    奖金分配明细
+                  </h4>
+                  <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-4">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800 text-xs text-slate-500">
+                          <th className="px-3 py-2 text-left font-medium">成员</th>
+                          <th className="px-3 py-2 text-center font-medium">角色</th>
+                          <th className="px-3 py-2 text-right font-medium">奖金(¥)</th>
+                          <th className="px-3 py-2 text-right font-medium">绩效分</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {reviewRewardData.distributions.map((d: any, i: number) => (
+                          <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                            <td className="px-3 py-2 font-medium text-slate-800 dark:text-white">{d.name || d.user_id}</td>
+                            <td className="px-3 py-2 text-center">
+                              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${d.role_name === 'A' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                {d.role_name}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-bold text-rose-500">{(d.bonus_amount || 0).toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right font-medium text-slate-600">{d.perf_score || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-50 dark:bg-slate-800 font-bold text-xs">
+                          <td className="px-3 py-2" colSpan={2}>合计</td>
+                          <td className="px-3 py-2 text-right text-rose-600">¥{reviewRewardData.distributions.reduce((s: number, d: any) => s + (d.bonus_amount || 0), 0).toLocaleString()}</td>
+                          <td className="px-3 py-2"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 操作区 */}
+            {reviewRewardData && (
+              <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+                {/* 驳回理由输入 */}
+                {['pending_hr', 'pending_admin'].includes(reviewRewardData.plan.status) && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text" placeholder="驳回理由（可选）" value={reviewRejectReason}
+                      onChange={e => setReviewRejectReason(e.target.value)}
+                      className="flex-1 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 justify-end">
+                  <button onClick={() => setShowReviewRewardModal(null)} disabled={reviewRewardLoading}
+                    className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+                    取消
+                  </button>
+                  {reviewRewardData.plan.status === 'pending_hr' && (
+                    <button disabled={reviewRewardLoading} onClick={async () => {
+                      setReviewRewardLoading(true);
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`/api/pool/rewards/${showReviewRewardModal.planId}/hr-review`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ action: 'reject', comment: reviewRejectReason })
+                        });
+                        const json = await res.json();
+                        if (json.code === 0) { setShowReviewRewardModal(null); fetchTasks(); }
+                        else alert(json.message || '操作失败');
+                      } catch { alert('网络异常'); }
+                      setReviewRewardLoading(false);
+                    }}
+                      className="px-4 py-2 text-sm font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50">
+                      {reviewRewardLoading ? '处理中...' : '驳回'}
+                    </button>
+                  )}
+                  {reviewRewardData.plan.status === 'pending_hr' && (
+                    <button disabled={reviewRewardLoading} onClick={async () => {
+                      setReviewRewardLoading(true);
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`/api/pool/rewards/${showReviewRewardModal.planId}/hr-review`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ action: 'approve' })
+                        });
+                        const json = await res.json();
+                        if (json.code === 0) { setShowReviewRewardModal(null); fetchTasks(); }
+                        else alert(json.message || '操作失败');
+                      } catch { alert('网络异常'); }
+                      setReviewRewardLoading(false);
+                    }}
+                      className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:opacity-90 rounded-lg shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                      {reviewRewardLoading ? '处理中...' : 'HR 通过'}
+                    </button>
+                  )}
+                  {reviewRewardData.plan.status === 'pending_admin' && (
+                    <button disabled={reviewRewardLoading} onClick={async () => {
+                      setReviewRewardLoading(true);
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`/api/pool/rewards/${showReviewRewardModal.planId}/admin-confirm`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ action: 'reject', comment: reviewRejectReason })
+                        });
+                        const json = await res.json();
+                        if (json.code === 0) { setShowReviewRewardModal(null); fetchTasks(); }
+                        else alert(json.message || '操作失败');
+                      } catch { alert('网络异常'); }
+                      setReviewRewardLoading(false);
+                    }}
+                      className="px-4 py-2 text-sm font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50">
+                      {reviewRewardLoading ? '处理中...' : '驳回'}
+                    </button>
+                  )}
+                  {reviewRewardData.plan.status === 'pending_admin' && (
+                    <button disabled={reviewRewardLoading} onClick={async () => {
+                      setReviewRewardLoading(true);
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`/api/pool/rewards/${showReviewRewardModal.planId}/admin-confirm`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ action: 'approve' })
+                        });
+                        const json = await res.json();
+                        if (json.code === 0) { setShowReviewRewardModal(null); fetchTasks(); }
+                        else alert(json.message || '操作失败');
+                      } catch { alert('网络异常'); }
+                      setReviewRewardLoading(false);
+                    }}
+                      className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-violet-500 to-purple-600 hover:opacity-90 rounded-lg shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[16px]">gavel</span>
+                      {reviewRewardLoading ? '处理中...' : '总经理确认'}
+                    </button>
+                  )}
+                  {reviewRewardData.plan.status === 'approved' && (
+                    <button disabled={reviewRewardLoading} onClick={async () => {
+                      setReviewRewardLoading(true);
+                      try {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(`/api/pool/rewards/${showReviewRewardModal.planId}/mark-paid`, {
+                          method: 'POST', headers: { Authorization: `Bearer ${token}` }
+                        });
+                        const json = await res.json();
+                        if (json.code === 0) { setShowReviewRewardModal(null); fetchTasks(); }
+                        else alert(json.message || '操作失败');
+                      } catch { alert('网络异常'); }
+                      setReviewRewardLoading(false);
+                    }}
+                      className="px-4 py-2 text-sm font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[16px]">payments</span>
+                      {reviewRewardLoading ? '处理中...' : '确认已打款'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

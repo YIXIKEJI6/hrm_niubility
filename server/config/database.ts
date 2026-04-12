@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { parseSmartFromDescription } from '../utils/smartParser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,34 +51,71 @@ export function initDatabase(): void {
       synced_at DATETIME
     );
 
-    -- ============ 绩效生命周期 ============
+    -- ============ 统一绩效任务表（合并 perf_plans + pool_tasks） ============
 
-    CREATE TABLE IF NOT EXISTS perf_plans (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT,
-      category TEXT,
-      creator_id TEXT NOT NULL,
-      assignee_id TEXT,
-      approver_id TEXT,
-      department_id INTEGER,
-      status TEXT DEFAULT 'draft',
-      progress INTEGER DEFAULT 0,
-      target_value TEXT,
-      actual_value TEXT,
-      score REAL,
-      bonus REAL,
-      difficulty TEXT,
-      deadline DATE,
-      quarter TEXT,
-      alignment TEXT,
-      reject_reason TEXT,
-      collaborators TEXT,
-      assessed_at DATETIME,
-      rewarded_at DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    CREATE TABLE IF NOT EXISTS perf_tasks (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_type             TEXT NOT NULL DEFAULT 'assigned',
+      title                 TEXT NOT NULL,
+      description           TEXT,
+      category              TEXT,
+      difficulty            TEXT DEFAULT 'normal',
+      status                TEXT DEFAULT 'draft',
+      progress              INTEGER DEFAULT 0,
+      deadline              DATE,
+      reject_reason         TEXT,
+      bonus                 REAL,
+      creator_id            TEXT NOT NULL,
+      assignee_id           TEXT,
+      approver_id           TEXT,
+      dept_head_id          TEXT,
+      department_id         INTEGER,
+      department            TEXT,
+      target_value          TEXT,
+      score                 REAL,
+      self_score            REAL,
+      actual_value          TEXT,
+      quarter               TEXT,
+      alignment             TEXT,
+      collaborators         TEXT,
+      assessed_at           DATETIME,
+      rewarded_at           DATETIME,
+      flow_type             TEXT,
+      receipt_status        TEXT,
+      proposal_status       TEXT,
+      reward_type           TEXT DEFAULT 'money',
+      max_participants      INTEGER DEFAULT 5,
+      roles_config          TEXT,
+      hr_reviewer_id        TEXT,
+      admin_reviewer_id     TEXT,
+      delivery_target_id    TEXT,
+      actual_end_reason     TEXT,
+      actual_completion     REAL,
+      terminated_by         TEXT,
+      terminated_at         DATETIME,
+      star_phase_started_at DATETIME,
+      smart_s               TEXT,
+      smart_m               TEXT,
+      smart_a               TEXT,
+      smart_r               TEXT,
+      smart_t               TEXT,
+      plan_time             TEXT,
+      do_time               TEXT,
+      check_time            TEXT,
+      act_time              TEXT,
+      attachments           TEXT DEFAULT '[]',
+      informed_parties      TEXT,
+      delivery_target       TEXT,
+      deleted_at            DATETIME,
+      created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE INDEX IF NOT EXISTS idx_pt_type    ON perf_tasks(task_type);
+    CREATE INDEX IF NOT EXISTS idx_pt_creator ON perf_tasks(creator_id);
+    CREATE INDEX IF NOT EXISTS idx_pt_assignee ON perf_tasks(assignee_id);
+    CREATE INDEX IF NOT EXISTS idx_pt_status  ON perf_tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_pt_dept    ON perf_tasks(department_id);
+    CREATE INDEX IF NOT EXISTS idx_pt_deleted ON perf_tasks(deleted_at);
 
     CREATE TABLE IF NOT EXISTS perf_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,27 +143,7 @@ export function initDatabase(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_wal_biz ON workflow_audit_logs(business_type, business_id);
 
-    -- ============ 绩效池 ============
-
-    CREATE TABLE IF NOT EXISTS pool_tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT,
-      department TEXT,
-      difficulty TEXT DEFAULT 'normal',
-      reward_type TEXT DEFAULT 'money',
-      bonus REAL,
-      max_participants INTEGER DEFAULT 5,
-      created_by TEXT,
-      hr_reviewer_id TEXT,
-      admin_reviewer_id TEXT,
-      reject_reason TEXT,
-      status TEXT DEFAULT 'open',
-      proposal_status TEXT DEFAULT 'approved',
-      deadline DATE,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    -- ============ 赏金榜参与者 ============
 
     CREATE TABLE IF NOT EXISTS pool_participants (
       pool_task_id INTEGER,
@@ -172,6 +190,19 @@ export function initDatabase(): void {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+
+    -- ============ 薪资模板 ============
+
+    CREATE TABLE IF NOT EXISTS salary_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      key TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL DEFAULT 'income',
+      default_amount REAL DEFAULT 0,
+      calc_formula TEXT,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 
     -- ============ 消息推送记录 ============
 
@@ -474,25 +505,8 @@ export function initDatabase(): void {
     );
   `);
 
-  // pool_tasks 缺失列迁移
-  const poolMigrations = [
-    'ALTER TABLE pool_tasks ADD COLUMN deleted_at DATETIME',
-    'ALTER TABLE pool_tasks ADD COLUMN progress INTEGER DEFAULT 0',
-    'ALTER TABLE pool_tasks ADD COLUMN roles_config TEXT',
-    'ALTER TABLE pool_tasks ADD COLUMN dept_head_id TEXT',
-    // 奖励分配平台新增字段
-    'ALTER TABLE pool_tasks ADD COLUMN actual_end_reason TEXT',
-    'ALTER TABLE pool_tasks ADD COLUMN actual_completion REAL',
-    'ALTER TABLE pool_tasks ADD COLUMN terminated_by TEXT',
-    'ALTER TABLE pool_tasks ADD COLUMN terminated_at DATETIME',
-    'ALTER TABLE pool_tasks ADD COLUMN star_phase_started_at DATETIME',
-    // 流程3&6: 交付对象金主物理字段
-    'ALTER TABLE pool_tasks ADD COLUMN delivery_target_id TEXT',
-    'ALTER TABLE pool_tasks ADD COLUMN updated_at DATETIME',
-  ];
-  for (const sql of poolMigrations) {
-    try { db.prepare(sql).run(); } catch (e) {}
-  }
+  // ── 从旧表迁移数据到 perf_tasks（仅首次运行） ───────────────────
+  migrateOldTables(db);
 
   // ── 延期记录表
   db.exec(`
@@ -669,17 +683,7 @@ export function initDatabase(): void {
     })();
   }
 
-  // perf_plans 缺失列迁移
-  const perfMigrations = [
-    'ALTER TABLE perf_plans ADD COLUMN dept_head_id TEXT',
-    'ALTER TABLE perf_plans ADD COLUMN resource TEXT',
-    'ALTER TABLE perf_plans ADD COLUMN relevance TEXT',
-    // 流程1: 团队签收状态JSON
-    'ALTER TABLE perf_plans ADD COLUMN receipt_status TEXT',
-  ];
-  for (const sql of perfMigrations) {
-    try { db.prepare(sql).run(); } catch (e) {}
-  }
+  // (perf_plans 迁移已合并到 perf_tasks，见 migrateOldTables)
 
   // 【风险5】monthly_evaluations 增加 deadline 字段（HR 设置考评截止时间）
   // 【风险6】pool_reward_plans 增加 paid_at 字段（实际发放时间）
@@ -715,6 +719,23 @@ export function initDatabase(): void {
   }
 
 
+  // ── SMART/PDCA 回填（perf_tasks 统一表） ───────────────────────
+  try {
+    const rows = db.prepare(
+      `SELECT id, description FROM perf_tasks WHERE smart_s IS NULL AND description LIKE '%【目标 S】%'`
+    ).all() as { id: number; description: string }[];
+    if (rows.length > 0) {
+      const upd = db.prepare(`UPDATE perf_tasks SET smart_s=?, smart_m=?, smart_a=?, smart_r=?, smart_t=?, plan_time=?, do_time=?, check_time=?, act_time=? WHERE id=?`);
+      db.transaction(() => {
+        for (const row of rows) {
+          const p = parseSmartFromDescription(row.description);
+          upd.run(p.s, p.m, p.a, p.r, p.t, p.planTime, p.doTime, p.checkTime, p.actTime, row.id);
+        }
+      })();
+      console.log(`  [Migration] Backfilled SMART/PDCA for ${rows.length} perf_tasks`);
+    }
+  } catch (e) { /* first run before tables exist, safe to ignore */ }
+
   // ── Safe column migrations (idempotent) ───────────────────────
   const safeAddColumn = (table: string, col: string, type: string) => {
     try {
@@ -726,8 +747,176 @@ export function initDatabase(): void {
     } catch (e) { /* table may not exist yet, safe to ignore */ }
   };
 
-  safeAddColumn('pool_tasks', 'deadline', 'DATE');
-  safeAddColumn('pool_tasks', 'creator_id', 'TEXT');
+  safeAddColumn('perf_tasks', 'self_score', 'REAL');
+  safeAddColumn('user_perm_overrides', 'scope_config', 'TEXT');
 
   console.log('✅ Database tables initialized');
+}
+
+// ── 从旧 perf_plans + pool_tasks 迁移到统一 perf_tasks ───────────
+function migrateOldTables(db: Database.Database): void {
+  const hasOldPerfPlans = (() => {
+    try {
+      db.prepare('SELECT 1 FROM perf_plans LIMIT 1').get();
+      return true;
+    } catch { return false; }
+  })();
+
+  const hasOldPoolTasks = (() => {
+    try {
+      db.prepare('SELECT 1 FROM pool_tasks LIMIT 1').get();
+      return true;
+    } catch { return false; }
+  })();
+
+  if (!hasOldPerfPlans && !hasOldPoolTasks) return;
+
+  // 检查 perf_tasks 是否已有数据（避免重复迁移）
+  const existingCount = (db.prepare('SELECT COUNT(*) as c FROM perf_tasks').get() as any)?.c || 0;
+  if (existingCount > 0) {
+    console.log('  [Migration] perf_tasks already has data, skipping migration');
+    return;
+  }
+
+  console.log('  [Migration] Migrating perf_plans + pool_tasks → perf_tasks...');
+
+  // 先确保旧表有必要的列（兼容未跑过旧迁移的环境）
+  const safeAdd = (table: string, col: string, type: string) => {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); } catch {}
+  };
+
+  if (hasOldPerfPlans) {
+    for (const [col, type] of [
+      ['dept_head_id', 'TEXT'], ['resource', 'TEXT'], ['relevance', 'TEXT'],
+      ['receipt_status', 'TEXT'], ['smart_s', 'TEXT'], ['smart_m', 'TEXT'],
+      ['smart_t', 'TEXT'], ['plan_time', 'TEXT'], ['do_time', 'TEXT'],
+      ['check_time', 'TEXT'], ['act_time', 'TEXT'], ['flow_type', 'TEXT'],
+      ['attachments', 'TEXT'], ['informed_parties', 'TEXT'], ['delivery_target', 'TEXT'],
+      ['max_participants', 'INTEGER'], ['reward_type', 'TEXT'],
+    ]) safeAdd('perf_plans', col, type);
+  }
+
+  if (hasOldPoolTasks) {
+    for (const [col, type] of [
+      ['deleted_at', 'DATETIME'], ['progress', 'INTEGER DEFAULT 0'], ['roles_config', 'TEXT'],
+      ['dept_head_id', 'TEXT'], ['actual_end_reason', 'TEXT'], ['actual_completion', 'REAL'],
+      ['terminated_by', 'TEXT'], ['terminated_at', 'DATETIME'], ['star_phase_started_at', 'DATETIME'],
+      ['delivery_target_id', 'TEXT'], ['updated_at', 'DATETIME'],
+      ['smart_s', 'TEXT'], ['smart_m', 'TEXT'], ['smart_a', 'TEXT'], ['smart_r', 'TEXT'], ['smart_t', 'TEXT'],
+      ['plan_time', 'TEXT'], ['do_time', 'TEXT'], ['check_time', 'TEXT'], ['act_time', 'TEXT'],
+      ['deadline', 'DATE'], ['creator_id', 'TEXT'], ['category', 'TEXT'],
+    ]) safeAdd('pool_tasks', col, type);
+  }
+
+  db.transaction(() => {
+    // 1. 迁移 perf_plans（ID 原样保留）
+    if (hasOldPerfPlans) {
+      db.exec(`
+        INSERT INTO perf_tasks (
+          id, task_type, title, description, category, difficulty, status, progress,
+          deadline, reject_reason, bonus, creator_id, assignee_id, approver_id,
+          dept_head_id, department_id, target_value, score, actual_value, quarter,
+          alignment, collaborators, assessed_at, rewarded_at, flow_type,
+          receipt_status, reward_type, max_participants, smart_s, smart_m,
+          smart_a, smart_r, smart_t, plan_time, do_time, check_time, act_time,
+          attachments, informed_parties, delivery_target, created_at, updated_at
+        )
+        SELECT
+          id,
+          CASE
+            WHEN flow_type = 'application' THEN 'applied'
+            ELSE 'assigned'
+          END,
+          title, description, category, difficulty, status, progress,
+          deadline, reject_reason, bonus, creator_id, assignee_id, approver_id,
+          dept_head_id, department_id, target_value, score, actual_value, quarter,
+          alignment, collaborators, assessed_at, rewarded_at, flow_type,
+          receipt_status, reward_type, max_participants, smart_s, smart_m,
+          resource,
+          relevance,
+          smart_t, plan_time, do_time, check_time, act_time,
+          attachments, informed_parties, delivery_target, created_at, updated_at
+        FROM perf_plans
+      `);
+      const perfCount = db.prepare('SELECT changes() as c').get() as any;
+      console.log(`  [Migration] Migrated ${perfCount?.c || 0} rows from perf_plans`);
+    }
+
+    // 2. 计算 ID 偏移
+    const maxPerfId = (db.prepare('SELECT COALESCE(MAX(id), 0) as m FROM perf_tasks').get() as any)?.m || 0;
+    const idOffset = maxPerfId + 10000;
+
+    // 3. 迁移 pool_tasks（ID 偏移）
+    if (hasOldPoolTasks) {
+      db.exec(`
+        INSERT INTO perf_tasks (
+          id, task_type, title, description, category, difficulty, status, progress,
+          deadline, reject_reason, bonus, creator_id, department,
+          proposal_status, reward_type, max_participants, roles_config,
+          hr_reviewer_id, admin_reviewer_id, delivery_target_id,
+          actual_end_reason, actual_completion, terminated_by, terminated_at,
+          star_phase_started_at, smart_s, smart_m, smart_a, smart_r, smart_t,
+          plan_time, do_time, check_time, act_time,
+          deleted_at, created_at, updated_at, dept_head_id
+        )
+        SELECT
+          id + ${idOffset},
+          CASE WHEN proposal_status IN ('pending_hr', 'pending_admin', 'rejected', 'draft') THEN 'proposal' ELSE 'bounty' END,
+          title, description, category, difficulty, status, progress,
+          deadline, reject_reason, bonus,
+          COALESCE(creator_id, created_by),
+          department,
+          proposal_status, reward_type, max_participants, roles_config,
+          hr_reviewer_id, admin_reviewer_id, delivery_target_id,
+          actual_end_reason, actual_completion, terminated_by, terminated_at,
+          star_phase_started_at, smart_s, smart_m, smart_a, smart_r, smart_t,
+          plan_time, do_time, check_time, act_time,
+          deleted_at, created_at, updated_at, dept_head_id
+        FROM pool_tasks
+      `);
+      console.log(`  [Migration] Migrated pool_tasks with ID offset ${idOffset}`);
+
+      // 4. 创建 ID 映射表
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS _pool_id_map (
+          old_pool_id INTEGER PRIMARY KEY,
+          new_perf_task_id INTEGER NOT NULL
+        )
+      `);
+      db.exec(`
+        INSERT INTO _pool_id_map (old_pool_id, new_perf_task_id)
+        SELECT id, id + ${idOffset} FROM pool_tasks
+      `);
+
+      // 5. 更新卫星表外键
+      const satelliteTables = [
+        'pool_participants', 'pool_join_requests', 'pool_role_claims',
+        'pool_task_extensions', 'pool_star_reports',
+        'pool_reward_plans', 'pool_reward_distributions',
+      ];
+      for (const table of satelliteTables) {
+        try {
+          db.exec(`
+            UPDATE ${table} SET pool_task_id = (
+              SELECT new_perf_task_id FROM _pool_id_map WHERE old_pool_id = ${table}.pool_task_id
+            ) WHERE pool_task_id IN (SELECT old_pool_id FROM _pool_id_map)
+          `);
+        } catch (e) { /* table may not exist */ }
+      }
+
+      // 6. 更新多态审计日志
+      try {
+        db.exec(`
+          UPDATE workflow_audit_logs SET business_id = (
+            SELECT new_perf_task_id FROM _pool_id_map WHERE old_pool_id = business_id
+          ) WHERE business_type = 'proposal'
+            AND business_id IN (SELECT old_pool_id FROM _pool_id_map)
+        `);
+      } catch {}
+
+      console.log('  [Migration] Updated satellite table foreign keys');
+    }
+
+    console.log('✅ Migration from perf_plans + pool_tasks → perf_tasks complete');
+  })();
 }

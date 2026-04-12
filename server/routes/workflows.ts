@@ -17,7 +17,7 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
       const logs = db.prepare(`SELECT pl.*, u.name as user_name FROM perf_logs pl LEFT JOIN users u ON pl.user_id = u.id WHERE pl.plan_id IN (${ids}) ORDER BY pl.created_at ASC`).all();
       items.forEach(i => i.logs = logs.filter((l: any) => l.plan_id === i.id));
     }
-    // pool_tasks log structure can be added here if implemented elsewhere
+    // perf_tasks log structure can be added here if implemented elsewhere
     return items;
   };
 
@@ -25,7 +25,7 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
   let myPerfPlans = db.prepare(
     `SELECT pp.*, cu.name as creator_name, u.name as approver_name, 'perf_plan' as flow_type,
             'initiated' as source_type
-     FROM perf_plans pp
+     FROM perf_tasks pp
       LEFT JOIN users cu ON pp.creator_id = cu.id
      LEFT JOIN users u ON pp.approver_id = u.id
      WHERE pp.creator_id = ?
@@ -37,7 +37,7 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
   let assignedToMe = db.prepare(
     `SELECT pp.*, cu.name as creator_name, u.name as approver_name, 'perf_plan' as flow_type,
             'assigned' as source_type
-     FROM perf_plans pp
+     FROM perf_tasks pp
       LEFT JOIN users cu ON pp.creator_id = cu.id
      LEFT JOIN users u ON pp.approver_id = u.id
      WHERE (',' || pp.assignee_id || ',' LIKE '%,' || ? || ',%') AND pp.creator_id != ? AND pp.status != 'draft'
@@ -55,10 +55,10 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
     `SELECT pt.*, 'proposal' as flow_type,
        hr_u.name as hr_reviewer_name, admin_u.name as admin_reviewer_name,
        'initiated' as source_type
-     FROM pool_tasks pt
+     FROM perf_tasks pt
      LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
      LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
-     WHERE pt.created_by = ? AND pt.proposal_status IS NOT NULL AND pt.proposal_status != 'approved'
+     WHERE pt.creator_id = ? AND pt.proposal_status IS NOT NULL AND pt.proposal_status != 'approved'
      ORDER BY pt.created_at DESC`
   ).all(userId);
 
@@ -69,7 +69,7 @@ router.get('/initiated', authMiddleware, (req: AuthRequest, res) => {
       `SELECT prc.*, pt.title as task_title, u.name as creator_name, 'pool_join' as flow_type, prc.role_name as role,
        'initiated' as source_type
        FROM pool_role_claims prc
-       LEFT JOIN pool_tasks pt ON prc.pool_task_id = pt.id
+       LEFT JOIN perf_tasks pt ON prc.pool_task_id = pt.id
        LEFT JOIN users u ON prc.user_id = u.id
        WHERE prc.user_id = ? AND prc.status IN ('pending', 'rejected')
        ORDER BY prc.created_at DESC`
@@ -114,11 +114,12 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
   // 1. 待我审批的绩效计划
   let perfPending = db.prepare(
     `SELECT pp.*, u.name as creator_name, au.name as approver_name, 'perf_plan' as flow_type
-     FROM perf_plans pp
+     FROM perf_tasks pp
      LEFT JOIN users u ON pp.creator_id = u.id
      LEFT JOIN users au ON pp.approver_id = au.id
      WHERE ((pp.approver_id = ? AND pp.status = 'pending_review')
-         OR (pp.dept_head_id = ? AND pp.status = 'pending_dept_review'))
+         OR (pp.dept_head_id = ? AND pp.status IN ('pending_review', 'pending_dept_review')))
+     AND pp.deleted_at IS NULL
      ORDER BY pp.created_at DESC`
   ).all(userId, userId);
   perfPending = attachLogs(perfPending, 'perf_plan');
@@ -129,8 +130,8 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     const hrPending = db.prepare(
       `SELECT pt.*, u.name as creator_name, 'proposal' as flow_type,
          hr_u.name as hr_reviewer_name, admin_u.name as admin_reviewer_name
-       FROM pool_tasks pt
-       LEFT JOIN users u ON pt.created_by = u.id
+       FROM perf_tasks pt
+       LEFT JOIN users u ON pt.creator_id = u.id
        LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
        LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
        WHERE pt.proposal_status = 'pending_hr'
@@ -143,8 +144,8 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
     const adminPending = db.prepare(
       `SELECT pt.*, u.name as creator_name, 'proposal' as flow_type,
          hr_u.name as hr_reviewer_name, admin_u.name as admin_reviewer_name
-       FROM pool_tasks pt
-       LEFT JOIN users u ON pt.created_by = u.id
+       FROM perf_tasks pt
+       LEFT JOIN users u ON pt.creator_id = u.id
        LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
        LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
        WHERE pt.proposal_status = 'pending_admin'
@@ -161,7 +162,7 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
         `SELECT jr.*, u.name as creator_name, pt.title as task_title, 'pool_join' as flow_type, jr.role_name as role
          FROM pool_role_claims jr
          LEFT JOIN users u ON jr.user_id = u.id
-         LEFT JOIN pool_tasks pt ON jr.pool_task_id = pt.id
+         LEFT JOIN perf_tasks pt ON jr.pool_task_id = pt.id
          WHERE jr.status = 'pending'
          ORDER BY jr.created_at DESC`
       ).all();
@@ -181,7 +182,7 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
         const rewardHrPending = db.prepare(
           `SELECT prp.*, pt.title as task_title, u.name as creator_name, 'reward_plan' as flow_type
            FROM pool_reward_plans prp
-           LEFT JOIN pool_tasks pt ON prp.pool_task_id = pt.id
+           LEFT JOIN perf_tasks pt ON prp.pool_task_id = pt.id
            LEFT JOIN users u ON prp.initiator_id = u.id
            WHERE prp.status = 'pending_hr'
            ORDER BY prp.updated_at DESC`
@@ -196,7 +197,7 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
         const rewardAdminPending = db.prepare(
           `SELECT prp.*, pt.title as task_title, u.name as creator_name, 'reward_plan' as flow_type
            FROM pool_reward_plans prp
-           LEFT JOIN pool_tasks pt ON prp.pool_task_id = pt.id
+           LEFT JOIN perf_tasks pt ON prp.pool_task_id = pt.id
            LEFT JOIN users u ON prp.initiator_id = u.id
            WHERE prp.status = 'pending_admin'
            ORDER BY prp.updated_at DESC`
@@ -207,6 +208,22 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
         });
         items.push(...rewardAdminPending);
       }
+      // 5b. 已批准待打款的奖励方案（HR确认打款）
+      if (isUserHRBP) {
+        const rewardApproved = db.prepare(
+          `SELECT prp.*, pt.title as task_title, u.name as creator_name, 'reward_plan' as flow_type
+           FROM pool_reward_plans prp
+           LEFT JOIN perf_tasks pt ON prp.pool_task_id = pt.id
+           LEFT JOIN users u ON prp.initiator_id = u.id
+           WHERE prp.status = 'approved'
+           ORDER BY prp.updated_at DESC`
+        ).all();
+        rewardApproved.forEach((r: any) => {
+          r.title = `「${r.task_title}」奖励分配方案 (待确认打款)`;
+          r.pending_reviewer_name = currentUserName;
+        });
+        items.push(...rewardApproved);
+      }
     } catch (e) {
       console.warn('[workflows/pending] pool_reward_plans查询跳过:', (e as any)?.message);
     }
@@ -216,7 +233,7 @@ router.get('/pending', authMiddleware, (req: AuthRequest, res) => {
   try {
     const receiptPending = db.prepare(
       `SELECT pp.*, cu.name as creator_name, 'perf_plan' as flow_type, 'pending_receipt' as original_status
-       FROM perf_plans pp
+       FROM perf_tasks pp
        LEFT JOIN users cu ON pp.creator_id = cu.id
        WHERE pp.status = 'pending_receipt'
        ORDER BY pp.updated_at DESC`
@@ -261,7 +278,7 @@ router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {
   // 1. 我审批过的绩效计划
   let perfReviewed = db.prepare(
     `SELECT pp.*, u.name as creator_name, 'perf_plan' as flow_type
-     FROM perf_plans pp
+     FROM perf_tasks pp
      LEFT JOIN users u ON pp.creator_id = u.id
      WHERE (pp.approver_id = ? AND pp.status IN ('pending_dept_review', 'approved', 'rejected', 'assessed', 'in_progress', 'completed', 'pending_reward', 'pending_assessment'))
         OR (pp.dept_head_id = ? AND pp.status IN ('approved', 'rejected', 'assessed', 'in_progress', 'completed', 'pending_reward', 'pending_assessment'))
@@ -273,8 +290,8 @@ router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {
   const proposalReviewed = db.prepare(
     `SELECT pt.*, u.name as creator_name, 'proposal' as flow_type,
        hr_u.name as hr_reviewer_name, admin_u.name as admin_reviewer_name
-     FROM pool_tasks pt
-     LEFT JOIN users u ON pt.created_by = u.id
+     FROM perf_tasks pt
+     LEFT JOIN users u ON pt.creator_id = u.id
      LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
      LEFT JOIN users admin_u ON pt.admin_reviewer_id = admin_u.id
      WHERE pt.hr_reviewer_id = ? OR pt.admin_reviewer_id = ?
@@ -288,7 +305,7 @@ router.get('/reviewed', authMiddleware, (req: AuthRequest, res) => {
       `SELECT jr.*, u.name as creator_name, pt.title as task_title, 'pool_join' as flow_type, jr.role_name as role
        FROM pool_role_claims jr
        LEFT JOIN users u ON jr.user_id = u.id
-       LEFT JOIN pool_tasks pt ON jr.pool_task_id = pt.id
+       LEFT JOIN perf_tasks pt ON jr.pool_task_id = pt.id
        WHERE jr.reviewer_id = ? AND jr.status IN ('approved', 'rejected')
        ORDER BY jr.reviewed_at DESC`
     ).all(userId);

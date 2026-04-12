@@ -46,6 +46,30 @@ export async function getContactAccessToken(): Promise<string> {
   return contactToken;
 }
 
+// ── 审批应用 Token（用于 OA 审批 API）──────────────────────────
+let approvalToken: string = '';
+let approvalTokenExpiry: number = 0;
+
+export async function getApprovalAccessToken(): Promise<string> {
+  // 优先使用审批专用 Secret，兜底使用自建应用 Secret
+  const secret = wecomConfig.approvalSecret || wecomConfig.secret;
+
+  if (approvalToken && Date.now() < approvalTokenExpiry) {
+    return approvalToken;
+  }
+
+  const url = `${wecomConfig.apiBase}/gettoken?corpid=${wecomConfig.corpId}&corpsecret=${secret}`;
+  const res = await axios.get(url);
+
+  if (res.data.errcode !== 0) {
+    throw new Error(`获取审批access_token失败: ${res.data.errmsg} (errcode: ${res.data.errcode})`);
+  }
+
+  approvalToken = res.data.access_token;
+  approvalTokenExpiry = Date.now() + (res.data.expires_in - 300) * 1000;
+  return approvalToken;
+}
+
 // OAuth: 用 code 换取用户身份
 export async function getUserIdByCode(code: string): Promise<{ userId: string }> {
   const token = await getAccessToken();

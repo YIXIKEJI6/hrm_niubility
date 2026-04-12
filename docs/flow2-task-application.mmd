@@ -1,0 +1,37 @@
+flowchart TD
+    A["员工打开 申请新任务\nSmartTaskModal"] --> B{"保存草稿 or 提交?"}
+    B -->|草稿| C["POST /api/perf/plans\nstatus=draft\nA=自己"]
+    B -->|提交| D["创建任务\nA=自己, R=指定执行人"]
+
+    D --> E["通知 R 签收确认\nstatus=pending_receipt"]
+
+    E --> F{"R 签收操作"}
+    F -->|确认签收| G["全员签收完成"]
+    F -->|拒绝签收| H["status=draft\n退回申请人修改"]
+
+    G --> I["进入审批\nstatus=pending_review"]
+    I --> J{"确定审批人"}
+    J -->|申请人非主管| K["审批人=直属上级主管"]
+    J -->|申请人是主管| L["审批人=上级部门主管"]
+
+    K --> M{"上级主管审批"}
+    L --> M
+    M -->|通过| N["status=in_progress\n任务启动\n抄送 HRBP"]
+    M -->|驳回| O["rejected\n通知申请人"]
+
+    O --> P["申请人修改后重新提交"]
+    P --> I
+
+    N --> Q{"执行中操作"}
+    Q -->|更新进度| N
+    Q -->|发起验收| R["pending_assessment\n提交验收总结"]
+
+    R --> S{"上级主管评级"}
+    S --> T["assessed - completed\n结案归档"]
+    T --> U["抄送 HRBP + GM"]
+
+    style C fill:#e3f2fd
+    style N fill:#e8f5e9
+    style T fill:#fff3e0
+    style H fill:#ffebee
+    style O fill:#ffebee

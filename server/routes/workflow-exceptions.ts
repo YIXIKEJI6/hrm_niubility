@@ -40,7 +40,7 @@ router.get('/stuck', authMiddleware, hrGuard, (req: AuthRequest, res) => {
       d.name as dept_name,
       'perf_plan' as flow_type,
       CAST((julianday('now') - julianday(pp.updated_at)) AS INTEGER) as stuck_days
-    FROM perf_plans pp
+    FROM perf_tasks pp
     LEFT JOIN users cu ON pp.creator_id = cu.id AND cu.deleted_at IS NULL
     LEFT JOIN users au ON pp.approver_id = au.id AND au.deleted_at IS NULL
     LEFT JOIN departments d ON cu.department_id = d.id
@@ -66,14 +66,14 @@ router.get('/stuck', authMiddleware, hrGuard, (req: AuthRequest, res) => {
     const stuckProposals = db.prepare(`
       SELECT 
         pt.id, pt.title, pt.proposal_status as status, pt.updated_at,
-        pt.created_by as creator_id, pt.hr_reviewer_id, pt.admin_reviewer_id,
+        pt.creator_id as creator_id, pt.hr_reviewer_id, pt.admin_reviewer_id,
         cu.name as creator_name,
         hr_u.name as hr_reviewer_name,
         hr_u.status as hr_status,
         'proposal' as flow_type,
         CAST((julianday('now') - julianday(pt.updated_at)) AS INTEGER) as stuck_days
-      FROM pool_tasks pt
-      LEFT JOIN users cu ON pt.created_by = cu.id
+      FROM perf_tasks pt
+      LEFT JOIN users cu ON pt.creator_id = cu.id
       LEFT JOIN users hr_u ON pt.hr_reviewer_id = hr_u.id
       WHERE pt.proposal_status IN ('pending_hr', 'pending_admin')
         AND pt.updated_at < ?
@@ -100,7 +100,7 @@ router.get('/stuck', authMiddleware, hrGuard, (req: AuthRequest, res) => {
         CAST((julianday('now') - julianday(jr.created_at)) AS INTEGER) as stuck_days
       FROM pool_join_requests jr
       LEFT JOIN users u ON jr.user_id = u.id
-      LEFT JOIN pool_tasks pt ON jr.pool_task_id = pt.id
+      LEFT JOIN perf_tasks pt ON jr.pool_task_id = pt.id
       WHERE jr.status = 'pending'
         AND jr.created_at < ?
       ORDER BY jr.created_at ASC
@@ -152,11 +152,11 @@ router.post('/reassign', authMiddleware, hrGuard, async (req: AuthRequest, res) 
 
   try {
     if (flowType === 'perf_plan') {
-      const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(flowId) as any;
+      const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(flowId) as any;
       if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
 
       // 更新审批人
-      db.prepare('UPDATE perf_plans SET approver_id = ?, updated_at = ? WHERE id = ?')
+      db.prepare('UPDATE perf_tasks SET approver_id = ?, updated_at = ? WHERE id = ?')
         .run(newApproverId, new Date().toISOString(), flowId);
 
       // 记录日志
@@ -171,11 +171,11 @@ router.post('/reassign', authMiddleware, hrGuard, async (req: AuthRequest, res) 
       } catch {}
 
     } else if (flowType === 'proposal') {
-      const proposal = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(flowId) as any;
+      const proposal = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(flowId) as any;
       if (!proposal) return res.status(404).json({ code: 404, message: '提案不存在' });
 
       const field = proposal.proposal_status === 'pending_hr' ? 'hr_reviewer_id' : 'admin_reviewer_id';
-      db.prepare(`UPDATE pool_tasks SET ${field} = ?, updated_at = ? WHERE id = ?`)
+      db.prepare(`UPDATE perf_tasks SET ${field} = ?, updated_at = ? WHERE id = ?`)
         .run(newApproverId, new Date().toISOString(), flowId);
 
       try {
@@ -209,7 +209,7 @@ router.post('/force-advance', authMiddleware, hrGuard, async (req: AuthRequest, 
 
   try {
     if (flowType === 'perf_plan') {
-      const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(flowId) as any;
+      const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(flowId) as any;
       if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
 
       const targetStatus = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'rejected';
@@ -230,12 +230,12 @@ router.post('/force-advance', authMiddleware, hrGuard, async (req: AuthRequest, 
       }
 
     } else if (flowType === 'proposal') {
-      const proposal = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(flowId) as any;
+      const proposal = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(flowId) as any;
       if (!proposal) return res.status(404).json({ code: 404, message: '提案不存在' });
 
       const newStatus = action === 'approve' ? 'approved' : 'rejected';
       db.prepare(`
-        UPDATE pool_tasks 
+        UPDATE perf_tasks 
         SET proposal_status = ?, 
             ${action === 'approve' ? 'admin_reviewer_id' : 'rejecter_id'} = ?,
             reject_reason = ?,
@@ -246,7 +246,7 @@ router.post('/force-advance', authMiddleware, hrGuard, async (req: AuthRequest, 
       // 通知发起人
       try {
         const emoji = action === 'approve' ? '✅' : '❌';
-        await sendMarkdownMessage([proposal.created_by],
+        await sendMarkdownMessage([proposal.creator_id],
           `**${emoji} 流程异常恢复通知**\n\n>**提案名称：**${proposal.title}\n>**处理结果：**${action === 'approve' ? '已通过' : '已驳回'}\n>**操作人：**${operator?.name || 'HR'}（流程异常管理）\n>**原因：**${reason}`
         );
       } catch {}
@@ -274,7 +274,7 @@ router.get('/audit-log', authMiddleware, hrGuard, (req: AuthRequest, res) => {
   const logs = db.prepare(`
     SELECT pl.*, pp.title as plan_title, u.name as operator_name
     FROM perf_logs pl
-    LEFT JOIN perf_plans pp ON pl.plan_id = pp.id
+    LEFT JOIN perf_tasks pp ON pl.plan_id = pp.id
     LEFT JOIN users u ON pl.user_id = u.id
     WHERE pl.comment LIKE '[HR异常管理]%'
     ORDER BY pl.created_at DESC

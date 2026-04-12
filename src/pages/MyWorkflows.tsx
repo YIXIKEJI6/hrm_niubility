@@ -3,6 +3,8 @@ import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import SmartTaskModal from '../components/SmartTaskModal';
 import { decodeSmartDescription } from '../components/SmartFormInputs';
+import { parseUTC } from '../utils/dateUtils';
+import { buildSmartTaskData, buildSmartDescription } from '../utils/taskDataMapper';
 import WorkflowTrajectory from '../components/WorkflowTrajectory';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { PoolModule } from './AdminPanel';
@@ -16,7 +18,7 @@ interface MyWorkflowsProps {
 type TabKey = 'initiated' | 'pending' | 'reviewed' | 'cc' | 'pool_mgmt' | 'exception_mgmt';
 
 const BASE_TABS: { key: TabKey; label: string; icon: string; emptyText: string }[] = [
-  { key: 'initiated', label: '我发起的', icon: 'send', emptyText: '暂无发起的流程' },
+  { key: 'initiated', label: '我参与的', icon: 'send', emptyText: '暂无参与的流程' },
   { key: 'pending',   label: '待我审核', icon: 'pending_actions', emptyText: '暂无待审核流程' },
   { key: 'reviewed',  label: '我已审核', icon: 'task_alt', emptyText: '暂无已审核流程' },
   { key: 'cc',        label: '抄送我的', icon: 'forward_to_inbox', emptyText: '暂无抄送消息' },
@@ -31,7 +33,6 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> =
   pending_review:{ label: '待审核',     color: 'text-amber-600',  bg: 'bg-amber-50' },
   pending_dept_review:{ label: '待部门审批', color: 'text-orange-600',  bg: 'bg-orange-50' },
   pending_hr:    { label: '待人事审核', color: 'text-amber-600', bg: 'bg-amber-50' },
-  pending_dt:    { label: '待金主验收', color: 'text-purple-600', bg: 'bg-purple-50' },
   pending_admin: { label: '待总经理审批', color: 'text-orange-600', bg: 'bg-orange-50' },
   open:          { label: '进行中',     color: 'text-blue-600',  bg: 'bg-blue-50' },
   completed:     { label: '已完成',     color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -57,7 +58,7 @@ function FlowTypeTag({ type }: { type: string }) {
 
 function formatDate(d: string) {
   if (!d) return '';
-  const date = new Date(d);
+  const date = parseUTC(d);
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const mins = Math.floor(diff / 60000);
@@ -79,9 +80,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
   const [selectedTask, setSelectedTask] = useState<{ type: string, data: any, isPending: boolean, originalStatus?: string } | null>(null);
   const [submittingApprovals, setSubmittingApprovals] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
-  // reward_plan modal local state (hoisted to avoid conditional hook rule)
-  const [submittingReward, setSubmittingReward] = useState(false);
-  const [rewardComment, setRewardComment] = useState('');
   const { currentUser } = useAuth();
   const isMobile = useIsMobile();
 
@@ -162,8 +160,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
       } else if (isRewardPlan) {
         // 根据当前状态判断审核端点（从 selectedTask 获取状态，避免 data 数组搜索不到）
         const currentStatus = selectedTask?.data?.status || selectedTask?.originalStatus;
-        const endpoint = currentStatus === 'pending_admin' ? 'admin-confirm' :
-                         currentStatus === 'pending_dt' ? 'dt-review' : 'hr-review';
+        const endpoint = currentStatus === 'pending_admin' ? 'admin-confirm' : 'hr-review';
         realEndpoint = `/api/pool/rewards/${id}/${endpoint}`;
         payload = { action, comment, transfer_to };
       } else {
@@ -174,15 +171,24 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           transfer_to,
           ...(updatedData?.bonus !== undefined ? { bonus: updatedData.bonus } : {}),
           ...(updatedData?.rewardType ? { reward_type: updatedData.rewardType } : {}),
-          ...(updatedData?.maxParticipants ? { max_participants: updatedData.maxParticipants } : {}),
-          ...(updatedData?.taskType ? { department: updatedData.taskType } : {}),
+          ...(updatedData?.maxParticipants != null ? { max_participants: updatedData.maxParticipants } : {}),
+          ...(updatedData?.taskType ? { department: updatedData.taskType, category: updatedData.taskType } : {}),
           ...(updatedData?.attachments ? { attachments: updatedData.attachments } : {}),
           ...(updatedData?.r ? { r: updatedData.r } : {}),
           ...(updatedData?.a ? { a: updatedData.a } : {}),
           ...(updatedData?.c ? { c: updatedData.c } : {}),
           ...(updatedData?.i ? { i: updatedData.i } : {}),
           ...(updatedData?.dt ? { dt: updatedData.dt } : {}),
-          ...(updatedData?.s !== undefined ? { s: updatedData.s, m: updatedData.m, a_smart: updatedData.a_smart, r_smart: updatedData.r_smart, t: updatedData.t, summary: updatedData.summary } : {})
+          ...(updatedData?.s !== undefined ? { s: updatedData.s } : {}),
+          ...(updatedData?.m !== undefined ? { m: updatedData.m } : {}),
+          ...(updatedData?.a_smart !== undefined ? { a_smart: updatedData.a_smart } : {}),
+          ...(updatedData?.r_smart !== undefined ? { r_smart: updatedData.r_smart } : {}),
+          ...(updatedData?.t !== undefined ? { t: updatedData.t } : {}),
+          ...(updatedData?.summary !== undefined ? { summary: updatedData.summary } : {}),
+          ...(updatedData?.planTime !== undefined ? { planTime: updatedData.planTime } : {}),
+          ...(updatedData?.doTime !== undefined ? { doTime: updatedData.doTime } : {}),
+          ...(updatedData?.checkTime !== undefined ? { checkTime: updatedData.checkTime } : {}),
+          ...(updatedData?.actTime !== undefined ? { actTime: updatedData.actTime } : {}),
         };
       }
 
@@ -275,13 +281,32 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
           </div>
         ) : (
           <div className="space-y-3">
-            {data.map((item: any, idx: number) => (
-              <WorkflowCard key={`${item.flow_type || item.type}-${item.id}-${idx}`} item={item} tab={activeTab} 
+            {/* 我参与的 Tab 分组显示：我发起的 + 分配给我的 */}
+            {activeTab === 'initiated' && data.some((d: any) => d.source_type === 'assigned') && data.some((d: any) => d.source_type !== 'assigned') && (
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1 pt-1">我发起的</div>
+            )}
+            {(activeTab === 'initiated'
+              ? [...data.filter((d: any) => d.source_type !== 'assigned'),
+                 ...(data.some((d: any) => d.source_type === 'assigned') ? [{ _groupHeader: '分配给我的' }] : []),
+                 ...data.filter((d: any) => d.source_type === 'assigned')]
+              : data
+            ).map((item: any, idx: number) => (
+              item._groupHeader ? (
+                <div key={`group-${idx}`} className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1 pt-3 border-t border-slate-100 dark:border-slate-700 mt-2">
+                  {item._groupHeader}
+                </div>
+              ) :
+              <WorkflowCard key={`${item.flow_type || item.type}-${item.id}-${idx}`} item={item} tab={activeTab}
                 onClick={async () => {
                   const isPending = activeTab === 'pending';
                   const flowType = item.flow_type || 'unknown';
                   if (flowType === 'test_assignment') {
                     navigate('competency');
+                    return;
+                  }
+                  // reward_plan: 跳转到赏金榜任务详情，在任务卡里做详细评估
+                  if (flowType === 'reward_plan') {
+                    navigate(`company?task=${item.pool_task_id || item.id}`);
                     return;
                   }
                   try {
@@ -315,14 +340,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                         originalStatus: item.status,
                       });
                       return;
-                    } else if (flowType === 'reward_plan') {
-                      setSelectedTask({
-                        type: 'reward_plan',
-                        data: { ...item, flow_type: 'reward_plan' },
-                        isPending,
-                        originalStatus: item.status,
-                      });
-                      return;
                     } else if (flowType === 'perf_plan' || flowType === 'proposal') {
                       const endpoint = flowType === 'perf_plan' ? `/api/perf/plans/${item.id}` : `/api/pool/proposals/${item.id}`;
                       const r = await fetch(endpoint, { headers });
@@ -332,109 +349,12 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                         return;
                       }
                       fullData = { ...j.data, logs: item.logs };
-
-                      if (flowType === 'perf_plan') {
-                        const tv = fullData.target_value || '';
-                        const desc = fullData.description || '';
-                        const descHasSmart = desc.includes('【目标 S】');
-                        const decoded = decodeSmartDescription(desc);
-                        let parsedAttachments: any[] = [];
-                        try {
-                          if (Array.isArray(fullData.attachments)) {
-                            parsedAttachments = fullData.attachments;
-                          } else if (typeof fullData.attachments === 'string' && fullData.attachments) {
-                            parsedAttachments = JSON.parse(fullData.attachments);
-                          }
-                        } catch { parsedAttachments = []; }
-                        // 从 SMART 格式描述中正确提取各字段
-                        const smartS = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
-                        const smartM = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
-                        const smartA = desc.match(/【方案 A】\n?([\s\S]*?)(?=\n【相关 R】|$)/);
-                        const smartR = desc.match(/【相关 R】\n?([\s\S]*?)(?=\n【时限 T】|$)/);
-                        const smartT = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
-                        const cleanVal = (v: string) => v.replace(/【目标 S】\s*/g,'').replace(/【指标 M】\s*/g,'').replace(/【方案 A】\s*/g,'').replace(/【相关 R】\s*/g,'').replace(/【时限 T】\s*/g,'').replace(/【PDCA】[\s\S]*/g,'').trim();
-                        mappedData = {
-                          ...fullData,
-                          flow_type: 'perf_plan',
-                          summary: fullData.title,
-                          s: descHasSmart ? (() => { const pre = desc.substring(0, desc.indexOf('【目标 S】')).trim(); const sc = cleanVal(smartS?.[1] || ''); return [pre, sc].filter(Boolean).join('\n\n'); })() : (tv.match(/S:\s*(.*?)(?=\nM:|$)/s)?.[1] || ''),
-                          m: descHasSmart ? cleanVal(smartM?.[1] || '') : (tv.match(/M:\s*(.*?)(?=\nT:|$)/s)?.[1] || ''),
-                          t: fullData.deadline || (descHasSmart ? cleanVal(smartT?.[1] || '') : (tv.match(/T:\s*(.*)/s)?.[1] || '')),
-                          a_smart: descHasSmart ? cleanVal(smartA?.[1] || '') : decoded.resource,
-                          r_smart: descHasSmart ? cleanVal(smartR?.[1] || '') : decoded.relevance,
-                          taskType: fullData.category,
-                          c: fullData.collaborators || '',
-                          i: fullData.informed_parties || '',
-                          dt: fullData.delivery_target || '',
-                          bonus: String(fullData.bonus || ''),
-                          maxParticipants: String(fullData.max_participants || '5'),
-                          rewardType: fullData.reward_type || 'money',
-                          r: fullData.assignee_id || fullData.creator_id,
-                          a: fullData.approver_id || '',
-                          planTime: decoded.planTime,
-                          doTime: decoded.doTime,
-                          checkTime: decoded.checkTime,
-                          actTime: decoded.actTime,
-                          attachments: parsedAttachments,
-                        };
-                      } else {
-                        const desc = fullData.description || fullData.content || '';
-                        let parsedAttachments: any[] = [];
-                        try {
-                          if (Array.isArray(fullData.attachments)) {
-                            parsedAttachments = fullData.attachments;
-                          } else if (typeof fullData.attachments === 'string' && fullData.attachments) {
-                            parsedAttachments = JSON.parse(fullData.attachments);
-                          }
-                        } catch { parsedAttachments = []; }
-
-                        // 提案：正确解析 SMART 格式描述
-                        const pSmart = desc.includes('【目标 S】');
-                        const pClean = (v: string) => v.replace(/【目标 S】\s*/g,'').replace(/【指标 M】\s*/g,'').replace(/【方案 A】\s*/g,'').replace(/【相关 R】\s*/g,'').replace(/【时限 T】\s*/g,'').replace(/【PDCA】[\s\S]*/g,'').trim();
-                        let pS: string, pM = '', pASmart = '', pRSmart = '', pT = '';
-                        if (pSmart) {
-                          // 提取【目标 S】之前的内容（员工在插入模板前写的文本）
-                          const preMarker = desc.substring(0, desc.indexOf('【目标 S】')).trim();
-                          const pSMatch = desc.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/);
-                          const pMMatch = desc.match(/【指标 M】\n?([\s\S]*?)(?=\n【方案 A】|$)/);
-                          const pAMatch = desc.match(/【方案 A】\n?([\s\S]*?)(?=\n【相关 R】|$)/);
-                          const pRMatch = desc.match(/【相关 R】\n?([\s\S]*?)(?=\n【时限 T】|$)/);
-                          const pTMatch = desc.match(/【时限 T】\n?([\s\S]*?)(?=\n+【PDCA】|$)/);
-                          const sContent = pClean(pSMatch?.[1] || '');
-                          pS = [preMarker, sContent].filter(Boolean).join('\n\n');
-                          pM = pClean(pMMatch?.[1] || '');
-                          pASmart = pClean(pAMatch?.[1] || '');
-                          pRSmart = pClean(pRMatch?.[1] || '');
-                          pT = pClean(pTMatch?.[1] || '');
-                        } else {
-                          const pdcaIdx = desc.indexOf('\n\n【PDCA】');
-                          pS = pdcaIdx >= 0 ? desc.substring(0, pdcaIdx).trim() : desc;
-                        }
-                        const pdcaMatch = desc.match(/【PDCA】\n?(.*)/s);
-                        mappedData = {
-                          ...fullData,
-                          flow_type: 'proposal',
-                          status: fullData.proposal_status,
-                          summary: fullData.title,
-                          rewardType: fullData.reward_type || 'money',
-                          maxParticipants: String(fullData.max_participants || '5'),
-                          bonus: String(fullData.bonus || ''),
-                          taskType: fullData.category || '',
-                          attachments: parsedAttachments,
-                          s: pS,
-                          m: pM,
-                          a_smart: pASmart,
-                          r_smart: pRSmart,
-                          t: pT,
-                        };
-                        if (pdcaMatch) {
-                          const pdca = pdcaMatch[1] || '';
-                          mappedData.planTime = pdca.match(/Plan: (.*?)( \| |$)/)?.[1] || '';
-                          mappedData.doTime = pdca.match(/Do: (.*?)( \| |$)/)?.[1] || '';
-                          mappedData.checkTime = pdca.match(/Check: (.*?)( \| |$)/)?.[1] || '';
-                          mappedData.actTime = pdca.match(/Act: (.*?)( \| |$)/)?.[1] || '';
-                        }
-                      }
+                      const source = flowType === 'perf_plan' ? 'perf_plan' : 'proposal';
+                      mappedData = {
+                        ...fullData,
+                        ...buildSmartTaskData(fullData, source as any),
+                        logs: item.logs,
+                      };
                     }
                     
                     setSelectedTask({
@@ -457,7 +377,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
       {/* Task Modal Integration */}
       {selectedTask && (() => {
         const isEditableByCreator = activeTab === 'initiated' && ['draft', 'rejected'].includes(selectedTask.originalStatus);
-        const canWithdraw = activeTab === 'initiated' && ['pending_review', 'pending_dept_review', 'pending_dt', 'pending_hr', 'pending_admin', 'submitted'].includes(selectedTask.originalStatus);
+        const canWithdraw = activeTab === 'initiated' && ['pending_review', 'pending_dept_review', 'pending_hr', 'pending_admin', 'submitted'].includes(selectedTask.originalStatus);
         
         const handleWithdraw = async (e: React.MouseEvent) => {
           e.preventDefault();
@@ -503,7 +423,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                 title: formData.summary,
                 category: formData.taskType,
                 target_value: `S: ${formData.s}\nM: ${formData.m}\nT: ${formData.t}`,
-                description: formData.s + (formData.planTime || formData.doTime || formData.checkTime || formData.actTime ? `\n\n【PDCA】\nPlan: ${formData.planTime||''}|Do: ${formData.doTime||''}|Check: ${formData.checkTime||''}|Act: ${formData.actTime||''}` : ''),
+                description: buildSmartDescription(formData),
                 deadline: formData.t,
                 collaborators: formData.c,
                 informed_parties: formData.i || undefined,
@@ -518,7 +438,9 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                 title: formData.summary,
                 reward_type: formData.rewardType,
                 bonus: formData.bonus,
-                description: `【目标 S】\n${formData.s}\n【指标 M】\n${formData.m}\n【方案 A】\n${formData.a_smart}\n【相关 R】\n${formData.r_smart}\n【时限 T】\n${formData.t}\n【PDCA】\nPlan: ${formData.planTime || ''} | Do: ${formData.doTime || ''} | Check: ${formData.checkTime || ''} | Act: ${formData.actTime || ''}`,
+                description: buildSmartDescription(formData),
+                max_participants: formData.maxParticipants ? parseInt(formData.maxParticipants) : undefined,
+                category: formData.taskType || undefined,
                 attachments: formData.attachments || []
               };
             }
@@ -663,7 +585,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                 s: plan.s || (String(plan.target_value || '').split('\n')[0]?.replace('S: ', '') ?? ''),
                 m: plan.m || (String(plan.target_value || '').split('\n')[1]?.replace('M: ', '') ?? ''),
                 t: plan.t || plan.deadline || (String(plan.target_value || '').split('\n')[2]?.replace('T: ', '') ?? ''),
-                a_smart: plan.a_smart || plan.description || '',
+                a_smart: plan.a_smart || '',
                 r_smart: plan.r_smart || '',
                 planTime: plan.planTime || '',
                 doTime: plan.doTime || '',
@@ -689,132 +611,6 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
 
         }
 
-        // ── 奖励分配方案专用审批弹窗 ──
-        if (selectedTask.type === 'reward_plan') {
-          const plan = selectedTask.data;
-
-          const doRewardAction = async (action: 'approve' | 'reject') => {
-            setSubmittingReward(true);
-            setApprovalError(null);
-            await handleApproveReject(plan.id, 'reward_plan', action, rewardComment);
-            setSubmittingReward(false);
-          };
-
-          return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 text-white flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-2xl">payments</span>
-                    <div>
-                      <p className="font-black text-lg">奖励分配方案审批</p>
-                      <p className="text-amber-100 text-xs">{plan.task_title || (plan.pool_task_id ? `任务 #${plan.pool_task_id}` : '奖励方案')}</p>
-                    </div>
-                  </div>
-                  <button onClick={() => { setSelectedTask(null); setApprovalError(null); }} className="text-white/60 hover:text-white">
-                    <span className="material-symbols-outlined">close</span>
-                  </button>
-                </div>
-
-                {/* Body */}
-                <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-                  {/* Status */}
-                  <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-4 py-3">
-                    <span className="material-symbols-outlined text-amber-500">info</span>
-                    <div>
-                      <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
-                        {plan.status === 'pending_admin' ? '总经理最终确认' : plan.status === 'pending_dt' ? '金主验收确认中' : 'HR 审核中'}
-                      </p>
-                      <p className="text-xs text-amber-600/70">发起人：{plan.creator_name || '未知'} · 发起时间：{plan.created_at?.slice(0, 10) || '未知'}</p>
-                    </div>
-                  </div>
-
-                  {/* 奖金总额 + DT */}
-                  <div className={`grid gap-3 text-sm ${plan.delivery_target_name ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
-                      <p className="text-xs text-slate-400 mb-1">奖金总额</p>
-                      <p className="font-black text-rose-500 text-lg">¥{plan.total_bonus_awarded?.toLocaleString() || 0}</p>
-                    </div>
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
-                      <p className="text-xs text-slate-400 mb-1">预计发放月</p>
-                      <p className="font-black text-slate-700 dark:text-slate-200">{plan.pay_period || '待定'}</p>
-                    </div>
-                    {plan.delivery_target_name && (
-                      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3 border border-purple-100">
-                        <p className="text-xs text-purple-400 mb-1">交付对象(金主)</p>
-                        <p className="font-black text-purple-700 dark:text-purple-300 text-sm">{plan.delivery_target_name}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* STAR 材料附件提示 */}
-                  {plan.star_report_id && (
-                    <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-4 py-3 text-xs text-indigo-700 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px]">description</span>
-                      已附 STAR 汇报材料（#{plan.star_report_id}），请查阅后审批
-                    </div>
-                  )}
-
-                  {/* 备注 */}
-                  {plan.notes && (
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-sm text-slate-600 dark:text-slate-300">
-                      <p className="text-xs font-bold text-slate-400 mb-1">备注</p>
-                      {plan.notes}
-                    </div>
-                  )}
-
-                  {/* 审批意见 */}
-                  {selectedTask.isPending && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 mb-1.5">审批意见（可选）</label>
-                      <textarea
-                        rows={2}
-                        className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
-                        placeholder="填写补充说明..."
-                        value={rewardComment}
-                        onChange={e => setRewardComment(e.target.value)}
-                      />
-                    </div>
-                  )}
-
-                  {approvalError && (
-                    <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-600 text-sm font-bold">
-                      <span className="material-symbols-outlined text-[16px]">error</span>
-                      {approvalError}
-                    </div>
-                  )}
-
-                  {/* 审计轨迹 */}
-                  {plan.id && (
-                    <AuditTimeline businessType="reward_plan" businessId={plan.id} className="mt-2 border-t border-slate-100 pt-3" />
-                  )}
-                </div>
-
-                {/* Footer */}
-                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-end gap-3">
-                  <button onClick={() => { setSelectedTask(null); setApprovalError(null); }}
-                    className="px-5 py-2 text-sm text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-100 font-bold">
-                    关闭
-                  </button>
-                  {selectedTask.isPending && (
-                    <>
-                      <button onClick={() => doRewardAction('reject')} disabled={submittingReward}
-                        className="px-5 py-2 text-sm font-bold text-red-600 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 disabled:opacity-50">
-                        驳回
-                      </button>
-                      <button onClick={() => doRewardAction('approve')} disabled={submittingReward}
-                        className="px-6 py-2 text-sm font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 shadow-sm">
-                        {submittingReward ? '处理中...' : plan.status === 'pending_admin' ? '✅ 总经理确认' : plan.status === 'pending_dt' ? '✅ 金主验收通过' : '✅ HR 通过'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        }
-
         return (
           <SmartTaskModal
             isOpen={true}
@@ -822,7 +618,7 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
             type={selectedTask.type as any}
             initialData={selectedTask.data}
             readonly={!isEditableByCreator}
-            approverMode={selectedTask.isPending}
+            approverMode={selectedTask.isPending && String(selectedTask.data?.creator_id || '').toLowerCase() !== String(currentUser?.id || '').toLowerCase()}
             customFooter={withdrawFooter}
             onApprove={(comment, updatedData, customAction, targetUser) => { setApprovalError(null); const safeAction = (customAction === 'publish' ? 'approve' : customAction) || 'approve'; handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), safeAction as 'approve'|'transfer', comment, updatedData, targetUser); }}
             onReject={(comment) => { setApprovalError(null); handleApproveReject(selectedTask.data.id, selectedTask.data.flow_type || (selectedTask.type === 'pool_propose' ? 'proposal' : 'perf_plan'), 'reject', comment); }}
@@ -873,26 +669,30 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
 
   const flowType = item.flow_type || 'unknown';
   const status = flowType === 'proposal' ? item.proposal_status : item.status;
-  const title = flowType === 'test_assignment' ? item.test_bank_title : item.title;
-  const creator = item.creator_name || item.created_by || item.user_id;
+  const title = flowType === 'test_assignment' ? item.test_bank_title : flowType === 'reward_plan' ? (item.task_title || item.title || '奖励分配方案') : item.title;
+  const creator = item.creator_name || item.creator_id || item.user_id;
   const approver = item.approver_name || item.hr_reviewer_name || item.admin_reviewer_name;
 
-  const iconBg = flowType === 'perf_plan' ? 'bg-blue-50 dark:bg-blue-900/30' 
-    : flowType === 'pool_join' ? 'bg-emerald-50 dark:bg-emerald-900/30' 
+  const iconBg = flowType === 'perf_plan' ? 'bg-blue-50 dark:bg-blue-900/30'
+    : flowType === 'pool_join' ? 'bg-emerald-50 dark:bg-emerald-900/30'
     : flowType === 'test_assignment' ? 'bg-indigo-50 dark:bg-indigo-900/30'
+    : flowType === 'reward_plan' ? 'bg-amber-50 dark:bg-amber-900/30'
     : 'bg-purple-50 dark:bg-purple-900/30';
-  const iconColor = flowType === 'perf_plan' ? 'text-blue-500' 
-    : flowType === 'pool_join' ? 'text-emerald-500' 
+  const iconColor = flowType === 'perf_plan' ? 'text-blue-500'
+    : flowType === 'pool_join' ? 'text-emerald-500'
     : flowType === 'test_assignment' ? 'text-indigo-500'
+    : flowType === 'reward_plan' ? 'text-amber-500'
     : 'text-purple-500';
-  const iconName = flowType === 'perf_plan' ? 'trending_up' 
+  const iconName = flowType === 'perf_plan' ? 'trending_up'
     : flowType === 'pool_join' ? 'person_add'
     : flowType === 'test_assignment' ? 'assignment'
+    : flowType === 'reward_plan' ? 'payments'
     : 'lightbulb';
-  const codePrefix = flowType === 'proposal' ? 'PL' : flowType === 'pool_join' ? 'JR' : flowType === 'test_assignment' ? 'TST' : 'PF';
+  const codePrefix = flowType === 'proposal' ? 'PL' : flowType === 'reward_plan' ? 'PL' : flowType === 'pool_join' ? 'JR' : flowType === 'test_assignment' ? 'TST' : 'PF';
+  const displayId = flowType === 'reward_plan' ? (item.pool_task_id || item.id) : item.id;
 
   return (
-    <div 
+    <div
       onClick={onClick}
       className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800 transition-all group hover:shadow-md hover:border-blue-300 cursor-pointer ${isMobile ? 'p-3' : 'p-4'}`}
     >
@@ -906,7 +706,7 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span onClick={handleCodeClick} className="font-mono text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 px-1.5 py-0.5 rounded shadow-sm cursor-pointer transition-colors" title="点击打开任务卡">
-              {codePrefix}-{String(item.id).padStart(6, '0')}
+              {codePrefix}-{String(displayId).padStart(6, '0')}
             </span>
             <FlowTypeTag type={flowType} />
             <StatusBadge status={status} />
@@ -943,13 +743,20 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
               {formatDate(item.created_at)}
             </span>
           </div>
-          {item.reject_reason && (
+          {item.reject_reason && item.proposal_status === 'rejected' && (
             <p className="mt-2 text-xs text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-1.5">
               驳回原因: {item.reject_reason}
             </p>
           )}
-          {item.description && (
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{item.description}</p>
+          {item.reject_reason && item.proposal_status !== 'rejected' && item.status === 'rejected' && (
+            <p className="mt-2 text-xs text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-1.5">
+              驳回原因: {item.reject_reason}
+            </p>
+          )}
+          {(item.smart_s || item.description) && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+              {item.smart_s || item.description?.replace(/\*?\*?【[^】]+】\*?\*?\s*/g, '').replace(/\n{2,}/g, ' ').trim()}
+            </p>
           )}
           {flowType === 'pool_join' && (
             <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
@@ -1047,6 +854,27 @@ function WorkflowCard({ item, tab, onClick }: { item: any; tab: TabKey; onClick:
             </div>
           </div>
         )
+      )}
+
+      {/* Reward Plan: 提示进入任务卡操作 */}
+      {flowType === 'reward_plan' && tab === 'pending' && (
+        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-4 text-xs">
+            {item.total_bonus_awarded > 0 && (
+              <span className="flex items-center gap-1 text-rose-500 font-black">
+                <span className="material-symbols-outlined text-[14px]">payments</span>
+                奖金总额：¥{item.total_bonus_awarded?.toLocaleString()}
+              </span>
+            )}
+            {item.pay_period && (
+              <span className="text-slate-500">发放月：{item.pay_period}</span>
+            )}
+            <span className="ml-auto flex items-center gap-1 text-blue-500 font-bold">
+              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              点击进入任务卡审核
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );

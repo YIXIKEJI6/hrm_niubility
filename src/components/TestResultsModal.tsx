@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { parseUTC } from '../utils/dateUtils';
 
 interface TestResult {
   assignment_id: number;
@@ -178,7 +179,7 @@ export default function TestResultsModal({ bankId, onClose }: { bankId: number, 
                             )}
                           </td>
                           <td className="px-6 py-3 text-right text-xs text-slate-500 tabular-nums">
-                            {r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', {
+                            {r.completed_at ? parseUTC(r.completed_at).toLocaleString('zh-CN', {
                               month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                             }) : '—'}
                           </td>

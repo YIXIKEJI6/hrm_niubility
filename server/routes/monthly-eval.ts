@@ -11,7 +11,7 @@ function getSuggestedReviewers(db: any, month: string, userId: string, departmen
   // 查当月完结任务
   const currentMonthPlans = db.prepare(`
     SELECT id, assignee_id, creator_id, approver_id, collaborators 
-    FROM perf_plans 
+    FROM perf_tasks 
     WHERE status IN ('completed', 'approved') 
     AND assignee_id = ?
     AND (rewarded_at LIKE ? OR updated_at LIKE ?)
@@ -336,10 +336,9 @@ router.get('/user-tasks', (req, res) => {
   const db = getDb();
   try {
     const tasks = db.prepare(`
-      SELECT id, title, description, status, metric, target, score, progress, reward, rewarded_at, updated_at, created_at
-      FROM perf_plans
-      WHERE assignee_id = ?
-      AND status != 'draft'
+      SELECT id, title, description, status, target_value, score, progress, bonus, rewarded_at, updated_at, created_at
+      FROM perf_tasks
+      WHERE assignee_id = ? AND status != 'draft' AND deleted_at IS NULL
       ORDER BY updated_at DESC
     `).all(userId);
     res.json({ code: 0, data: tasks });

@@ -88,6 +88,7 @@ app.use('/api/tests', testsRoutes);
 app.use('/api/monthly-eval', monthlyEvalRoutes);
 app.use('/api/payroll-export', payrollExportRoutes);
 app.use('/api/team-scope', teamScopeRoutes);
+app.use('/api/perf/star', perfStarRoutes);
 app.use('/api/pool/star', poolStarRoutes);
 app.use('/api/pool/rewards', poolRewardsRoutes);
 app.use('/api/salary', salaryRoutes);

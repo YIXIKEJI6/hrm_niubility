@@ -26,20 +26,32 @@ function getAccountable(db: any, taskId: number, userId: string) {
   ).get(taskId, userId);
 }
 
-// ── 辅助：获取全部 RACI 成员（带 STAR 状态）
+// ── 辅助：获取全部 RACI 成员（带 STAR 状态），按 user_id 去重，优先取最高权重角色
 function getRaMembersWithStar(db: any, taskId: number) {
-  const members = db.prepare(`
+  const ROLE_PRIORITY: Record<string, number> = { A: 1, R: 2, C: 3, I: 4 };
+  const rawMembers = db.prepare(`
     SELECT prc.user_id, prc.role_name, u.name
     FROM pool_role_claims prc
     LEFT JOIN users u ON prc.user_id = u.id
     WHERE prc.pool_task_id = ? AND prc.role_name IN ('R', 'A', 'C', 'I')
+      AND prc.status IN ('approved', 'star_submitted')
   `).all(taskId) as any[];
 
-  return members.map((m: any) => {
+  // 按 user_id 去重，保留最高优先级角色
+  const userMap = new Map<string, any>();
+  for (const m of rawMembers) {
+    const existing = userMap.get(m.user_id);
+    if (!existing || (ROLE_PRIORITY[m.role_name] || 9) < (ROLE_PRIORITY[existing.role_name] || 9)) {
+      userMap.set(m.user_id, m);
+    }
+  }
+
+  return Array.from(userMap.values()).map((m: any) => {
+    const starRequired = ['R', 'A'].includes(m.role_name);
     const star = db.prepare(
       `SELECT is_submitted, submitted_at FROM pool_star_reports WHERE pool_task_id = ? AND user_id = ?`
     ).get(taskId, m.user_id) as any;
-    return { ...m, star_submitted: star?.is_submitted === 1, star_submitted_at: star?.submitted_at };
+    return { ...m, star_required: starRequired, star_submitted: star?.is_submitted === 1, star_submitted_at: star?.submitted_at };
   });
 }
 
@@ -53,7 +65,7 @@ router.post('/initiate/:taskId', authMiddleware, (req: AuthRequest, res) => {
     return res.status(403).json({ code: 403, message: '仅 A 角色可发起奖励分配' });
   }
 
-  const task = db.prepare('SELECT * FROM pool_tasks WHERE id = ?').get(taskId) as any;
+  const task = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(taskId) as any;
   if (!task) return res.status(404).json({ code: 404, message: '任务不存在' });
 
   // 【风险1修复】仅允许 completed / terminated 状态发起奖励（删除 in_progress）
@@ -215,47 +227,60 @@ router.post('/:id/submit', authMiddleware, async (req: AuthRequest, res) => {
     return res.status(400).json({ code: 400, message: '请上传至少一份验收附件后再提交' });
   }
 
-  const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+  const task = db.prepare('SELECT title FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
   const operator = db.prepare('SELECT name FROM users WHERE id = ?').get(userId) as any;
 
-  // 1. 获取工作流拦截链路：看看有没有金主 (dt)
-  const { WorkflowEngine, WORKFLOWS } = await import('../services/workflow-engine');
-  const nodes = WorkflowEngine.resolveAssignees(WORKFLOWS.REWARD_PLAN, { initiatorId: plan.initiator_id, poolTaskId: plan.pool_task_id });
-  const dtNode = nodes.find(n => n.seq === 2); // 金主验收 (delivery_target)
-  
+  // 1. 跳过金主验收，直接进入 HRBP 审核
   const now = new Date().toISOString();
-  let status = 'pending_dt';
-  let targetAssignees = dtNode?.assignees || [];
+  const status = 'pending_hr';
 
-  if (!dtNode || dtNode.isSkipped || targetAssignees.length === 0) {
-    status = 'pending_hr'; // 没查到金主直接滚到 HR
-  }
+  // 标记 workflow_nodes 中 REWARD_PLAN 模板的 seq=2 (delivery_target) 节点为跳过
+  try {
+    const tpl = db.prepare("SELECT id FROM workflow_templates WHERE code = 'reward_plan' AND is_active = 1").get() as any;
+    if (tpl) {
+      db.prepare("UPDATE workflow_nodes SET skip_rule = 'always_skip' WHERE template_id = ? AND seq = 2").run(tpl.id);
+    }
+  } catch {}
 
   db.prepare(`UPDATE pool_reward_plans SET status = ?, updated_at = ? WHERE id = ?`).run(status, now, planId);
   logAudit({ businessType: 'reward_plan', businessId: planId, actorId: plan.initiator_id, action: 'submit', fromStatus: 'draft', toStatus: status });
 
   try {
-    if (status === 'pending_dt') {
+    // 提取 I 角色（知会方）用户，发送抄送通知
+    const poolTask = db.prepare('SELECT roles_config FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    let iRoleUsers: string[] = [];
+    if (poolTask?.roles_config) {
+      const cfg = JSON.parse(poolTask.roles_config);
+      const iRole = cfg.find((r: any) => r.name === 'I');
+      if (iRole?.users?.length) {
+        iRoleUsers = iRole.users.map((u: any) => u.id).filter(Boolean);
+      }
+    }
+
+    // 通知 I 角色用户（抄送知会）
+    if (iRoleUsers.length > 0) {
       await sendMarkdownMessage(
-        targetAssignees,
-        `**📦 悬赏交付物与结项验收**\n\n> **任务：**${task?.title}\n> **发起人：**${operator?.name}\n> **总奖金：**¥${plan.total_bonus}\n\n作为本任务的金主(交付对象)，请在系统中查看执行成果进行验收\n[👉 去验收](${process.env.APP_URL || 'http://localhost:3000'}/pool)`
+        iRoleUsers,
+        `**📋 奖励分配方案已提交（抄送知会）**\n\n> **任务：**${task?.title}\n> **发起人：**${operator?.name}\n> **总奖金：**¥${plan.total_bonus}\n\n您作为本任务的知会方(I角色)，特此通知方案已提交审核\n[👉 查看详情](${APP_URL}/pool)`
       );
       const { createNotification } = await import('./notifications');
-      createNotification(targetAssignees, 'workflow_pending', '📦 悬赏交付物验收', `${operator?.name} 向您提交了任务 [${task?.title}] 的最终成果，请验收并批准其分账方案。`, '/pool');
-      return res.json({ code: 0, message: '已提交金主(Delivery Target)进行首轮验收' });
-    } else {
-      // 没金主，直发 HR
-      const hrs = db.prepare(`SELECT id FROM users WHERE role IN ('hr', 'admin')`).all() as any[];
-      await sendMarkdownMessage(
-        hrs.map((u: any) => u.id),
-        `**🎯 奖励分配方案待审核**\n\n> **任务：**${task?.title}\n> **发起人：**${operator?.name}\n> **总奖金：**¥${plan.total_bonus}\n\n请在系统中审核此奖励分配方案\n[👉 立即审核](${process.env.APP_URL || 'http://localhost:3000'}/pool)`
-      );
-      return res.json({ code: 0, message: '已提交 HR 审核，等待审核结果' });
+      createNotification(iRoleUsers, 'workflow_cc', '📋 奖励方案提交通知（抄送）', `${operator?.name} 提交了任务 [${task?.title}] 的奖励分配方案，您作为知会方收到此通知。`, '/pool');
     }
+
+    // 通知 HR 审核（站内 + 企微双通道）
+    const hrs = db.prepare(`SELECT id FROM users WHERE role IN ('hr', 'admin')`).all() as any[];
+    const hrIds = hrs.map((u: any) => u.id);
+    const { createNotification } = await import('./notifications');
+    createNotification(hrIds, 'perf', '🎯 奖励分配方案待审核', `${operator?.name} 提交了任务「${task?.title}」的奖励分配方案（总奖金 ¥${plan.total_bonus}），请审核。`, '/workflows');
+    await sendMarkdownMessage(
+      hrIds,
+      `**🎯 奖励分配方案待审核**\n\n> **任务：**${task?.title}\n> **发起人：**${operator?.name}\n> **总奖金：**¥${plan.total_bonus}\n\n请在系统中审核此奖励分配方案\n[👉 立即审核](${APP_URL}/workflows)`
+    );
   } catch {}
-  return res.json({ code: 0, message: `已进入下一个审核阶段` });
+  return res.json({ code: 0, message: '已提交 HR 审核，等待审核结果' });
 });
 
+// [DEPRECATED] 金主验收路由，保留向后兼容。submit 不再路由到 pending_dt，此路由仅处理历史遗留数据。
 // POST /api/pool/rewards/:id/dt-review — 金主验收 (Delivery Target)
 router.post('/:id/dt-review', authMiddleware, async (req: AuthRequest, res) => {
   const db = getDb();
@@ -308,10 +333,10 @@ router.post('/:id/dt-review', authMiddleware, async (req: AuthRequest, res) => {
   } else {
     // DT驳回 → 回退到草稿，让发起人可以修改后重新提交（而非终止状态）
     db.prepare(`UPDATE pool_reward_plans SET status = 'draft', updated_at = ? WHERE id = ?`).run(now, planId);
-    // 驳回时回退 pool_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
-    const task = db.prepare('SELECT status FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    // 驳回时回退 perf_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
+    const task = db.prepare('SELECT status FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
     if (task?.status === 'rewarded') {
-      db.prepare(`UPDATE pool_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
+      db.prepare(`UPDATE perf_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
     }
     logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: 'reject', fromStatus: 'pending_dt', toStatus: 'draft', comment: reason || '金主验收拒绝' });
     return res.json({ code: 0, message: '已打回给负责人，请修改分配方案后重新提交' });
@@ -332,8 +357,8 @@ router.post('/:id/hr-review', authMiddleware, async (req: AuthRequest, res) => {
 
   const { WorkflowEngine, WORKFLOWS } = await import('../services/workflow-engine');
   const nodes = WorkflowEngine.resolveAssignees(WORKFLOWS.REWARD_PLAN, { initiatorId: plan.initiator_id, poolTaskId: plan.pool_task_id });
-  const node3 = nodes.find(n => n.seq === 3); // HRBP合规审计
-  const hrbpIds = plan.hr_reviewer_id ? [plan.hr_reviewer_id] : (node3?.assignees || []);
+  const hrbpNode = nodes.find(n => n.resolver_type === 'hrbp') || nodes.find(n => n.seq === 2); // HRBP合规审计
+  const hrbpIds = plan.hr_reviewer_id ? [plan.hr_reviewer_id] : (hrbpNode?.assignees || []);
 
   const { action, transfer_to, comment, distributions } = req.body;
 
@@ -375,32 +400,37 @@ router.post('/:id/hr-review', authMiddleware, async (req: AuthRequest, res) => {
   db.prepare(`
     UPDATE pool_reward_plans SET status = ?, hr_reviewer_id = ?, hr_comment = ?, hr_reviewed_at = ?, updated_at = ? WHERE id = ?
   `).run(newStatus, userId, comment || '', now, now, planId);
-  // HR 驳回时回退 pool_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
+  // HR 驳回时回退 perf_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
   if (action === 'reject') {
-    const task = db.prepare('SELECT status FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    const task = db.prepare('SELECT status FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
     if (task?.status === 'rewarded') {
-      db.prepare(`UPDATE pool_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
+      db.prepare(`UPDATE perf_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
     }
   }
   logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: action === 'approve' ? 'approve' : 'reject', fromStatus: 'pending_hr', toStatus: newStatus, comment });
 
-  const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+  const task = db.prepare('SELECT title FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
 
   if (action === 'approve') {
-    // 通知总经理
+    // 通知总经理（站内 + 企微）
     const admins = db.prepare(`SELECT id FROM users WHERE role = 'admin'`).all() as any[];
+    const adminIds = admins.map((u: any) => u.id);
     try {
+      const { createNotification } = await import('./notifications');
+      createNotification(adminIds, 'perf', '🎯 奖励方案待最终确认', `「${task?.title}」奖励方案已通过 HR 审核（${user?.name}），请最终确认。`, '/workflows');
       await sendMarkdownMessage(
-        admins.map((u: any) => u.id),
-        `**🎯 奖励分配方案待最终确认**\n\n> **任务：**${task?.title}\n> **HR 审核：**${user?.name} 已通过\n> **总奖金：**¥${plan.total_bonus}\n\n请最终确认并批准此方案\n[👉 立即确认](${APP_URL}/pool)`
+        adminIds,
+        `**🎯 奖励分配方案待最终确认**\n\n> **任务：**${task?.title}\n> **HR 审核：**${user?.name} 已通过\n> **总奖金：**¥${plan.total_bonus}\n\n请最终确认并批准此方案\n[👉 立即确认](${APP_URL}/workflows)`
       );
     } catch {}
   } else {
-    // 通知发起人驳回
+    // 通知发起人驳回（站内 + 企微）
     try {
+      const { createNotification } = await import('./notifications');
+      createNotification([plan.initiator_id], 'perf', '❌ 奖励方案被驳回', `「${task?.title}」奖励方案被 HR 驳回，原因：${comment || '无'}。请修改后重新提交。`, '/company');
       await sendMarkdownMessage(
         [plan.initiator_id],
-        `**❌ 奖励分配方案被驳回**\n\n> **任务：**${task?.title}\n> **HR 审核意见：**${comment || '无'}\n\n请修改后重新提交\n[👉 查看详情](${APP_URL}/pool)`
+        `**❌ 奖励分配方案被驳回**\n\n> **任务：**${task?.title}\n> **HR 审核意见：**${comment || '无'}\n\n请修改后重新提交\n[👉 查看详情](${APP_URL}/company)`
       );
     } catch {}
   }
@@ -453,10 +483,10 @@ router.post('/:id/admin-confirm', authMiddleware, async (req: AuthRequest, res) 
     db.prepare(`
       UPDATE pool_reward_plans SET status = 'pending_hr', admin_comment = ?, updated_at = ? WHERE id = ?
     `).run(comment || '', now, planId);
-    // 总经理驳回时回退 pool_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
-    const task = db.prepare('SELECT status FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+    // 总经理驳回时回退 perf_tasks 状态（如果已被改为 rewarded 则恢复为 completed）
+    const task = db.prepare('SELECT status FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
     if (task?.status === 'rewarded') {
-      db.prepare(`UPDATE pool_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
+      db.prepare(`UPDATE perf_tasks SET status = 'completed' WHERE id = ?`).run(plan.pool_task_id);
     }
     logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: 'reject', fromStatus: 'pending_admin', toStatus: 'pending_hr', comment });
     return res.json({ code: 0, message: '已退回 HR 重审' });
@@ -475,9 +505,9 @@ router.post('/:id/admin-confirm', authMiddleware, async (req: AuthRequest, res) 
   logAudit({ businessType: 'reward_plan', businessId: planId, actorId: userId, action: 'approve', fromStatus: 'pending_admin', toStatus: 'approved', comment, extra: { payPeriod } });
 
   // 【风险4修复】Admin 批准奖励 → 同步任务状态为 rewarded
-  db.prepare(`UPDATE pool_tasks SET status = 'rewarded' WHERE id = ?`).run(plan.pool_task_id);
+  db.prepare(`UPDATE perf_tasks SET status = 'rewarded' WHERE id = ?`).run(plan.pool_task_id);
 
-  const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+  const task = db.prepare('SELECT title FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
   const distributions = db.prepare(
     `SELECT prd.*, u.name FROM pool_reward_distributions prd LEFT JOIN users u ON prd.user_id = u.id WHERE prd.reward_plan_id = ?`
   ).all(planId) as any[];
@@ -520,7 +550,7 @@ router.post('/:id/mark-paid', authMiddleware, async (req: AuthRequest, res) => {
   // 同步每人 paid_at
   db.prepare(`UPDATE pool_reward_distributions SET paid_at = ? WHERE reward_plan_id = ?`).run(now, planId);
 
-  const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(plan.pool_task_id) as any;
+  const task = db.prepare('SELECT title FROM perf_tasks WHERE id = ?').get(plan.pool_task_id) as any;
   const distributions = db.prepare(
     `SELECT prd.user_id, prd.bonus_amount, prd.perf_score FROM pool_reward_distributions prd WHERE prd.reward_plan_id = ?`
   ).all(planId) as any[];
@@ -553,7 +583,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
     SELECT prp.*, pt.title as task_title, pt.bonus as task_bonus,
            u.name as initiator_name, u.name as creator_name
     FROM pool_reward_plans prp
-    LEFT JOIN pool_tasks pt ON prp.pool_task_id = pt.id
+    LEFT JOIN perf_tasks pt ON prp.pool_task_id = pt.id
     LEFT JOIN users u ON prp.initiator_id = u.id
     WHERE 1=1
   `;

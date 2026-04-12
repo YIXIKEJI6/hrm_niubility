@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { parseUTC } from '../utils/dateUtils';
 
 type TabKey = 'calendar' | 'leaves' | 'config';
 
@@ -150,8 +151,8 @@ function CalendarTab({ canManage, userId, userDeptId }: { canManage: boolean; us
   const leaveMap = useMemo(() => {
     const m: Record<string, LeaveRecord> = {};
     for (const l of leaves) {
-      const start = new Date(l.start_date);
-      const end = new Date(l.end_date);
+      const start = parseUTC(l.start_date);
+      const end = parseUTC(l.end_date);
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const key = `${l.user_id}_${d.toISOString().slice(0, 10)}`;
         m[key] = l;
@@ -383,8 +384,8 @@ function LeavesTab({ userId, canViewDept, canApprove }: { userId: string; canVie
 
   const calcDuration = () => {
     if (!form.start_date || !form.end_date) return 0;
-    const s = new Date(form.start_date);
-    const e = new Date(form.end_date);
+    const s = parseUTC(form.start_date);
+    const e = parseUTC(form.end_date);
     let days = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     if (form.start_half === 'pm') days -= 0.5;
     if (form.end_half === 'am') days -= 0.5;

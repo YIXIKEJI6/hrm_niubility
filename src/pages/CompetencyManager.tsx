@@ -32,6 +32,12 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
   const [evalSelectedUsers, setEvalSelectedUsers] = useState<string[]>([]);
   const [evalModelId, setEvalModelId] = useState('');
 
+  // 评估列表筛选与分页
+  const [evalFilterSearch, setEvalFilterSearch] = useState('');
+  const [evalFilterDept, setEvalFilterDept] = useState('');
+  const [evalPage, setEvalPage] = useState(1);
+  const EVAL_PAGE_SIZE = 9;
+
   useEffect(() => {
     if (initialTestId) {
       setTakingTestId(initialTestId);
@@ -199,8 +205,11 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
         setEvalUserSearch('');
         fetchEvaluations();
         setActiveTab('evaluations');
+        if (json.data?.skipped > 0) {
+          alert(json.message);
+        }
       } else {
-        alert(`下发失败：${json.message}\n如果提示“无维度配置”，说明您挑选的这个模型是空的，请先前往“能力模型配置”编辑该模型并添加评估维度。`);
+        alert(`下发失败：${json.message}\n如果提示”无维度配置”，说明您挑选的这个模型是空的，请先前往”能力模型配置”编辑该模型并添加评估维度。`);
       }
     } catch (err) {
       alert('下发失败：网络或服务器错误');
@@ -254,7 +263,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
       <div className="flex flex-col gap-2 mt-4 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
         {scores.map((s, idx) => {
           const mScore = s.manager_score || 0;
-          const max = s.max_score || 5;
+          const max = s.max_score || 10;
           const pct = Math.min(100, Math.max(0, (mScore / max) * 100));
           return (
             <div key={idx} className="flex flex-col gap-1">
@@ -271,6 +280,40 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
       </div>
     );
   };
+
+  // 评估列表：提取部门选项、过滤、排序(最新优先)、分页
+  const evalDeptOptions = useMemo(() => {
+    const depts = new Set<string>();
+    evaluations.forEach(ev => { if (ev.department) depts.add(ev.department); });
+    return Array.from(depts).sort();
+  }, [evaluations]);
+
+  const filteredEvaluations = useMemo(() => {
+    let list = [...evaluations];
+    // 按创建时间倒序（最新优先）
+    list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    if (evalFilterSearch) {
+      const q = evalFilterSearch.toLowerCase();
+      list = list.filter(ev =>
+        (ev.user_name || '').toLowerCase().includes(q) ||
+        (ev.model_name || '').toLowerCase().includes(q) ||
+        (ev.evaluator_name || '').toLowerCase().includes(q)
+      );
+    }
+    if (evalFilterDept) {
+      list = list.filter(ev => ev.department === evalFilterDept);
+    }
+    return list;
+  }, [evaluations, evalFilterSearch, evalFilterDept]);
+
+  const evalTotalPages = Math.max(1, Math.ceil(filteredEvaluations.length / EVAL_PAGE_SIZE));
+  const pagedEvaluations = useMemo(() => {
+    const start = (evalPage - 1) * EVAL_PAGE_SIZE;
+    return filteredEvaluations.slice(start, start + EVAL_PAGE_SIZE);
+  }, [filteredEvaluations, evalPage]);
+
+  // 重置分页当过滤条件变化
+  useEffect(() => { setEvalPage(1); }, [evalFilterSearch, evalFilterDept]);
 
   const isManagerOrAdmin = hasPermission('module_competency') || hasPermission('module_competency_model') || currentUser?.is_super_admin;
 
@@ -397,75 +440,140 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
 
             {/* Evaluations Tab */}
             {activeTab === 'evaluations' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {evaluations.length === 0 ? (
-                  <div className="col-span-full py-20 text-center text-slate-400">目前没有任何能力评估记录</div>
-                ) : (
-                  evaluations.map(ev => {
-                    const amIUser = String(ev.user_id) === String(currentUser?.id);
-                    const actionName = ev.status === 'pending_self' && amIUser ? '立即自评' : 
-                                      (ev.status === 'pending_manager' && isManagerOrAdmin) ? '主管打分' : '查看报告';
-                    return (
-                      <div key={ev.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex justify-between items-start mb-2">
-                          {getStatusUI(ev.status)}
-                          <span className="text-[10px] text-slate-400">{ev.created_at.split('T')[0]}</span>
-                        </div>
-                        <h4 className="font-black text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-1">
-                          {ev.user_name}
-                        </h4>
-                        <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded inline-block mb-4">
-                          采用模型: {ev.model_name}
-                        </p>
+              <div>
+                {/* 搜索 + 部门筛选栏 */}
+                <div className="flex flex-col sm:flex-row gap-3 mb-5">
+                  <div className="relative flex-1 max-w-xs">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                    <input
+                      type="text"
+                      value={evalFilterSearch}
+                      onChange={e => setEvalFilterSearch(e.target.value)}
+                      placeholder="搜索姓名、模型、下发人..."
+                      className="w-full pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    />
+                  </div>
+                  {evalDeptOptions.length > 0 && (
+                    <select
+                      value={evalFilterDept}
+                      onChange={e => setEvalFilterDept(e.target.value)}
+                      className="text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    >
+                      <option value="">全部部门</option>
+                      {evalDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  )}
+                  <span className="text-xs text-slate-400 self-center">共 {filteredEvaluations.length} 条</span>
+                </div>
 
-                        {/* 具体流程展示 */}
-                        <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 mb-4">
-                          <div className="flex items-center justify-between relative">
-                            {/* 轨道背景线 */}
-                            <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-slate-200 dark:bg-slate-700 -translate-y-1/2 z-0" />
-                            {/* 进度动态线 */}
-                            <div 
-                              className="absolute top-1/2 left-0 h-[2px] bg-indigo-500 transition-all duration-500 -translate-y-1/2 z-0" 
-                              style={{ width: ev.status === 'pending_self' ? '0%' : ev.status === 'pending_manager' ? '50%' : '100%' }} 
-                            />
-                            
-                            {/* 节点 1: 个人自评 */}
-                            <div className="relative z-10 flex flex-col items-center gap-1.5 w-1/3">
-                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${ev.status === 'pending_self' ? 'border-indigo-500 bg-white dark:bg-slate-900' : 'border-indigo-500 bg-indigo-500'}`}>
-                                {ev.status !== 'pending_self' && <span className="material-symbols-outlined text-[10px] text-white">check</span>}
-                              </div>
-                              <span className={`text-[10px] font-bold ${ev.status === 'pending_self' ? 'text-indigo-600' : 'text-slate-500'}`}>{ev.user_name} 自评</span>
-                            </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {pagedEvaluations.length === 0 ? (
+                    <div className="col-span-full py-20 text-center text-slate-400">
+                      {evaluations.length === 0 ? '目前没有任何能力评估记录' : '没有符合筛选条件的评估记录'}
+                    </div>
+                  ) : (
+                    pagedEvaluations.map(ev => {
+                      const amIUser = String(ev.user_id) === String(currentUser?.id);
+                      const actionName = ev.status === 'pending_self' && amIUser ? '立即自评' :
+                                        (ev.status === 'pending_manager' && isManagerOrAdmin) ? '主管打分' : '查看报告';
+                      return (
+                        <div key={ev.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                          <div className="flex justify-between items-start mb-2">
+                            {getStatusUI(ev.status)}
+                            <span className="text-[10px] text-slate-400">{ev.created_at?.split('T')[0]}</span>
+                          </div>
+                          <h4 className="font-black text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-1">
+                            {ev.user_name}
+                          </h4>
+                          <div className="flex flex-wrap gap-1.5 mb-4">
+                            <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                              模型: {ev.model_name}
+                            </span>
+                            {ev.department && (
+                              <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                                {ev.department}
+                              </span>
+                            )}
+                            {ev.evaluator_name && (
+                              <span className="text-xs text-violet-600 bg-violet-50 dark:bg-violet-900/30 px-2 py-0.5 rounded">
+                                下发: {ev.evaluator_name}
+                              </span>
+                            )}
+                          </div>
 
-                            {/* 节点 2: 主管复评 */}
-                            <div className="relative z-10 flex flex-col items-center gap-1.5 w-1/3">
-                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${ev.status === 'pending_self' ? 'border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700' : ev.status === 'pending_manager' ? 'border-indigo-500 bg-white dark:bg-slate-900' : 'border-indigo-500 bg-indigo-500'}`}>
-                                {ev.status === 'completed' && <span className="material-symbols-outlined text-[10px] text-white">check</span>}
-                              </div>
-                              <span className={`text-[10px] font-bold ${ev.status === 'pending_manager' ? 'text-indigo-600' : 'text-slate-500'}`}>{ev.evaluator_name || '主管'} 打分</span>
-                            </div>
+                          {/* 具体流程展示 */}
+                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 mb-4">
+                            <div className="flex items-center justify-between relative">
+                              <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-slate-200 dark:bg-slate-700 -translate-y-1/2 z-0" />
+                              <div
+                                className="absolute top-1/2 left-0 h-[2px] bg-indigo-500 transition-all duration-500 -translate-y-1/2 z-0"
+                                style={{ width: ev.status === 'pending_self' ? '0%' : ev.status === 'pending_manager' ? '50%' : '100%' }}
+                              />
 
-                            {/* 节点 3: 归档完成 */}
-                            <div className="relative z-10 flex flex-col items-center gap-1.5 w-1/3">
-                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${ev.status === 'completed' ? 'border-emerald-500 bg-emerald-500' : 'border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700'}`}>
-                                {ev.status === 'completed' && <span className="material-symbols-outlined text-[10px] text-white">check</span>}
+                              <div className="relative z-10 flex flex-col items-center gap-1.5 w-1/3">
+                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${ev.status === 'pending_self' ? 'border-indigo-500 bg-white dark:bg-slate-900' : 'border-indigo-500 bg-indigo-500'}`}>
+                                  {ev.status !== 'pending_self' && <span className="material-symbols-outlined text-[10px] text-white">check</span>}
+                                </div>
+                                <span className={`text-[10px] font-bold ${ev.status === 'pending_self' ? 'text-indigo-600' : 'text-slate-500'}`}>{ev.user_name} 自评</span>
                               </div>
-                              <span className={`text-[10px] font-bold ${ev.status === 'completed' ? 'text-emerald-600' : 'text-slate-500'}`}>结果归档</span>
+
+                              <div className="relative z-10 flex flex-col items-center gap-1.5 w-1/3">
+                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${ev.status === 'pending_self' ? 'border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700' : ev.status === 'pending_manager' ? 'border-indigo-500 bg-white dark:bg-slate-900' : 'border-indigo-500 bg-indigo-500'}`}>
+                                  {ev.status === 'completed' && <span className="material-symbols-outlined text-[10px] text-white">check</span>}
+                                </div>
+                                <span className={`text-[10px] font-bold ${ev.status === 'pending_manager' ? 'text-indigo-600' : 'text-slate-500'}`}>{ev.evaluator_name || '主管'} 打分</span>
+                              </div>
+
+                              <div className="relative z-10 flex flex-col items-center gap-1.5 w-1/3">
+                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${ev.status === 'completed' ? 'border-emerald-500 bg-emerald-500' : 'border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700'}`}>
+                                  {ev.status === 'completed' && <span className="material-symbols-outlined text-[10px] text-white">check</span>}
+                                </div>
+                                <span className={`text-[10px] font-bold ${ev.status === 'completed' ? 'text-emerald-600' : 'text-slate-500'}`}>结果归档</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="border-t border-slate-100 dark:border-slate-800 pt-4 mt-auto">
-                          <button 
-                            onClick={() => openScoreModal(ev)}
-                            className="w-full text-center text-sm font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 py-2 rounded-xl hover:bg-indigo-100 transition-colors"
-                          >
-                            {actionName}
-                          </button>
+                          <div className="border-t border-slate-100 dark:border-slate-800 pt-4 mt-auto">
+                            <button
+                              onClick={() => openScoreModal(ev)}
+                              className="w-full text-center text-sm font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 py-2 rounded-xl hover:bg-indigo-100 transition-colors"
+                            >
+                              {actionName}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })
+                      )
+                    })
+                  )}
+                </div>
+
+                {/* 分页器 */}
+                {evalTotalPages > 1 && (
+                  <div className="flex items-center justify-center gap-2 mt-6">
+                    <button
+                      disabled={evalPage <= 1}
+                      onClick={() => setEvalPage(p => p - 1)}
+                      className="px-3 py-1.5 text-sm font-bold rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      上一页
+                    </button>
+                    {Array.from({ length: evalTotalPages }, (_, i) => i + 1).map(p => (
+                      <button
+                        key={p}
+                        onClick={() => setEvalPage(p)}
+                        className={`w-8 h-8 text-sm font-bold rounded-lg transition-colors ${p === evalPage ? 'bg-indigo-600 text-white' : 'border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                    <button
+                      disabled={evalPage >= evalTotalPages}
+                      onClick={() => setEvalPage(p => p + 1)}
+                      className="px-3 py-1.5 text-sm font-bold rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      下一页
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -491,7 +599,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                       <div className="flex flex-wrap gap-2">
                         {m.dimensions?.map((d: any, idx: number) => (
                           <span key={idx} className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100/50">
-                            {d.name} (目标:{d.target_score || 3}, 权重:{d.weight || 1}, 满分:{d.max_score || 5})
+                            {d.name} (目标:{d.target_score || 6}, 权重:{d.weight || 1}, 满分:{d.max_score || 10})
                           </span>
                         ))}
                       </div>
@@ -633,7 +741,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                       
                       <div className="flex items-center gap-1 w-20">
                          <span className="text-[10px] text-slate-500">满分</span>
-                         <input type="number" value={d.max_score || 5} onChange={e => {
+                         <input type="number" value={d.max_score || 10} onChange={e => {
                           const newD = [...editingModel.dimensions];
                           newD[i].max_score = Number(e.target.value);
                           setEditingModel({...editingModel, dimensions: newD});
@@ -670,7 +778,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                       <span className="material-symbols-outlined text-[14px]">checklist_rtl</span> 从能力库导入({libraryList.length})
                     </button>
                     <button type="button" onClick={() => {
-                      setEditingModel({...editingModel, dimensions: [...(editingModel.dimensions||[]), { name: '', max_score: 5, target_score: 3, weight: 1, category: '通用' }]});
+                      setEditingModel({...editingModel, dimensions: [...(editingModel.dimensions||[]), { name: '', max_score: 10, target_score: 6, weight: 1, category: '通用' }]});
                     }} className="flex-1 py-2 border border-dashed border-indigo-300 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center justify-center gap-1 transition-colors">
                       <span className="material-symbols-outlined text-[14px]">add</span> 手动追加维度
                     </button>
@@ -884,7 +992,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                                           (showScoreModal.status === 'pending_manager' && amIManager);
                           
                           const weightPercent = ((Number(s.weight) / totalWeight) * 100).toFixed(0) + '%';
-                          const displayMax = 5; // Force 5-point scale display as per user request
+                          const displayMax = s.max_score || 10;
                                           
                           // Initialize temporary form state on object for easy binding
                           if (s._inputScore === undefined) {
@@ -925,7 +1033,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                                           className="w-14 bg-white border-none rounded-lg text-center text-sm font-black text-indigo-700 outline-none p-1"
                                           required
                                         />
-                                        <span className="text-[10px] text-indigo-100">/ 5.0</span>
+                                        <span className="text-[10px] text-indigo-100">/ {displayMax}</span>
                                       </div>
                                     </div>
                                   ) : (
@@ -1009,7 +1117,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
               </div>
               <div>
                  <label className="block text-xs font-bold text-slate-600 mb-2">能力满分基准</label>
-                 <input type="number" step="0.5" value={editingLibrary.default_max_score || 5} onChange={e => setEditingLibrary({...editingLibrary, default_max_score: Number(e.target.value)})} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="5" />
+                 <input type="number" step="0.5" value={editingLibrary.default_max_score || 10} onChange={e => setEditingLibrary({...editingLibrary, default_max_score: Number(e.target.value)})} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="10" />
               </div>
               <div>
                  <label className="block text-xs font-bold text-slate-600 mb-2">能力解读与评价标准</label>
@@ -1047,7 +1155,7 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                          library_id: lib.id,
                          category: lib.category,
                          description: lib.description,
-                         max_score: lib.default_max_score || 5,
+                         max_score: lib.default_max_score || 10,
                          target_score: 3, // default target
                          weight: 1
                        };

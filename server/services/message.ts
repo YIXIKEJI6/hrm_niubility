@@ -223,7 +223,7 @@ export async function notifyPerfStatusChange(
   extra?: string
 ): Promise<void> {
   const db = getDb();
-  const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+  const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
   const appUrl = process.env.APP_URL || 'https://talk.szyixikeji.com';
 
   const creatorName = getUserName(plan?.creator_id || '');
@@ -352,6 +352,25 @@ export async function notifyPerfStatusChange(
       break;
     }
 
+    // ── 待评级：通知评分人 ──
+    case 'pending_assessment': {
+      systemLink = '/team';
+      await sendMarkdownMessage(targetUserIds, [
+        `**⭐ 任务待评级打分**`,
+        ``,
+        `>**任务名称：**${planTitle}`,
+        `>**执行人：**${assigneeName}`,
+        `>**所属部门：**${deptName}`,
+        quarter ? `>**考核周期：**${quarter}` : '',
+        `>**当前进度：**${progress}%`,
+        `>**当前状态：**<font color="warning">待评级</font>`,
+        ``,
+        `请查看成员 STAR 报告后进行评级打分。`,
+        `[👉 前往评级](${appUrl}/team)`,
+      ].filter(Boolean).join('\n'));
+      break;
+    }
+
     // ── 评分完成 ──
     case 'assessed': {
       systemLink = '/personal';
@@ -405,6 +424,25 @@ export async function notifyPerfStatusChange(
       break;
     }
 
+    // ── 完结抄送 HRBP + GM ──
+    case 'cc_completed': {
+      const scorerName = getUserName(plan?.creator_id || '');
+      await sendMarkdownMessage(targetUserIds, [
+        `**📋 绩效任务完结通知（抄送）**`,
+        ``,
+        `>**任务名称：**${planTitle}`,
+        `>**执行人：**${assigneeName}`,
+        `>**创建者/评分人：**${scorerName}`,
+        `>**部门：**${deptName}`,
+        `>**评分：**${plan?.score ?? '未评'}`,
+        `>**完结时间：**${timeStr}`,
+        ``,
+        `此任务已评分完结归档，仅供知悉。`,
+        `[👉 查看详情](${appUrl}/workflows)`,
+      ].filter(Boolean).join('\n'));
+      break;
+    }
+
     // ── 默认 ──
     default: {
       await sendMarkdownMessage(targetUserIds, [
@@ -425,9 +463,11 @@ export async function notifyPerfStatusChange(
     rejected: '❌ 绩效计划被驳回',
     returned: '🔙 绩效计划已退回',
     progress_update: '📊 绩效进度已更新',
+    pending_assessment: '⭐ 任务待评级打分',
     assessed: '🏆 绩效考核评分完成',
     rewarded: '💰 绩效奖金已发放',
     overdue: '⚠️ 绩效任务逾期预警',
+    cc_completed: '📋 绩效任务完结通知（抄送）',
   };
   const title = actionLabels[action] || '📢 绩效通知';
   createNotification(

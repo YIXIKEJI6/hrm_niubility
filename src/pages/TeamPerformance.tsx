@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
-import SmartFormInputs, { SmartData, encodeSmartDescription, decodeSmartDescription } from '../components/SmartFormInputs';
+import SmartFormInputs, { SmartData, decodeSmartDescription } from '../components/SmartFormInputs';
 import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
 import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
+import { buildSmartTaskData, buildSmartDescription } from '../utils/taskDataMapper';
+import { parseUTC } from '../utils/dateUtils';
 
 interface PerfPlan {
   id: number;
@@ -69,7 +71,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
     tasks.sort((a, b) => {
       let valA, valB;
       if (sortKey === 'progress') { valA = a.progress || 0; valB = b.progress || 0; }
-      else if (sortKey === 'deadline') { valA = new Date(a.deadline || '2099-01-01').getTime(); valB = new Date(b.deadline || '2099-01-01').getTime(); }
+      else if (sortKey === 'deadline') { valA = parseUTC(a.deadline || '2099-01-01').getTime(); valB = parseUTC(b.deadline || '2099-01-01').getTime(); }
       else if (sortKey === 'status') {
         const w = (s: string) => s === 'in_progress' ? 1 : s === 'pending_review' ? 2 : s === 'completed' ? 3 : 0;
         valA = w(a.status); valB = w(b.status);
@@ -152,6 +154,16 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
     }
   }, [currentUser]);
 
+  // 监听 STAR 广场评分完成事件，刷新列表
+  useEffect(() => {
+    const handleTaskUpdated = () => {
+      setSelectedTask(null);
+      fetchTeamStatus();
+    };
+    window.addEventListener('PERF_TASK_UPDATED', handleTaskUpdated);
+    return () => window.removeEventListener('PERF_TASK_UPDATED', handleTaskUpdated);
+  }, []);
+
   // 获取全公司成员（用于任务下发时的人员选择）
   useEffect(() => {
     const fetchAllUsers = async () => {
@@ -194,10 +206,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           title: data.summary || '新任务',
-          description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+          description: buildSmartDescription(data),
           category: data.taskType || '临时指派',
           target_value: targetValue,
-          deadline: data.t,
+          deadline: data.actTime || data.planTime || null,
           collaborators: data.c || undefined,
           informed_parties: data.i || undefined,
           delivery_target: data.dt || undefined,
@@ -208,7 +220,8 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           assignee_id: data.r || subordinates[0]?.id || '',
           quarter: data.quarter || undefined,
           creator_id: currentUser?.id,
-          approver_id: data.a || currentUser?.id
+          approver_id: data.a || currentUser?.id,
+          flow_type: 'dispatch'
         })
       });
 
@@ -277,10 +290,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           title: data.summary || '新任务',
-          description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+          description: buildSmartDescription(data),
           category: data.taskType || '常规任务',
           target_value: targetValue,
-          deadline: data.t,
+          deadline: data.actTime || data.planTime || null,
           collaborators: data.c || undefined,
           informed_parties: data.i || undefined,
           delivery_target: data.dt || undefined,
@@ -291,7 +304,8 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           assignee_id: data.r || currentUser?.id,
           quarter: data.quarter || undefined,
           creator_id: currentUser?.id,
-          approver_id: data.a || approverId
+          approver_id: data.a || approverId,
+          flow_type: 'application'
         })
       });
 
@@ -303,10 +317,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
       }
 
       const createData = await createRes.json();
-      
+
       if (createData.code === 0 && createData.data?.id) {
         const planId = createData.data.id;
-        await fetch(`/api/perf/plans/${planId}/submit`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+        await fetch(`/api/perf/plans/${planId}/dispatch`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
         
         setIsApplyModalOpen(false);
         fetchTeamStatus();
@@ -499,11 +513,13 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                               task.status === 'completed' || task.status === 'assessed' ? 'bg-purple-100 text-purple-700' :
                               task.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
                               task.status === 'pending_review' ? 'bg-amber-100 text-amber-700' :
+                              task.status === 'pending_assessment' ? 'bg-purple-50 text-purple-600' :
                               task.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'
                             }`}>
                               {task.status === 'completed' || task.status === 'assessed' ? '已结案' :
                                task.status === 'in_progress' ? '进行中' :
                                task.status === 'pending_review' ? '待审批' :
+                               task.status === 'pending_assessment' ? '待评级' :
                                task.status === 'rejected' ? '被驳回' : '挂起'}
                             </span>
                           </div>
@@ -548,7 +564,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                       </div>
                       <div className="flex items-center gap-1 text-[10px] text-slate-400 mb-4">
                         <span className="material-symbols-outlined text-[12px]">calendar_clock</span>
-                        <span className={task.deadline && new Date(task.deadline).getTime() < Date.now() && !['completed', 'assessed'].includes(task.status) ? 'text-red-500 font-bold' : ''}>截止: {task.deadline || '无'}</span>
+                        <span className={task.deadline && parseUTC(task.deadline).getTime() < Date.now() && !['completed', 'assessed'].includes(task.status) ? 'text-red-500 font-bold' : ''}>截止: {task.deadline || '无'}</span>
                       </div>
                       <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-700/50 pt-3">
                         <div className="flex items-center gap-2">
@@ -626,11 +642,13 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                           task.status === 'completed' || task.status === 'assessed' ? 'bg-purple-100 text-purple-700 border-purple-200' :
                           task.status === 'in_progress' ? 'bg-blue-100 text-blue-700 border-blue-200' :
                           task.status === 'pending_review' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                          task.status === 'pending_assessment' ? 'bg-purple-50 text-purple-600 border-purple-200' :
                           task.status === 'rejected' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'
                         }`}>
                           {task.status === 'completed' || task.status === 'assessed' ? '已结案' :
                            task.status === 'in_progress' ? '进行中' :
                            task.status === 'pending_review' ? '待审批' :
+                           task.status === 'pending_assessment' ? '待评级' :
                            task.status === 'rejected' ? '被驳回' : '挂起'}
                         </span>
                       </td>
@@ -645,7 +663,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                       <td className="px-6 py-4 font-medium text-slate-500 text-xs flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-[14px]">event</span>
                         {task.deadline ? (
-                          <span className={new Date(task.deadline).getTime() < Date.now() && !['completed', 'assessed'].includes(task.status) ? 'text-red-500 font-bold' : ''}>
+                          <span className={parseUTC(task.deadline).getTime() < Date.now() && !['completed', 'assessed'].includes(task.status) ? 'text-red-500 font-bold' : ''}>
                             {task.deadline}
                           </span>
                         ) : '-'}
@@ -761,7 +779,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         onSubmit={handleAssignPlanSmart}
         title="向下发起绩效目标"
         type="team"
-        users={subordinates.map(s => ({ id: s.id, name: s.name }))}
+        users={allCompanyUsers}
         submitting={submitting}
         onDraft={async (data) => {
           setSubmitting(true);
@@ -774,10 +792,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿任务',
-                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+                description: buildSmartDescription(data),
                 category: data.taskType || '临时指派',
                 target_value: targetValue,
-                deadline: data.t,
+                deadline: data.actTime || data.planTime || null,
                 collaborators: data.c || undefined,
                 informed_parties: data.i || undefined,
                 delivery_target: data.dt || undefined,
@@ -789,6 +807,7 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
                 quarter: data.quarter || undefined,
                 creator_id: currentUser?.id,
                 approver_id: data.a || currentUser?.id,
+                flow_type: 'dispatch'
               })
             });
             if (res.status === 401) { alert('登录已过期，请重新登录后再试'); localStorage.removeItem('token'); window.location.reload(); return; }
@@ -801,8 +820,8 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
           } catch { alert('网络异常，请重试'); } finally { setSubmitting(false); }
         }}
         initialData={{
-          a: subordinates[0]?.id || '',
-          r: currentUser?.id,
+          a: currentUser?.id || '',
+          r: subordinates[0]?.id || '',
           summary: '',
           s: '',
           m: '',
@@ -813,86 +832,158 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
         }}
       />
 
-      {/* Task Detail Modal (Readonly SmartTaskModal) */}
+      {/* Task Detail Modal — 审批人看到审批按钮，其他人只读 */}
       <SmartTaskModal
         isOpen={!!selectedTask}
         onClose={() => setSelectedTask(null)}
         onSubmit={() => {}}
-        title="任务详情"
+        title={['pending_review', 'pending_dept_review'].includes(selectedTask?.status || '') && (String(selectedTask?.approver_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase() || String(selectedTask?.dept_head_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase()) && String(selectedTask?.creator_id || '').toLowerCase() !== String(currentUser?.id || '').toLowerCase() ? '流程审批' : '任务详情'}
         type="team"
         users={allCompanyUsers}
         readonly={true}
-        headerActions={selectedTask?.status === 'pending_assessment' ? (
-          <button onClick={() => {
-            const task = selectedTask;
+        approverMode={['pending_review', 'pending_dept_review'].includes(selectedTask?.status) && (String(selectedTask?.approver_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase() || String(selectedTask?.dept_head_id || '').toLowerCase() === String(currentUser?.id || '').toLowerCase()) && String(selectedTask?.creator_id || '').toLowerCase() !== String(currentUser?.id || '').toLowerCase()}
+        onApprove={async (comment, updatedData, customAction, targetUser) => {
+          const action = customAction === 'transfer' ? 'transfer' : 'approve';
+          try {
+            const endpoint = action === 'transfer' ? `/api/perf/plans/${selectedTask.id}/review` : `/api/perf/plans/${selectedTask.id}/approve`;
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+              body: JSON.stringify({ action, reason: comment, transfer_to: targetUser })
+            });
+            const json = await res.json();
+            if (json.code === 0) { setSelectedTask(null); fetchTeamStatus(); }
+            else alert(json.message || '操作失败');
+          } catch { alert('网络错误'); }
+        }}
+        onReject={async (comment) => {
+          try {
+            const res = await fetch(`/api/perf/plans/${selectedTask.id}/reject`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+              body: JSON.stringify({ action: 'reject', reason: comment })
+            });
+            const json = await res.json();
+            if (json.code === 0) { setSelectedTask(null); fetchTeamStatus(); }
+            else alert(json.message || '驳回失败');
+          } catch { alert('网络错误'); }
+        }}
+        headerActions={['in_progress', 'pending_assessment'].includes(selectedTask?.status || '') ? (() => {
+          const st = selectedTask;
+          // 评级权限：优先 judge_id（API 动态计算），兜底按流程类型
+          const isScorerJudge = (() => {
+            const uid = String(currentUser?.id || '');
+            if (st.judge_id) return String(st.judge_id) === uid;
+            if (st.flow_type === 'application') {
+              return st.dept_head_id && String(st.dept_head_id) === uid;
+            }
+            return st.creator_id && String(st.creator_id) === uid;
+          })();
+          const isApprover = currentUser?.id === st.approver_id || currentUser?.id === st.dept_head_id;
+          const canFinishTask = isApprover || st.creator_id === currentUser?.id;
+
+          const handleComplete100 = () => {
             setActionPrompt({
-              type: 'assess_score',
-              title: '评级打分',
-              desc: '请为该任务的完成质量打分（1-100分）。\n评级完成后任务将自动结案归档。',
-              requireInput: true,
-              placeholder: '请输入评分(1-100)',
-              confirmText: '确认评级',
-              confirmClass: 'bg-violet-500 hover:bg-violet-600 text-white',
-              icon: 'grade',
-              iconClass: 'bg-violet-100 text-violet-500',
-              onConfirm: async (val) => {
-                const score = parseInt(val);
-                if (isNaN(score) || score < 1 || score > 100) {
-                  alert('请输入1-100之间的整数分数'); return;
-                }
+              type: 'submit_review',
+              title: '100% 满分完结',
+              desc: '确认发起 100% 完结？\n任务完成后将直接进入验收评级阶段，全员进入 STAR 汇报环节。',
+              confirmText: '确认完结',
+              confirmClass: 'bg-emerald-500 hover:bg-emerald-600 text-white',
+              icon: 'task_alt',
+              iconClass: 'bg-emerald-100 text-emerald-500',
+              onConfirm: async () => {
                 try {
                   const token = localStorage.getItem('token');
-                  const res = await fetch(`/api/perf/plans/${task.id}/review`, {
+                  const res = await fetch(`/api/perf/plans/${st.id}/review`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ action: 'assess', score })
+                    body: JSON.stringify({ action: 'assess' })
                   });
                   const json = await res.json();
-                  if (json.code === 0) {
-                    setSelectedTask(null);
-                    fetchTeamStatus();
-                  } else { alert(json.message || '评级失败'); }
+                  if (json.code === 0) { setSelectedTask(null); fetchTeamStatus(); }
+                  else { alert(json.message || '操作失败'); }
                 } catch { alert('网络错误'); }
               }
             });
-          }}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-500 hover:bg-violet-600 shadow-sm transition-colors shrink-0">
-            <span className="material-symbols-outlined text-[14px]">grade</span>
-            评级打分
-          </button>
-        ) : undefined}
-        initialData={(() => {
-          if (!selectedTask) return {};
-          const decoded = decodeSmartDescription(selectedTask.description || '');
-          const descHasSmart = selectedTask.description?.includes('【目标 S】');
-          return {
-            id: selectedTask.id,
-            status: selectedTask.status,
-            flow_type: 'perf_plan',
-            summary: selectedTask.title,
-            s: descHasSmart ? selectedTask.description.replace(/\n\n【PDCA】[\s\S]*$/, '').trim() : (selectedTask.target_value ? String(selectedTask.target_value).split('\n')[0]?.replace('S: ', '') : ''),
-            m: descHasSmart ? '' : (selectedTask.target_value ? String(selectedTask.target_value).split('\n')[1]?.replace('M: ', '') : ''),
-            t: selectedTask.deadline || (selectedTask.target_value ? String(selectedTask.target_value).split('\n')[2]?.replace('T: ', '') : '') || '',
-            a_smart: descHasSmart ? '' : decoded.resource,
-            r_smart: descHasSmart ? '' : decoded.relevance,
-            taskType: selectedTask.category,
-            c: selectedTask.collaborators || '',
-            i: selectedTask.informed_parties || '',
-            dt: selectedTask.delivery_target || '',
-            bonus: String(selectedTask.bonus || ''),
-            maxParticipants: String(selectedTask.max_participants || '5'),
-            rewardType: selectedTask.reward_type || 'money',
-            a: selectedTask.approver_id || currentUser?.id,
-            r: selectedTask.assignee_id || selectedTask.creator_id,
-            planTime: decoded.planTime,
-            doTime: decoded.doTime,
-            checkTime: decoded.checkTime,
-            actTime: decoded.actTime,
-            approver_id: selectedTask.approver_id || currentUser?.id,
-            creator_id: selectedTask.creator_id || currentUser?.id,
-            assignee_id: selectedTask.assignee_id
           };
-        })()}
+
+          const handleEarlyComplete = () => {
+            setActionPrompt({
+              type: 'submit_review',
+              title: '提前完结任务',
+              desc: '确认提前完结任务吗？\n提前完结无需审批，将直接进入 STAR 验收获评阶段。',
+              requireInput: true,
+              placeholder: '请简述提前完结原因...',
+              confirmText: '提前完结',
+              confirmClass: 'bg-amber-500 hover:bg-amber-600 text-white',
+              icon: 'stop_circle',
+              iconClass: 'bg-amber-100 text-amber-500',
+              onConfirm: async (val) => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`/api/perf/plans/${st.id}/review`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ action: 'assess', reason: val })
+                  });
+                  const json = await res.json();
+                  if (json.code === 0) { setSelectedTask(null); fetchTeamStatus(); }
+                  else { alert(json.message || '操作失败'); }
+                } catch { alert('网络错误'); }
+              }
+            });
+          };
+
+          // 评级打分：跳转到 STAR 广场 tab，在那里查看所有 STAR 报告并评分
+          const handleAssessScore = () => {
+            document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'));
+          };
+
+          return (
+            <div className="flex items-center gap-2">
+              {st.status === 'pending_assessment' && (
+                <>
+                  <button onClick={() => document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'))}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">star</span>
+                    写STAR
+                  </button>
+                  {isScorerJudge && (
+                    <button onClick={handleAssessScore}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-violet-500 hover:bg-violet-600 shadow-sm transition-colors shrink-0">
+                      <span className="material-symbols-outlined text-[14px]">grade</span>
+                      评级打分
+                    </button>
+                  )}
+                </>
+              )}
+              {st.status === 'in_progress' && (
+                <>
+                  <button onClick={() => document.dispatchEvent(new CustomEvent('SWITCH_TO_STAR_TAB'))}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-white/20 hover:bg-white/30 transition-colors shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">star</span>
+                    写STAR
+                  </button>
+                  {canFinishTask && (
+                    <>
+                      <button onClick={handleComplete100}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm transition-colors shrink-0">
+                        <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                        100%完结
+                      </button>
+                      <button onClick={handleEarlyComplete}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 shadow-sm transition-colors shrink-0">
+                        <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                        提前完结
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })() : undefined}
+        initialData={selectedTask ? buildSmartTaskData(selectedTask as any, 'perf_plan') : {}}
       />
 
       {/* Apply for New Task Modal (Same as Personal Goals) */}
@@ -914,10 +1005,10 @@ export default function TeamPerformance({ navigate }: { navigate: (view: string)
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿目标',
-                description: data.s + (data.planTime || data.doTime || data.checkTime || data.actTime ? `\n\n【PDCA】\nPlan: ${data.planTime||''}|Do: ${data.doTime||''}|Check: ${data.checkTime||''}|Act: ${data.actTime||''}` : ''),
+                description: buildSmartDescription(data),
                 category: data.taskType || '常规任务',
                 target_value: targetValue,
-                deadline: data.t,
+                deadline: data.actTime || data.planTime || null,
                 collaborators: data.c || undefined,
                 informed_parties: data.i || undefined,
                 delivery_target: data.dt || undefined,

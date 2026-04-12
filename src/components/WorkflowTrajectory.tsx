@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { parseUTC } from '../utils/dateUtils';
 
 interface TrajectoryStep {
   seq: number;
@@ -21,7 +22,7 @@ interface WorkflowTrajectoryProps {
 
 function formatDate(ds?: string) {
   if (!ds) return '';
-  const d = new Date(ds);
+  const d = parseUTC(ds);
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 

@@ -20,7 +20,7 @@ router.get('/broken', authMiddleware, (req: AuthRequest, res) => {
            u3.name as assignee_name,
            u4.name as dept_head_name,
            d.name as dept_name, d.leader_user_id as dept_leader_id
-    FROM perf_plans pp
+    FROM perf_tasks pp
     LEFT JOIN users u1 ON pp.creator_id = u1.id
     LEFT JOIN users u2 ON pp.approver_id = u2.id
     LEFT JOIN users u3 ON pp.assignee_id = u3.id
@@ -63,8 +63,8 @@ router.get('/broken', authMiddleware, (req: AuthRequest, res) => {
   // 同时查询提案的异常
   const proposals = db.prepare(`
     SELECT pt.*, u.name as creator_name
-    FROM pool_tasks pt
-    LEFT JOIN users u ON pt.created_by = u.id
+    FROM perf_tasks pt
+    LEFT JOIN users u ON pt.creator_id = u.id
     WHERE pt.proposal_status IN ('pending_hr', 'pending_admin')
       AND pt.deleted_at IS NULL
     ORDER BY pt.created_at DESC
@@ -83,7 +83,7 @@ router.post('/fix/:planId', authMiddleware, (req: AuthRequest, res) => {
 
   const { approver_id, assignee_id, dept_head_id } = req.body;
   const planId = Number(req.params.planId);
-  const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+  const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
   if (!plan) return res.status(404).json({ code: 404, message: '计划不存在' });
 
   const fields: string[] = [];
@@ -97,7 +97,7 @@ router.post('/fix/:planId', authMiddleware, (req: AuthRequest, res) => {
 
   fields.push("updated_at = datetime('now')");
   values.push(planId);
-  db.prepare(`UPDATE perf_plans SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  db.prepare(`UPDATE perf_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
   // 如果同时指定了部门负责人，更新部门表
   if (dept_head_id && plan.department_id) {
@@ -108,7 +108,7 @@ router.post('/fix/:planId', authMiddleware, (req: AuthRequest, res) => {
   if (plan.creator_id) {
     const creator = db.prepare('SELECT department_id FROM users WHERE id = ?').get(plan.creator_id) as any;
     if (creator && creator.department_id && !plan.department_id) {
-      db.prepare('UPDATE perf_plans SET department_id = ? WHERE id = ?').run(creator.department_id, planId);
+      db.prepare('UPDATE perf_tasks SET department_id = ? WHERE id = ?').run(creator.department_id, planId);
     }
   }
 

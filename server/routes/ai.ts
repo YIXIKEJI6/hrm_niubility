@@ -42,7 +42,7 @@ router.post('/chat', authMiddleware, async (req, res) => {
   }
 
   const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-  if (!DEEPSEEK_API_KEY) return res.status(500).json({ code: 500, message: 'DEEPSEEK_API_KEY is not configured' });
+  if (!DEEPSEEK_API_KEY) return res.status(503).json({ code: 503, message: 'AI 功能暂未开通，请联系管理员' });
   try {
     const apiRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -67,7 +67,7 @@ router.post('/chat', authMiddleware, async (req, res) => {
     return res.json({ code: 0, data: { content } });
   } catch (error: any) {
     console.error('AI Chat error:', error.message);
-    return res.status(500).json({ code: 500, message: `AI 暂时不可用: ${error.message}` });
+    return res.status(500).json({ code: 500, message: 'AI 服务暂时不可用，请稍后重试' });
   }
 });
 

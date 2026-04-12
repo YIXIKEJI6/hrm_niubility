@@ -32,15 +32,15 @@ router.post('/:planId', authMiddleware, (req: AuthRequest, res) => {
   const planId = parseInt(req.params.planId);
   const userId = req.userId!;
 
-  const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+  const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
   if (!plan) return res.status(404).json({ code: 404, message: '任务不存在' });
 
   let roleName = getUserRoleInPlan(plan, userId);
   
   // 允许任何相关人填写 (不仅仅是 R/A，如果是管理员或 HR 也可以自由记录复盘)
   if (!roleName) {
-    const isSuperAdmin = db.prepare('SELECT is_super_admin FROM users WHERE id = ?').get(userId) as any;
-    if (isSuperAdmin && isSuperAdmin.is_super_admin === 1) {
+    const userRow = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as any;
+    if (userRow && (userRow.role === 'admin' || userRow.role === 'hr')) {
       roleName = 'Admin';
     } else {
       return res.status(403).json({ code: 403, message: '仅任务相关人员可填写 STAR 复盘' });
@@ -72,18 +72,30 @@ router.post('/:planId', authMiddleware, (req: AuthRequest, res) => {
     `).run(planId, userId, roleName, situation, task_desc, action, result, isSubmit, isSubmit, now);
   }
 
+  // 提交后同步发布到 STAR 广场讨论区
+  if (submit) {
+    const starMd = `## ⭐ STAR 绩效报告\n\n**S — 情境 (Situation)**\n${situation || '(未填写)'}\n\n**T — 任务 (Task)**\n${task_desc || '(未填写)'}\n\n**A — 行动 (Action)**\n${action || '(未填写)'}\n\n**R — 结果 (Result)**\n${result || '(未填写)'}`;
+    try {
+      db.prepare(`INSERT INTO task_discussions (target_type, target_id, user_id, content, attachments) VALUES ('perf_plan', ?, ?, ?, '[]')`).run(planId, userId, starMd);
+    } catch {}
+  }
+
   res.json({ code: 0, message: submit ? 'STAR 复盘提交成功' : 'STAR 草稿已保存' });
 });
 
-// GET /api/perf/star/:planId/mine — 获取我的 STAR
+// GET /api/perf/star/:planId/mine — 获取我的 STAR + 角色
 router.get('/:planId/mine', authMiddleware, (req: AuthRequest, res) => {
   const db = getDb();
   const planId = parseInt(req.params.planId);
-  
-  const record = db.prepare('SELECT * FROM perf_star_reports WHERE plan_id = ? AND user_id = ?')
-    .get(planId, req.userId);
-    
-  res.json({ code: 0, data: record || null });
+  const userId = req.userId!;
+
+  const report = db.prepare('SELECT * FROM perf_star_reports WHERE plan_id = ? AND user_id = ?')
+    .get(planId, userId) as any;
+
+  const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
+  const role = plan ? getUserRoleInPlan(plan, userId) : null;
+
+  res.json({ code: 0, data: { report: report || null, role } });
 });
 
 // GET /api/perf/star/:planId — 获取所有人 STAR

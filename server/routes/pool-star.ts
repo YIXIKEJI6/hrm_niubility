@@ -7,8 +7,9 @@
  */
 import { Router } from 'express';
 import { getDb } from '../config/database';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { authMiddleware, AuthRequest, isSuperAdmin, isGM } from '../middleware/auth';
 import { sendMarkdownMessage } from '../services/message';
+import { createNotification } from './notifications';
 
 const router = Router();
 
@@ -99,7 +100,7 @@ router.post('/:taskId', authMiddleware, (req: AuthRequest, res) => {
       // 所有 STAR 已提交，通知 A 角色可以发起奖励分配
       const aMembers = members.filter((m: any) => m.role_name === 'A');
       if (aMembers.length > 0) {
-        const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(taskId) as any;
+        const task = db.prepare('SELECT title FROM perf_tasks WHERE id = ?').get(taskId) as any;
         try {
           sendMarkdownMessage(
             aMembers.map((m: any) => m.user_id),
@@ -159,14 +160,17 @@ router.get('/:taskId', authMiddleware, (req: AuthRequest, res) => {
   return res.json({ code: 0, data: result });
 });
 
-// POST /api/pool/star/:taskId/remind — A 角色催办未填成员
+// POST /api/pool/star/:taskId/remind — A角色/HR/Admin 催办未填成员
 router.post('/:taskId/remind', authMiddleware, async (req: AuthRequest, res) => {
   const db = getDb();
   const taskId = parseInt(req.params.taskId);
   const userId = req.userId!;
 
-  if (!isAccountable(db, taskId, userId)) {
-    return res.status(403).json({ code: 403, message: '仅 A 角色可催办' });
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as any;
+  const isA = isAccountable(db, taskId, userId);
+  const isPrivileged = ['hr', 'admin'].includes(user?.role) || isSuperAdmin(userId) || isGM(userId);
+  if (!isA && !isPrivileged) {
+    return res.status(403).json({ code: 403, message: '仅 A 角色或 HR/管理员可催办' });
   }
 
   const members = getRaMembers(db, taskId);
@@ -179,15 +183,28 @@ router.post('/:taskId/remind', authMiddleware, async (req: AuthRequest, res) => 
     return res.json({ code: 0, message: '所有成员已完成 STAR 填写' });
   }
 
-  const task = db.prepare('SELECT title FROM pool_tasks WHERE id = ?').get(taskId) as any;
+  const task = db.prepare('SELECT title FROM perf_tasks WHERE id = ?').get(taskId) as any;
   const operator = db.prepare('SELECT name FROM users WHERE id = ?').get(userId) as any;
+  const unsubmittedIds = unsubmitted.map((m: any) => m.user_id);
 
+  // 1. 站内通知
+  createNotification(
+    unsubmittedIds,
+    'perf',
+    '⏰ STAR 报告催办',
+    `「${task?.title}」项目催办：${operator?.name} 提醒您尽快完成 STAR 绩效报告填写，这是发放任务奖励的必要条件！`,
+    '/company'
+  );
+
+  // 2. 企微通知
   try {
     await sendMarkdownMessage(
-      unsubmitted.map((m: any) => m.user_id),
-      `**⏰ STAR 报告催办提醒**\n\n> **任务：**${task?.title}\n> **催办人：**${operator?.name}\n\n请尽快完成 STAR 绩效报告填写，这是发放任务奖励的必要条件！\n[👉 立即填写](${process.env.APP_URL}/pool)`
+      unsubmittedIds,
+      `**⏰ STAR 报告催办提醒**\n\n> **任务：**${task?.title}\n> **催办人：**${operator?.name}\n\n请尽快完成 STAR 绩效报告填写，这是发放任务奖励的必要条件！\n[👉 立即填写](${process.env.APP_URL}/company)`
     );
-  } catch {}
+  } catch (e) {
+    console.warn('[STAR remind] 企微通知发送失败:', (e as any)?.message);
+  }
 
   return res.json({ code: 0, message: `已催办 ${unsubmitted.length} 位成员`, data: unsubmitted.map((m: any) => m.name || m.user_id) });
 });

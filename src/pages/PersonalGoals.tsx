@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
-import SmartFormInputs, { SmartData, encodeSmartDescription, decodeSmartDescription } from '../components/SmartFormInputs';
+import SmartFormInputs, { SmartData, decodeSmartDescription } from '../components/SmartFormInputs';
+import { buildSmartDescription, buildSmartTaskData } from '../utils/taskDataMapper';
 import { SmartGoalDisplayFromPlan } from '../components/SmartGoalDisplay';
 import SmartTaskModal, { SmartTaskData } from '../components/SmartTaskModal';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { parseUTC } from '../utils/dateUtils';
 
 interface PerfPlan {
   id: number | string;
@@ -20,6 +22,12 @@ interface PerfPlan {
   creator_id: string;
   assignee_id: string;
   approver_id?: string;
+  dept_head_id?: string;
+  smart_s?: string;
+  smart_m?: string;
+  smart_a?: string;
+  smart_r?: string;
+  smart_t?: string;
 }
 
 const statusMap: Record<string, { label: string, color: string, bg: string }> = {
@@ -133,23 +141,29 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           title: data.summary || '新目标',
-          description: encodeSmartDescription(data.a_smart, data.r_smart, {
-            plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-          }),
+          description: buildSmartDescription(data),
           category: data.taskType || '常规任务',
           target_value: targetValue,
-          deadline: data.t,
-          collaborators: [data.c, data.i].filter(Boolean).join(','),
+          deadline: data.actTime || data.planTime || null,
+          quarter: data.quarter || undefined,
+          collaborators: data.c,
+          informed_parties: data.i || undefined,
+          delivery_target: data.dt || undefined,
+          bonus: data.bonus ? parseFloat(data.bonus) : 0,
+          max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+          reward_type: data.rewardType || 'money',
+          attachments: data.attachments || [],
           assignee_id: data.r || currentUser?.id,
           approver_id: approverId,
-          creator_id: currentUser?.id
+          creator_id: currentUser?.id,
+          flow_type: 'application'
         })
       });
       const createData = await createRes.json();
 
-      // 2. 立即送审
+      // 2. 下发签收 → 签收完成后自动进入上级审批
       if (createData.code === 0 && createData.data?.id) {
-        await fetch(`/api/perf/plans/${createData.data.id}/submit`, {
+        await fetch(`/api/perf/plans/${createData.data.id}/dispatch`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -170,10 +184,11 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
       setSelectedPlan(prev => prev && prev.id === id ? { ...prev, progress } : prev);
 
       const token = localStorage.getItem('token');
-      const isPoolPlan = String(id).startsWith('pool_');
       const plan = plans.find(p => p.id === id);
-      const url = isPoolPlan && (plan as any)?.pool_task_id
-        ? `/api/pool/tasks/${(plan as any).pool_task_id}/progress`
+      const isPoolTask = !!(plan as any)?.is_pool || ['bounty', 'proposal'].includes((plan as any)?.task_type);
+      const poolId = (plan as any)?.pool_task_id || (isPoolTask ? id : null);
+      const url = isPoolTask && poolId
+        ? `/api/pool/tasks/${poolId}/progress`
         : `/api/perf/plans/${id}/progress`;
       await fetch(url, {
         method: 'PUT',
@@ -210,26 +225,30 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
       const targetValue = `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`;
       const body = {
         title: data.summary || editingPlan.title,
-        description: encodeSmartDescription(data.a_smart, data.r_smart, {
-          plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-        }),
+        description: buildSmartDescription(data),
         category: data.taskType || editingPlan.category,
         target_value: targetValue,
         deadline: data.t,
-        collaborators: [data.c, data.i].filter(Boolean).join(','),
+        collaborators: data.c,
+        informed_parties: data.i || undefined,
+        delivery_target: data.dt || undefined,
+        bonus: data.bonus ? parseFloat(data.bonus) : 0,
+        max_participants: data.maxParticipants ? parseInt(data.maxParticipants) : 5,
+        reward_type: data.rewardType || 'money',
+        attachments: data.attachments || [],
         assignee_id: data.r,
         approver_id: data.a,
         creator_id: currentUser?.id,
       };
 
       if (editingPlan.status === 'draft') {
-        // 草稿：先更新内容，再提交审批
+        // 草稿：先更新内容，再下发签收
         await fetch(`/api/perf/plans/${editingPlan.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify(body),
         });
-        await fetch(`/api/perf/plans/${editingPlan.id}/submit`, {
+        await fetch(`/api/perf/plans/${editingPlan.id}/dispatch`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -328,8 +347,9 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
           {/* Horizontal scroll kanban — stacks vertically on mobile */}
           <div className={isMobile ? 'space-y-4' : 'flex gap-4 overflow-x-auto pb-4'}>
             {([
-              { keys: ['draft', 'pending_review', 'rejected'], label: '筹备中', color: '#94a3b8', bg: '#f1f5f9', wide: false },
+              { keys: ['draft', 'pending_receipt', 'pending_review', 'rejected'], label: '筹备中', color: '#94a3b8', bg: '#f1f5f9', wide: false },
               { keys: ['in_progress'],                          label: '进行中', color: '#3b82f6', bg: '#eff6ff', wide: true  },
+              { keys: ['pending_assessment', 'assessed'],       label: '待评级', color: '#f59e0b', bg: '#fffbeb', wide: false },
               { keys: ['completed'],                            label: '已结案', color: '#10b981', bg: '#ecfdf5', wide: false },
               { keys: ['approved'],                             label: '已批准', color: '#3b82f6', bg: '#eff6ff', wide: false },
             ] as const).map(col => {
@@ -359,8 +379,8 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                     {colPlans.map((plan) => {
                       const pct = plan.progress || 0;
                       const today = new Date();
-                      const dl = plan.deadline ? new Date(plan.deadline) : null;
-                      const daysLeft = dl ? Math.ceil((dl.getTime() - today.getTime()) / 86400000) : null;
+                      const dl = plan.deadline ? parseUTC(plan.deadline) : null;
+                      const daysLeft = dl && !isNaN(dl.getTime()) ? Math.ceil((dl.getTime() - today.getTime()) / 86400000) : null;
                       const dlColor = daysLeft === null ? 'text-slate-400'
                         : daysLeft < 0 ? 'text-red-500'
                         : daysLeft <= 7 ? 'text-amber-500'
@@ -389,9 +409,9 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                           </div>
 
                           {/* Description */}
-                          {plan.description && (
+                          {(plan.smart_s || plan.description) && (
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 mb-2.5 leading-relaxed">
-                              {plan.description}
+                              {plan.smart_s || plan.description?.replace(/\*?\*?【[^】]+】\*?\*?\s*/g, '').replace(/\n{2,}/g, ' ').trim()}
                             </p>
                           )}
 
@@ -491,16 +511,15 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || '草稿目标',
-                description: encodeSmartDescription(data.a_smart, data.r_smart, {
-                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-                }),
+                description: buildSmartDescription(data),
                 category: data.taskType || '常规任务',
                 target_value: targetValue,
-                deadline: data.t,
+                deadline: data.actTime || data.planTime || null,
                 collaborators: [data.c, data.i].filter(Boolean).join(','),
                 assignee_id: finalAssigneeId,
                 approver_id: finalApproverId,
                 creator_id: currentUser?.id,
+                flow_type: 'application'
               })
             });
             const json = await res.json();
@@ -559,12 +578,10 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                 title: data.summary || editingPlan?.title,
-                description: encodeSmartDescription(data.a_smart, data.r_smart, {
-                  plan: data.planTime, do: data.doTime, check: data.checkTime, act: data.actTime
-                }),
+                description: buildSmartDescription(data),
                 category: data.taskType || editingPlan?.category,
                 target_value: `S: ${data.s}\nM: ${data.m}\nT: ${data.t}`,
-                deadline: data.t,
+                deadline: data.actTime || data.planTime || null,
                 collaborators: data.c,
                 assignee_id: data.r || editingPlan?.assignee_id,
                 approver_id: data.a || editingPlan?.approver_id,
@@ -621,45 +638,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
         type="personal"
         users={users}
         readonly={true}
-        initialData={(() => {
-          if (!selectedPlan) return {};
-          const decoded = decodeSmartDescription(selectedPlan.description || '');
-          // Safely parse attachments
-          let parsedAttachments: any[] = [];
-          try {
-            if (Array.isArray((selectedPlan as any).attachments)) {
-              parsedAttachments = (selectedPlan as any).attachments;
-            } else if (typeof (selectedPlan as any).attachments === 'string' && (selectedPlan as any).attachments) {
-              parsedAttachments = JSON.parse((selectedPlan as any).attachments);
-            }
-          } catch { parsedAttachments = []; }
-          return {
-            id: selectedPlan.id,
-            status: selectedPlan.status,
-            flow_type: 'perf_plan',
-            summary: selectedPlan.title,
-            s: selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[0]?.replace('S: ', '') : '',
-            m: selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[1]?.replace('M: ', '') : '',
-            t: selectedPlan.deadline || (selectedPlan.target_value ? String(selectedPlan.target_value).split('\n')[2]?.replace('T: ', '') : '') || '',
-            a_smart: decoded.resource,
-            r_smart: decoded.relevance,
-            taskType: selectedPlan.category,
-            c: selectedPlan.collaborators || '',
-            a: (selectedPlan as any).approver_id,
-            r: selectedPlan.assignee_id || selectedPlan.creator_id,
-            i: '',
-            planTime: decoded.planTime,
-            doTime: decoded.doTime,
-            checkTime: decoded.checkTime,
-            actTime: decoded.actTime,
-            approver_id: (selectedPlan as any).approver_id,
-            creator_id: selectedPlan.creator_id,
-            assignee_id: selectedPlan.assignee_id,
-            receipt_status: (selectedPlan as any).receipt_status || '{}',
-            attachments: parsedAttachments
-          };
-
-        })()}
+        initialData={selectedPlan ? buildSmartTaskData(selectedPlan as any, 'perf_plan') : {}}
         customFooter={(() => {
           if (!selectedPlan) return null;
           const sp = selectedPlan;
@@ -669,36 +648,6 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
             in_progress: '#3b82f6', pending_review: '#f59e0b', completed: '#8b5cf6',
             approved: '#10b981', rejected: '#ef4444', draft: '#94a3b8', returned: '#f97316',
           }[sp.status] || '#94a3b8';
-
-          // 退回操作
-          const handleReturn = () => {
-             setActionPrompt({
-               type: 'return',
-               title: '退回任务',
-               desc: '退回后任务将退给执行人重新调整编辑。',
-               requireInput: true,
-               placeholder: '请输入退回原因（可选）...',
-               confirmText: '确认退回',
-               confirmClass: 'bg-orange-500 hover:bg-orange-600 text-white',
-               icon: 'reply',
-               iconClass: 'bg-orange-100 text-orange-500',
-               onConfirm: async (val) => {
-                 try {
-                   const token = localStorage.getItem('token');
-                   const res = await fetch(`/api/perf/plans/${sp.id}/return`, {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                     body: JSON.stringify({ reason: val || '经线下沟通，退回调整' })
-                   });
-                   const data = await res.json();
-                   if (data.code === 0) {
-                     setSelectedPlan(null);
-                     fetchPlans();
-                   } else { alert(data.message || '退回失败'); }
-                 } catch { alert('操作失败'); }
-               }
-             });
-          };
 
           // 删除草稿
           const handleDeleteDraft = () => {
@@ -808,14 +757,7 @@ export default function PersonalGoals({ navigate }: { navigate: (view: string) =
                     修改后重新提交
                   </button>
                 )}
-                {/* 进行中 + 上级下发 + 非只读：退回按钮 */}
-                {sp.status === 'in_progress' && isAssigned && !(sp as any).is_pool && (
-                  <button onClick={handleReturn}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-50 text-orange-600 text-sm font-bold rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors">
-                    <span className="material-symbols-outlined text-[16px]">reply</span>
-                    退回
-                  </button>
-                )}
+                {/* Flow1(任务下发)已移除退回按钮 */}
                 {/* 发起验收总结 (仅限 A/R 或 管理员) */}
                 {sp.status === 'in_progress' && (
                   (typeof (sp as any).approver_id === 'string' && typeof currentUser?.id === 'string' && (sp as any).approver_id.toLowerCase() === currentUser.id.toLowerCase()) || 

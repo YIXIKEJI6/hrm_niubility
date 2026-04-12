@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import PersonalGoalsPanel from '../components/PersonalGoalsPanel';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { parseUTC } from '../utils/dateUtils';
 
 /* ─── Types ─────────────────────────────────────────────────── */
 interface Task { id: number; title: string; description: string; due_date: string; priority: string; status: string; type?: string; }
@@ -30,7 +31,7 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> =
 
 function fmtDate(d: string) {
   if (!d) return '';
-  const diff = Date.now() - new Date(d).getTime();
+  const diff = Date.now() - parseUTC(d).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return '刚刚'; if (m < 60) return `${m}分钟前`;
   const h = Math.floor(m / 60);
@@ -196,7 +197,7 @@ function TodoModule({ navigate, data, actions }: ModuleProps) {
                 )}
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-bold ${done ? 'line-through text-slate-400' : isEval ? 'text-rose-600 dark:text-rose-400' : isTest ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-800 dark:text-white'}`}>{t.title}</p>
-                  {t.due_date && <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">schedule</span>{new Date(t.due_date).toLocaleDateString()}</p>}
+                  {t.due_date && <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">schedule</span>{parseUTC(t.due_date).toLocaleDateString()}</p>}
                 </div>
                 {!done && t.priority === 'high' && <span className="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">紧急</span>}
               </div>
@@ -462,7 +463,7 @@ function TasksDetail({ data, actions, navigate, onClose }: { data: DashData; act
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-bold ${done ? 'line-through text-slate-400' : isEval ? 'text-rose-600 dark:text-rose-400' : isTest ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-800 dark:text-white'}`}>{t.title}</p>
                   {t.description && <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{t.description}</p>}
-                  {t.due_date && <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">schedule</span>{new Date(t.due_date).toLocaleDateString()}</p>}
+                  {t.due_date && <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-[11px]">schedule</span>{parseUTC(t.due_date).toLocaleDateString()}</p>}
                 </div>
                 {!done && t.priority === 'high' && <span className="text-[9px] px-2 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">紧急</span>}
               </div>

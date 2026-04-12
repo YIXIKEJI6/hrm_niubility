@@ -5,7 +5,7 @@ import { logAudit } from './audit-logger';
 // 有效的状态转换
 const VALID_TRANSITIONS: Record<string, string[]> = {
   draft: ['pending_review', 'pending_receipt'],
-  pending_receipt: ['in_progress', 'draft'],       // 流程1: 全员签收后 A 发车
+  pending_receipt: ['in_progress', 'pending_review', 'draft'],  // 流程1: A发车; 流程2: 签收后→审批
   pending_review: ['pending_dept_review', 'approved', 'rejected'],
   pending_dept_review: ['approved', 'rejected'],
   rejected: ['draft'],
@@ -27,15 +27,15 @@ export function getAssessmentJudge(approverIdA: string): { judgeId: string | nul
   const user = db.prepare('SELECT department_id FROM users WHERE id = ?').get(approverIdA) as any;
   if (!user?.department_id) return { judgeId: null, reason: '负责人A无所属部门，无法溯源评级官' };
 
-  const dept = db.prepare('SELECT id, p_manager_id, leader_user_id, parent_id FROM departments WHERE id = ?').get(user.department_id) as any;
+  const dept = db.prepare('SELECT id, leader_user_id, parent_id FROM departments WHERE id = ?').get(user.department_id) as any;
   if (!dept) return { judgeId: null, reason: '部门不存在' };
 
   // 判断A是否就是部门负责人
-  const isDeptHead = dept.p_manager_id === approverIdA || dept.leader_user_id === approverIdA;
+  const isDeptHead = dept.leader_user_id === approverIdA;
 
   if (!isDeptHead) {
     // A是基层 → 直属部门负责人来打分
-    const headId = dept.p_manager_id || dept.leader_user_id;
+    const headId = dept.leader_user_id;
     if (headId && headId !== approverIdA) {
       return { judgeId: headId, reason: '评级官: A的直属部门主管' };
     }
@@ -43,8 +43,8 @@ export function getAssessmentJudge(approverIdA: string): { judgeId: string | nul
 
   // A已经是部门主管，或者直属主管就是A自己 → 跨级找上级部门负责人
   if (dept.parent_id && dept.parent_id !== 0) {
-    const parentDept = db.prepare('SELECT p_manager_id, leader_user_id FROM departments WHERE id = ?').get(dept.parent_id) as any;
-    const parentHeadId = parentDept?.p_manager_id || parentDept?.leader_user_id;
+    const parentDept = db.prepare('SELECT leader_user_id FROM departments WHERE id = ?').get(dept.parent_id) as any;
+    const parentHeadId = parentDept?.leader_user_id;
     if (parentHeadId && parentHeadId !== approverIdA) {
       return { judgeId: parentHeadId, reason: '评级官: A已是部门主管，跨级由上级部门总监评级' };
     }
@@ -70,7 +70,7 @@ export async function transitionPlan(
   extra?: { comment?: string; score?: number; bonus?: number; attachments?: any, silent?: boolean }
 ): Promise<{ success: boolean; message: string }> {
   const db = getDb();
-  const plan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+  const plan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
 
   if (!plan) return { success: false, message: '绩效计划不存在' };
   if (!canTransition(plan.status, targetStatus)) {
@@ -93,6 +93,17 @@ export async function transitionPlan(
     case 'pending_dept_review':
       notifyAction = 'submitted';
       if (plan.dept_head_id) notifyUsers.push(plan.dept_head_id);
+      break;
+    case 'pending_assessment':
+      notifyAction = 'pending_assessment';
+      // 通知评分人：Flow2=上级主管(动态计算), Flow1=创建者
+      if (plan.flow_type === 'application') {
+        const { judgeId } = getAssessmentJudge(plan.creator_id);
+        if (judgeId) notifyUsers.push(judgeId);
+        else if (plan.dept_head_id) notifyUsers.push(plan.dept_head_id);
+      } else {
+        notifyUsers.push(plan.creator_id);
+      }
       break;
     case 'approved':
       notifyAction = 'approved';
@@ -136,7 +147,7 @@ export async function transitionPlan(
 
   // 事务包裹：确保状态更新、日志记录、审计日志原子性写入，防止并发双重审批
   db.transaction(() => {
-    db.prepare(`UPDATE perf_plans SET ${setClauses.join(', ')} WHERE id = ?`).run(...allParams);
+    db.prepare(`UPDATE perf_tasks SET ${setClauses.join(', ')} WHERE id = ?`).run(...allParams);
 
     // 记录状态变更日志
     db.prepare(
@@ -176,7 +187,7 @@ export async function transitionPlan(
   // ── 流程异常检测：节点缺失时通知HR ──
   if (!extra?.silent && ['pending_review', 'pending_dept_review', 'in_progress', 'pending_assessment'].includes(targetStatus)) {
     const { createNotification } = await import('../routes/notifications');
-    const updatedPlan = db.prepare('SELECT * FROM perf_plans WHERE id = ?').get(planId) as any;
+    const updatedPlan = db.prepare('SELECT * FROM perf_tasks WHERE id = ?').get(planId) as any;
     const issues: string[] = [];
     if (!updatedPlan.approver_id) issues.push('缺少审批人(直属上级)');
     if (targetStatus === 'pending_dept_review' && !updatedPlan.dept_head_id) issues.push('缺少部门负责人(二审)');

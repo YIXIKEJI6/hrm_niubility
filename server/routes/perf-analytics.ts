@@ -10,12 +10,12 @@ router.get('/overview', authMiddleware, (req: AuthRequest, res) => {
 
   // 活跃计划数
   const activePlans = (db.prepare(
-    "SELECT COUNT(*) as c FROM perf_plans WHERE status NOT IN ('draft', 'completed')"
+    "SELECT COUNT(*) as c FROM perf_tasks WHERE status NOT IN ('draft', 'completed') AND deleted_at IS NULL"
   ).get() as any)?.c || 0;
 
   // 平均进度
   const avgProgress = (db.prepare(
-    "SELECT AVG(progress) as avg FROM perf_plans WHERE status = 'in_progress'"
+    "SELECT AVG(progress) as avg FROM perf_tasks WHERE status = 'in_progress' AND deleted_at IS NULL"
   ).get() as any)?.avg || 0;
 
   // 审批效率 (提交→审批平均时长, 小时)
@@ -42,18 +42,18 @@ router.get('/overview', authMiddleware, (req: AuthRequest, res) => {
   }
 
   // 绩效达标率 (score >= 80)
-  const scored = db.prepare("SELECT COUNT(*) as c FROM perf_plans WHERE score IS NOT NULL").get() as any;
-  const achieved = db.prepare("SELECT COUNT(*) as c FROM perf_plans WHERE score >= 80").get() as any;
+  const scored = db.prepare("SELECT COUNT(*) as c FROM perf_tasks WHERE score IS NOT NULL AND deleted_at IS NULL").get() as any;
+  const achieved = db.prepare("SELECT COUNT(*) as c FROM perf_tasks WHERE score >= 80 AND deleted_at IS NULL").get() as any;
   const achievementRate = scored?.c > 0 ? Math.round((achieved?.c / scored?.c) * 100) / 100 : 0;
 
   // 奖金总额
   const totalBudget = (db.prepare(
-    "SELECT SUM(bonus) as total FROM perf_plans WHERE bonus IS NOT NULL"
+    "SELECT SUM(bonus) as total FROM perf_tasks WHERE bonus IS NOT NULL AND deleted_at IS NULL"
   ).get() as any)?.total || 0;
 
   // 状态分布
   const statusDist = db.prepare(
-    "SELECT status, COUNT(*) as count FROM perf_plans WHERE status != 'draft' GROUP BY status"
+    "SELECT status, COUNT(*) as count FROM perf_tasks WHERE status != 'draft' AND deleted_at IS NULL GROUP BY status"
   ).all() as any[];
   const statusDistribution: Record<string, number> = {};
   statusDist.forEach(s => statusDistribution[s.status] = s.count);
@@ -66,15 +66,15 @@ router.get('/overview', authMiddleware, (req: AuthRequest, res) => {
       ROUND(AVG(score), 1) as avg_score,
       SUM(CASE WHEN bonus IS NOT NULL THEN bonus ELSE 0 END) as total_bonus,
       ROUND(AVG(progress), 0) as avg_progress
-    FROM perf_plans 
-    WHERE quarter IS NOT NULL AND quarter != ''
+    FROM perf_tasks
+    WHERE quarter IS NOT NULL AND quarter != '' AND deleted_at IS NULL
     GROUP BY quarter
     ORDER BY quarter
   `).all();
 
   // 类型分布
   const categoryDist = db.prepare(
-    "SELECT category, COUNT(*) as count FROM perf_plans WHERE category IS NOT NULL AND category != '' GROUP BY category"
+    "SELECT category, COUNT(*) as count FROM perf_tasks WHERE category IS NOT NULL AND category != '' AND deleted_at IS NULL GROUP BY category"
   ).all();
 
   // 部门分布 (JOIN departments)
@@ -82,15 +82,15 @@ router.get('/overview', authMiddleware, (req: AuthRequest, res) => {
     SELECT d.name as department, COUNT(*) as count, 
            ROUND(AVG(pp.progress), 0) as avg_progress,
            ROUND(AVG(pp.score), 1) as avg_score
-    FROM perf_plans pp 
+    FROM perf_tasks pp 
     LEFT JOIN users u ON pp.creator_id = u.id
     LEFT JOIN departments d ON u.department_id = d.id
-    WHERE d.name IS NOT NULL
+    WHERE d.name IS NOT NULL AND pp.deleted_at IS NULL
     GROUP BY d.name
   `).all();
 
   // 总计划数
-  const totalPlans = (db.prepare("SELECT COUNT(*) as c FROM perf_plans").get() as any)?.c || 0;
+  const totalPlans = (db.prepare("SELECT COUNT(*) as c FROM perf_tasks WHERE deleted_at IS NULL").get() as any)?.c || 0;
 
   return res.json({
     code: 0,
@@ -116,10 +116,10 @@ router.get('/dimensions', authMiddleware, (req: AuthRequest, res) => {
 
   let baseQuery = `
     SELECT pp.*, u.name as creator_name, d.name as department_name
-    FROM perf_plans pp
+    FROM perf_tasks pp
     LEFT JOIN users u ON pp.creator_id = u.id
     LEFT JOIN departments d ON u.department_id = d.id
-    WHERE 1=1
+    WHERE pp.deleted_at IS NULL
   `;
   const params: any[] = [];
 
@@ -179,7 +179,7 @@ router.get('/dimensions', authMiddleware, (req: AuthRequest, res) => {
   // 人员排行 (top 10) — 支持逗号分隔的多 assignee
   const plansForRanking = db.prepare(`
     SELECT assignee_id, score, bonus, progress
-    FROM perf_plans WHERE assignee_id IS NOT NULL AND assignee_id != ''
+    FROM perf_tasks WHERE assignee_id IS NOT NULL AND assignee_id != '' AND deleted_at IS NULL
   `).all() as any[];
 
   const personMap = new Map<string, { scores: number[], bonuses: number[], progresses: number[], count: number }>();
@@ -213,8 +213,8 @@ router.get('/dimensions', authMiddleware, (req: AuthRequest, res) => {
     .slice(0, 10);
 
   // 可用筛选值
-  const availableQuarters = db.prepare("SELECT DISTINCT quarter FROM perf_plans WHERE quarter IS NOT NULL AND quarter != '' ORDER BY quarter").all();
-  const availableCategories = db.prepare("SELECT DISTINCT category FROM perf_plans WHERE category IS NOT NULL AND category != '' ORDER BY category").all();
+  const availableQuarters = db.prepare("SELECT DISTINCT quarter FROM perf_tasks WHERE quarter IS NOT NULL AND quarter != '' ORDER BY quarter").all();
+  const availableCategories = db.prepare("SELECT DISTINCT category FROM perf_tasks WHERE category IS NOT NULL AND category != '' ORDER BY category").all();
   const availableDepts = db.prepare("SELECT DISTINCT d.name FROM users u JOIN departments d ON u.department_id = d.id WHERE d.name IS NOT NULL ORDER BY d.name").all();
 
   return res.json({

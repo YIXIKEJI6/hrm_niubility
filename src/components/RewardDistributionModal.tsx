@@ -30,7 +30,8 @@ export default function RewardDistributionModal({
   const [distributions, setDistributions] = useState<Distribution[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [unsubmittedStar, setUnsubmittedStar] = useState<any[]>([]);
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<{ name: string; size: string; url: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -46,7 +47,7 @@ export default function RewardDistributionModal({
           setPlan(res.data.plan);
           setMembers(res.data.members || []);
           setUnsubmittedStar(res.data.unsubmitted || []);
-          const dists = (res.data.distributions || []).map((d: any) => ({
+          const rawDists = (res.data.distributions || []).map((d: any) => ({
             user_id: d.user_id,
             name: d.name || d.user_id,
             role_name: d.role_name,
@@ -54,8 +55,25 @@ export default function RewardDistributionModal({
             bonus_amount: d.bonus_amount || 0,
             perf_score: d.perf_score || 0,
           }));
-          setDistributions(dists);
-          setAttachments(JSON.parse(res.data.plan?.attachments || '[]'));
+          // 按 user_id 去重，合并金额，保留最高优先级角色
+          const rolePri: Record<string, number> = { A: 1, R: 2, C: 3, I: 4 };
+          const userMap = new Map<string, Distribution>();
+          for (const d of rawDists) {
+            const existing = userMap.get(d.user_id);
+            if (!existing) {
+              userMap.set(d.user_id, d);
+            } else {
+              existing.bonus_amount += d.bonus_amount;
+              existing.perf_score = Math.max(existing.perf_score, d.perf_score);
+              if ((rolePri[d.role_name] || 9) < (rolePri[existing.role_name] || 9)) {
+                existing.role_name = d.role_name;
+              }
+            }
+          }
+          setDistributions(Array.from(userMap.values()));
+          const rawAtts = JSON.parse(res.data.plan?.attachments || '[]');
+          // 兼容旧格式（纯 URL 字符串数组）
+          setAttachments(rawAtts.map((a: any) => typeof a === 'string' ? { name: a, size: '', url: a } : a));
         } else {
           setMsg({ type: 'err', text: res.message });
         }
@@ -191,15 +209,17 @@ export default function RewardDistributionModal({
                   <p className="text-xs text-amber-600 mt-1.5 ml-6">
                     {unsubmittedStar.map((m: any) => m.name || m.user_id).join('、')}
                   </p>
-                  <p className="text-[10px] text-amber-500 mt-1 ml-6">提交分配方案前须全员完成 STAR</p>
+                  <p className="text-[10px] text-amber-500 mt-1 ml-6">提交分配方案前须负责人(A)与执行人(R)完成 STAR</p>
                 </div>
               )}
 
               {/* 参与人分配列表 */}
               <div className="space-y-2">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">参与人员分配</h3>
-                {distributions.map(d => (
-                  <div key={d.user_id} className={`rounded-xl border p-4 ${d.star_submitted ? 'border-slate-200/60' : 'border-amber-200 bg-amber-50/40'}`}>
+                {distributions.map(d => {
+                  const isStarRequired = d.role_name === 'A' || d.role_name === 'R';
+                  return (
+                  <div key={d.user_id} className={`rounded-xl border p-4 ${isStarRequired && !d.star_submitted ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200/60'}`}>
                     <div className="flex items-center gap-2 mb-3">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black ${d.role_name === 'A' ? 'bg-blue-100 text-blue-700' : d.role_name === 'R' ? 'bg-red-100 text-red-600' : d.role_name === 'C' ? 'bg-amber-100 text-amber-700' : d.role_name === 'I' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
                         {d.role_name}
@@ -209,9 +229,11 @@ export default function RewardDistributionModal({
                         <span className="text-[10px] text-slate-400 ml-1">{d.role_name === 'A' ? '负责人' : d.role_name === 'R' ? '执行人' : d.role_name === 'C' ? '协作人' : d.role_name === 'I' ? '知情人' : d.role_name}</span>
                       </div>
                       <div className="ml-auto">
-                        {d.star_submitted
-                          ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">✅ STAR已提交</span>
-                          : <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-bold">⏳ STAR未填写</span>}
+                        {isStarRequired
+                          ? (d.star_submitted
+                              ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">STAR已提交</span>
+                              : <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-bold">STAR未填写</span>)
+                          : <span className="text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-200 font-bold">无需STAR</span>}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -245,23 +267,74 @@ export default function RewardDistributionModal({
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* 附件上传区 */}
               <div>
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-2">验收附件 <span className="text-red-500">*</span></h3>
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center">
-                  <span className="material-symbols-outlined text-slate-300 text-4xl block mb-2">upload_file</span>
-                  <p className="text-sm text-slate-500">点击上传验收截图/报告（支持图片/PDF/文档）</p>
-                  <p className="text-[10px] text-slate-400 mt-1">附件是奖励分配方案的必要凭证</p>
-                  {/* 简化：实际接入 /api/uploads */}
-                  <input type="text" placeholder="粘贴文件链接..." value={attachments[0] || ''}
-                    onChange={e => setAttachments(e.target.value ? [e.target.value] : [])}
-                    className="mt-3 w-full border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 focus:outline-none focus:border-blue-300"
-                  />
-                  {attachments.length > 0 && attachments[0] && (
-                    <p className="text-[10px] text-emerald-600 mt-1">✅ 已添加 {attachments.length} 个附件</p>
+                <div className="border-2 border-dashed border-slate-200 rounded-xl p-4">
+                  {/* 已上传的附件列表 */}
+                  {attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {attachments.map((att, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5 text-xs border border-slate-200 group">
+                          <span className="material-symbols-outlined text-[16px] text-blue-500">
+                            {att.url?.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i) ? 'image' : 'description'}
+                          </span>
+                          <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-slate-700 hover:text-blue-600 max-w-[180px] truncate">
+                            {att.name || '附件'}
+                          </a>
+                          {att.size && <span className="text-slate-400">{att.size}</span>}
+                          <button onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))}
+                            className="text-slate-300 hover:text-red-500 transition-colors ml-1">
+                            <span className="material-symbols-outlined text-[14px]">close</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* 上传按钮 */}
+                  <label className={`flex flex-col items-center cursor-pointer py-3 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <span className="material-symbols-outlined text-slate-300 text-4xl block mb-2">
+                      {uploading ? 'hourglass_top' : 'upload_file'}
+                    </span>
+                    <p className="text-sm text-slate-500">{uploading ? '上传中...' : '点击选择文件上传（支持图片/PDF/文档）'}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">附件是奖励分配方案的必要凭证，最大 50MB</p>
+                    <input type="file" multiple className="hidden" onChange={async (e) => {
+                      if (!e.target.files?.length) return;
+                      const files = Array.from(e.target.files);
+                      const fd = new FormData();
+                      files.forEach(f => fd.append('files', f));
+                      setUploading(true);
+                      try {
+                        const res = await fetch('/api/uploads/files', {
+                          method: 'POST',
+                          headers: { Authorization: `Bearer ${token}` },
+                          body: fd,
+                        });
+                        if (!res.ok) {
+                          const ej = await res.json().catch(() => null);
+                          alert(ej?.message || `上传失败 (${res.status})`);
+                          return;
+                        }
+                        const json = await res.json();
+                        if (json.code === 0 && json.data) {
+                          setAttachments(prev => [...prev, ...json.data]);
+                        } else {
+                          alert(json.message || '上传失败');
+                        }
+                      } catch (err: any) {
+                        alert('上传失败: ' + (err?.message || '请检查网络'));
+                      } finally {
+                        setUploading(false);
+                        e.target.value = '';
+                      }
+                    }} />
+                  </label>
+                  {attachments.length > 0 && (
+                    <p className="text-[10px] text-emerald-600 text-center mt-1">✅ 已添加 {attachments.length} 个附件</p>
                   )}
                 </div>
               </div>
@@ -278,7 +351,7 @@ export default function RewardDistributionModal({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={submitting || isOverBudget || !allStarDone || attachments.length === 0 || !attachments[0]}
+              disabled={submitting || isOverBudget || !allStarDone || attachments.length === 0}
               className="flex-2 px-6 py-2.5 bg-gradient-to-r from-orange-400 to-amber-500 text-white rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-40 flex items-center gap-2"
             >
               <span className="material-symbols-outlined text-[16px]">send</span>

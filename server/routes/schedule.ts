@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { getDb } from '../config/database';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { getUserEffectivePerms } from './permissions';
+import { wecomConfig } from '../config/wecom';
+import { verifySignature, decryptMsg, parseXml } from '../utils/wecom-crypto';
 
 const router = Router();
 
@@ -148,7 +150,7 @@ router.get('/leaves', authMiddleware, (req: AuthRequest, res) => {
 });
 
 // 创建请假申请
-router.post('/leaves', authMiddleware, (req: AuthRequest, res) => {
+router.post('/leaves', authMiddleware, async (req: AuthRequest, res) => {
   const db = getDb();
   const { leave_type_id, start_date, end_date, start_half, end_half, duration, reason } = req.body;
 
@@ -172,16 +174,39 @@ router.post('/leaves', authMiddleware, (req: AuthRequest, res) => {
     }
   }
 
+  const initialStatus = leaveType.need_approval ? 'pending' : 'approved';
   const result = db.prepare(
     `INSERT INTO leave_requests (user_id, leave_type_id, start_date, end_date, start_half, end_half, duration, reason, status)
      VALUES (?,?,?,?,?,?,?,?,?)`
-  ).run(req.userId, leave_type_id, start_date, end_date, start_half || 'am', end_half || 'pm', duration, reason || '',
-    leaveType.need_approval ? 'pending' : 'approved');
+  ).run(req.userId, leave_type_id, start_date, end_date, start_half || 'am', end_half || 'pm', duration, reason || '', initialStatus);
 
-  // TODO: 企微 OA 审批集成（Phase 3）
-  // 如果配置了 WECOM_APPROVAL_SECRET 和 WECOM_LEAVE_TEMPLATE_ID，调用企微审批 API
+  const leaveId = result.lastInsertRowid;
 
-  return res.json({ code: 0, data: { id: result.lastInsertRowid }, message: '请假申请已提交' });
+  // 企微 OA 审批集成：如果配置了模板 ID 且需要审批，提交到企微
+  if (wecomConfig.leaveTemplateId && initialStatus === 'pending') {
+    try {
+      const { submitLeaveApproval } = await import('../services/approval');
+      const { spNo } = await submitLeaveApproval({
+        userId: req.userId!,
+        leaveTypeName: leaveType.name,
+        startDate: start_date,
+        endDate: end_date,
+        startHalf: start_half || 'am',
+        endHalf: end_half || 'pm',
+        duration,
+        reason: reason || '',
+      });
+      // 写入企微审批单号
+      db.prepare('UPDATE leave_requests SET wecom_sp_no = ?, wecom_template_id = ? WHERE id = ?')
+        .run(spNo, wecomConfig.leaveTemplateId, leaveId);
+      console.log(`[Schedule] 请假 #${leaveId} 已提交企微审批, sp_no=${spNo}`);
+    } catch (err: any) {
+      // 企微提交失败不阻塞系统内请假，记录错误即可
+      console.error(`[Schedule] 企微审批提交失败 (leave #${leaveId}):`, err.message);
+    }
+  }
+
+  return res.json({ code: 0, data: { id: leaveId }, message: '请假申请已提交' });
 });
 
 // 审批请假（系统内备用/管理员手动审批）
@@ -214,13 +239,95 @@ router.delete('/leaves/:id', authMiddleware, (req: AuthRequest, res) => {
   return res.json({ code: 0, message: '已撤销' });
 });
 
-// 企微审批回调同步（POST /api/schedule/leaves/sync）
+// 企微审批回调验证 (GET)
+router.get('/leaves/sync', (req, res) => {
+  const { msg_signature, timestamp, nonce, echostr } = req.query;
+  if (!msg_signature || !timestamp || !nonce || !echostr) {
+    return res.send('callback endpoint ready');
+  }
+  const valid = verifySignature(msg_signature as string, timestamp as string, nonce as string, echostr as string);
+  if (!valid) return res.status(403).send('签名验证失败');
+  try {
+    const decrypted = decryptMsg(echostr as string);
+    return res.send(decrypted);
+  } catch {
+    return res.status(500).send('解密失败');
+  }
+});
+
+// 企微审批回调同步 (POST) — 处理 open_approval_change 事件
 router.post('/leaves/sync', (req, res) => {
-  // TODO: Phase 3 企微 OA 审批回调对接
-  // 1. 验证企微签名
-  // 2. 解析审批单号 sp_no
-  // 3. 更新 leave_requests.status
-  return res.json({ code: 0, message: 'ok' });
+  const db = getDb();
+
+  let eventData: Record<string, any> = {};
+
+  // 解析 XML / JSON 回调数据
+  if (typeof req.body === 'string' || req.headers['content-type']?.includes('xml')) {
+    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const { msg_signature, timestamp, nonce } = req.query;
+    try {
+      const xmlObj = parseXml(rawBody);
+      const encrypted = xmlObj.Encrypt;
+      if (encrypted && msg_signature) {
+        const valid = verifySignature(msg_signature as string, timestamp as string, nonce as string, encrypted);
+        if (!valid) {
+          console.error('[Leave Sync] 签名验证失败');
+          return res.send('success');
+        }
+        const decrypted = decryptMsg(encrypted);
+        eventData = parseXml(decrypted);
+      } else {
+        eventData = xmlObj;
+      }
+    } catch (err) {
+      console.error('[Leave Sync] XML 解析失败:', err);
+      return res.send('success');
+    }
+  } else if (typeof req.body === 'object') {
+    eventData = req.body;
+  }
+
+  // 检查是否是审批状态变更事件
+  const event = eventData.Event || eventData.event || '';
+  if (event !== 'open_approval_change') {
+    console.log('[Leave Sync] 非审批变更事件，忽略:', event);
+    return res.send('success');
+  }
+
+  // 提取审批信息（XML 格式嵌套在 ApprovalInfo 中）
+  const approvalInfo = eventData.ApprovalInfo || eventData;
+  const spNo = approvalInfo.SpNo || approvalInfo.sp_no || '';
+  const spStatus = Number(approvalInfo.SpStatus || approvalInfo.sp_status || 0);
+  // SpStatus: 1=审批中  2=已通过  3=已驳回  4=已撤销  6=通过后撤销  7=已删除  10=已支付
+
+  if (!spNo) {
+    console.log('[Leave Sync] 无审批单号，忽略');
+    return res.send('success');
+  }
+
+  console.log(`[Leave Sync] 收到审批回调: sp_no=${spNo}, status=${spStatus}`);
+
+  // 查找对应的请假记录
+  const leave = db.prepare('SELECT * FROM leave_requests WHERE wecom_sp_no = ?').get(spNo) as any;
+  if (!leave) {
+    console.log(`[Leave Sync] 未找到 sp_no=${spNo} 的请假记录，可能不是本系统的审批`);
+    return res.send('success');
+  }
+
+  // 映射状态
+  let newStatus: string | null = null;
+  if (spStatus === 2) newStatus = 'approved';
+  else if (spStatus === 3) newStatus = 'rejected';
+  else if (spStatus === 4 || spStatus === 6 || spStatus === 7) newStatus = 'cancelled';
+
+  if (newStatus && leave.status !== newStatus) {
+    const now = new Date().toISOString();
+    db.prepare('UPDATE leave_requests SET status = ?, approved_at = ?, updated_at = ? WHERE id = ?')
+      .run(newStatus, newStatus === 'approved' ? now : null, now, leave.id);
+    console.log(`[Leave Sync] ✅ 请假 #${leave.id} 状态更新: ${leave.status} → ${newStatus}`);
+  }
+
+  return res.send('success');
 });
 
 // ═══════════════════════════════════════════════════════════════════

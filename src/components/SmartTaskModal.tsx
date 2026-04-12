@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Check, Paperclip, Upload, Trash2, Plus, ChevronDown, X } from 'lucide-react';
 import MDEditor from '@uiw/react-md-editor';
 import { useAuth } from '../context/AuthContext';
-import { useRTASR } from '../hooks/useRTASR';
 import { useIsMobile } from '../hooks/useIsMobile';
 import WorkflowTrajectory from './WorkflowTrajectory';
 import AuditTimeline from './AuditTimeline';
@@ -36,14 +35,18 @@ const SMART_TEMPLATE_CLEAN = `【目标 S】
 
 const getInitialS = (initial?: Partial<SmartTaskData>) => {
   if (!initial) return SMART_TEMPLATE_WITH_HINT;
-  const initialS = initial.s || '';
+  let initialS = initial.s || '';
   const initialM = initial.m || '';
   const initialA = initial.a_smart || '';
   const initialR = initial.r_smart || '';
   const initialT = initial.t || '';
-  
+
   if (initial.id) {
-     if (initialS && initialS.includes('【目标 S】')) return initialS;
+     // 如果 smart_s 列被污染（包含组合标记），提取干净的 S 内容
+     if (initialS.includes('【目标 S】')) {
+       const stripped = initialS.replace(/\*\*\s*(【[^】]+】)\s*\*\*/g, '$1');
+       initialS = stripped.match(/【目标 S】\n?([\s\S]*?)(?=\n【指标 M】|$)/)?.[1]?.trim() || initialS;
+     }
      if (initialS || initialM || initialA || initialR || initialT) {
        return `【目标 S】\n${initialS}\n\n【指标 M】\n${initialM}\n\n【方案 A】\n${initialA}\n\n【相关 R】\n${initialR}\n\n【时限 T】\n${initialT}`;
      }
@@ -96,7 +99,8 @@ const SearchableUserDropdown = ({
 
   const safeUsers = users || [];
   const filteredUsers = safeUsers.filter(u => (u.name || '').toLowerCase().includes(search.toLowerCase()));
-  const selectedUser = safeUsers.find(u => u.id === value);
+  // 支持逗号分隔的多ID值（如 A 角色有多个 approved claims 时，取第一个显示）
+  const selectedUser = safeUsers.find(u => u.id === value || (value && value.includes(',') && value.split(',').includes(u.id)));
 
   return (
     <>
@@ -335,18 +339,29 @@ const MultiSelectUserDropdown = ({
   );
 };
 
-const TASK_TYPE_OPTIONS = ['常规任务', '重点项目', '创新探索', '临时指派'];
+const TASK_TYPE_PRESETS = ['常规任务', '重点项目', '创新探索', '临时指派'];
 const TaskTypeDropdown = ({ value, onChange, readonly }: { value: string; onChange: (v: string) => void; readonly?: boolean }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isCustom, setIsCustom] = useState(false);
+  const [deptNames, setDeptNames] = useState<string[]>([]);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch('/api/org/departments', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      .then(r => r.json())
+      .then(j => { if (j.code === 0) setDeptNames((j.data || []).map((d: any) => d.name).filter(Boolean)); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const handle = (e: MouseEvent) => {
       if (triggerRef.current?.contains(e.target as Node)) return;
       if (panelRef.current?.contains(e.target as Node)) return;
       setIsOpen(false);
+      setIsCustom(false);
     };
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
@@ -359,13 +374,14 @@ const TaskTypeDropdown = ({ value, onChange, readonly }: { value: string; onChan
       setPos({ top: rect.bottom + 6, left: rect.left });
     }
     setIsOpen(!isOpen);
+    setIsCustom(false);
   };
 
   return (
     <>
-      <div ref={triggerRef} className={`flex items-center rounded-md px-1 py-1 border border-transparent ${readonly ? '' : 'hover:bg-slate-100 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
+      <div ref={triggerRef} className={`flex items-center rounded-md px-1 py-1 border ${!value && !readonly ? 'border-red-300' : 'border-transparent'} ${readonly ? '' : 'hover:bg-slate-100 cursor-pointer'} transition-all duration-200`} onClick={handleToggle}>
         <div className="flex items-center gap-0.5 select-none">
-          <span className={`text-[13px] tracking-wide font-bold px-2 py-0.5 rounded flex items-center ${value ? 'text-slate-700 bg-slate-100' : 'text-slate-400/80 bg-transparent'}`}>{value || '选择属性'}</span>
+          <span className={`text-[13px] tracking-wide font-bold px-2 py-0.5 rounded flex items-center ${value ? 'text-slate-700 bg-slate-100' : 'text-red-400/80 bg-transparent'}`}>{value || '必填 *'}</span>
           {!readonly && <ChevronDown size={14} className={`text-slate-300 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />}
         </div>
       </div>
@@ -379,18 +395,59 @@ const TaskTypeDropdown = ({ value, onChange, readonly }: { value: string; onChan
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999 }}
-            className="w-44 bg-white rounded-xl shadow-xl shadow-black/10 border border-slate-200 overflow-hidden py-1"
+            className="w-52 bg-white rounded-xl shadow-xl shadow-black/10 border border-slate-200 overflow-hidden"
           >
-            {TASK_TYPE_OPTIONS.map(opt => (
-              <button
-                key={opt}
-                className={`w-full text-left px-4 py-2.5 text-xs flex items-center justify-between hover:bg-slate-50 transition-colors ${value === opt ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700'}`}
-                onClick={() => { onChange(opt); setIsOpen(false); }}
-              >
-                <span>{opt}</span>
-                {value === opt && <Check size={13} className="text-blue-500" />}
-              </button>
-            ))}
+            {/* 自定义输入 */}
+            <div className="px-3 py-2 border-b border-slate-100">
+              {isCustom ? (
+                <input
+                  ref={inputRef}
+                  autoFocus
+                  placeholder="输入自定义属性..."
+                  className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-blue-400"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                      onChange((e.target as HTMLInputElement).value.trim());
+                      setIsOpen(false);
+                      setIsCustom(false);
+                    }
+                  }}
+                />
+              ) : (
+                <button onClick={() => setIsCustom(true)} className="w-full text-left text-[11px] text-blue-500 font-bold hover:text-blue-700 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">edit</span> 自定义输入
+                </button>
+              )}
+            </div>
+            {/* 预设选项 */}
+            <div className="py-1 max-h-64 overflow-y-auto">
+              {TASK_TYPE_PRESETS.length > 0 && (
+                <div className="px-3 pt-1 pb-0.5 text-[9px] text-slate-400 font-bold uppercase tracking-widest">任务类型</div>
+              )}
+              {TASK_TYPE_PRESETS.map(opt => (
+                <button
+                  key={opt}
+                  className={`w-full text-left px-4 py-2 text-xs flex items-center justify-between hover:bg-slate-50 transition-colors ${value === opt ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700'}`}
+                  onClick={() => { onChange(opt); setIsOpen(false); }}
+                >
+                  <span>{opt}</span>
+                  {value === opt && <Check size={13} className="text-blue-500" />}
+                </button>
+              ))}
+              {deptNames.length > 0 && (
+                <div className="px-3 pt-2 pb-0.5 text-[9px] text-slate-400 font-bold uppercase tracking-widest border-t border-slate-100 mt-1">按部门</div>
+              )}
+              {deptNames.map(dept => (
+                <button
+                  key={dept}
+                  className={`w-full text-left px-4 py-2 text-xs flex items-center justify-between hover:bg-slate-50 transition-colors ${value === dept ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700'}`}
+                  onClick={() => { onChange(dept); setIsOpen(false); }}
+                >
+                  <span>{dept}</span>
+                  {value === dept && <Check size={13} className="text-blue-500" />}
+                </button>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -443,6 +500,17 @@ export interface SmartTaskData {
   role_claims?: any[];
   roles_config?: any;
   pool_task_id?: number;
+  task_type?: string;
+  join_applicant?: string;
+  join_role?: string;
+  join_reason?: string;
+  creator_name?: string;
+  description?: string;
+  metric?: string;
+  target?: string;
+  score?: number;
+  progress?: number;
+  reward?: string;
 }
 
 export interface SmartTaskModalProps {
@@ -472,16 +540,16 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
   const [activeSection, setActiveSection] = useState<SectionId>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'star_space'>(initialTab || 'details');
   const [aiActivating, setAiActivating] = useState<'full' | null>(null);
-  const [tempVoice, setTempVoice] = useState('');
   const [draftSaving, setDraftSaving] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferUserId, setTransferUserId] = useState('');
   const [isEditingMode, setIsEditingMode] = useState(false);
-  const [propsExpanded, setPropsExpanded] = useState(false);
+  const [claimsExpanded, setClaimsExpanded] = useState(false);
+  const [propsExpanded, setPropsExpanded] = useState(true);
   const prevOpenRef = React.useRef(false);
   
   const readonly = propReadonly && !isEditingMode;
-  const isHeaderEditable = !readonly || approverMode || (initialData?.status === 'claiming' && !!headerActions);
+  const isHeaderEditable = !readonly || approverMode;
 
   const [allCompanyUsers, setAllCompanyUsers] = useState<{id: string, name: string, role?: string}[]>([]);
   useEffect(() => {
@@ -501,10 +569,13 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     return () => document.removeEventListener('SWITCH_TO_STAR_TAB', handler);
   }, []);
 
-  const resolvedFlowType = initialData?.flow_type || (type.startsWith('pool') ? 'proposal' : 'perf_plan');
+  const rawFlowType = initialData?.flow_type || (type.startsWith('pool') ? 'proposal' : 'perf_plan');
+  // pool_join 复用 proposal 的流程轨迹
+  const resolvedFlowType = rawFlowType === 'pool_join' ? 'proposal' : rawFlowType;
   const codePrefix = resolvedFlowType === 'proposal' ? 'PL' : 'PF';
   // For pool tasks viewed from personal goals, use pool_task_id for trajectory lookup
   const trajectoryBusinessId = (resolvedFlowType === 'proposal' && initialData?.pool_task_id) ? String(initialData.pool_task_id) : initialData?.id;
+  const isPoolJoin = rawFlowType === 'pool_join';
 
   const [headerSelections, setHeaderSelections] = useState({
     r: initialData?.r || initialData?.assignee_id || '',
@@ -515,7 +586,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     bonus: initialData?.bonus || '0',
     rewardType: initialData?.rewardType || 'money',
     taskType: initialData?.taskType || initialData?.department || '常规任务',
-    maxParticipants: initialData?.maxParticipants || '5',
+    maxParticipants: initialData?.maxParticipants ?? '5',
     quarter: initialData?.quarter || ''
   });
   
@@ -571,13 +642,10 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
             const rcA = getIdsFromRole('A');
             const rcC = getIdsFromRole('C');
             const rcI = getIdsFromRole('I');
-            const rcDt = getIdsFromRole('交付对象');
-
             if (rcR && !r) r = rcR;
             if (rcA && !a) a = rcA;
             if (rcC && !c) c = rcC;
             if (rcI && !i) i = rcI;
-            if (rcDt && !dt) dt = rcDt;
           }
         } catch (e) {
           console.warn("[SmartTaskModal] Failed to auto-parse roles_config:", e);
@@ -593,7 +661,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
         bonus: initialData?.bonus || '0',
         rewardType: initialData?.rewardType || 'money',
         taskType: initialData?.taskType || initialData?.department || '常规任务',
-        maxParticipants: initialData?.maxParticipants || '5',
+        maxParticipants: initialData?.maxParticipants ?? '5',
         quarter: initialData?.quarter || ''
       });
       setFormData({
@@ -626,17 +694,6 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
 
 
 
-  const { isRecording, startRecording, stopRecording, error: voiceError } = useRTASR({
-    onResult: (text, isFinal) => {
-      if (isFinal) {
-        setFormData(prev => ({ ...prev, summary: prev.summary + text }));
-        setTempVoice('');
-      } else {
-        setTempVoice(text);
-      }
-    }
-  });
-
   if (!isOpen) return null;
 
   const handleUpdate = (field: keyof typeof formData, value: any) => {
@@ -656,14 +713,39 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
     setAiActivating('full');
     try {
       const token = localStorage.getItem('token');
+      const prompt = `请根据以下目标简述，按 SMART 原则拆解为五个维度，严格以 JSON 格式返回（不要包含 markdown 代码块标记），字段为:
+{"s":"目标 S - 具体明确的产出","m":"指标 M - 如何衡量完成度与验收标准","a":"方案 A - 实现该目标的具体行动和所需资源","r":"相关 R - 与岗位及大目标的关联性和意义","t":"时限 T - 关键的时间节点与进度安排"}
+
+目标简述: ${formData.summary}`;
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ data: { title: formData.summary }, prompt: `Analyze SMART: ${formData.summary}` })
+        body: JSON.stringify({ data: { title: formData.summary }, prompt })
       });
       const json = await res.json();
-      if (json.code === 0) { console.log('AI Assist triggered'); }
-    } catch { alert('AI 服务失败'); }
+      if (json.code === 0 && json.data?.analysis) {
+        const raw = json.data.analysis;
+        // 尝试从 AI 返回中提取 JSON
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          // 统一将 AI 拆解结果合并到 s 字段（编辑器只显示 s），同时保留独立字段供后端存储
+          const smartText = `**【目标 S】**\n${parsed.s || ''}\n\n**【指标 M】**\n${parsed.m || ''}\n\n**【方案 A】**\n${parsed.a || ''}\n\n**【相关 R】**\n${parsed.r || ''}\n\n**【时限 T】**\n${parsed.t || ''}`;
+          setFormData(prev => ({
+            ...prev,
+            s: smartText,
+            m: parsed.m || prev.m,
+            a_smart: parsed.a || prev.a_smart,
+            r_smart: parsed.r || prev.r_smart,
+            t: parsed.t || prev.t,
+          }));
+        } else {
+          setFormData(prev => ({ ...prev, s: raw }));
+        }
+      } else {
+        alert('AI 拆解失败，请稍后重试');
+      }
+    } catch { alert('AI 服务暂时不可用'); }
     setAiActivating(null);
   };
 
@@ -676,7 +758,13 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
       alert('该任务参与人数已满，无法领取。');
       return;
     }
-    
+
+    // 任务属性必填
+    if (!headerSelections.taskType?.trim()) {
+      alert('请选择或填写「任务属性」！');
+      return;
+    }
+
     // 强制校验个人与团队新建任务的 PDCA 必填
     if (type === 'personal' || type === 'team') {
       if (!formData.planTime || !formData.doTime || !formData.checkTime || !formData.actTime) {
@@ -794,36 +882,92 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
 
                 <div className="flex-1 overflow-y-auto bg-[#f8f9fb] transition-all duration-300 p-5">
                   <div className="max-w-4xl mx-auto space-y-4">
-                     {/* Applicant List Widget (Inline Dashboard) */}
-                     {!isSimplifiedMode && initialData?.status === 'claiming' && (() => {
-                       const pendingClaims = (initialData?.role_claims || []).filter((c: any) => c.status === 'pending');
-                       if (pendingClaims.length === 0) return null;
+                     {/* 驳回原因 / 审批意见提示 */}
+                     {initialData?.reject_reason && (initialData?.proposal_status === 'rejected' || initialData?.status === 'rejected') && (
+                       <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                         <span className="material-symbols-outlined text-red-500 text-[18px] mt-0.5">error</span>
+                         <div>
+                           <div className="text-xs font-bold text-red-700 mb-0.5">驳回原因</div>
+                           <div className="text-sm text-red-600">{initialData.reject_reason}</div>
+                         </div>
+                       </div>
+                     )}
+                     {/* Applicant List Widget — 显示所有认领申请（默认折叠） */}
+                     {!isSimplifiedMode && (() => {
+                       const allClaims = (initialData?.role_claims || []) as any[];
+                       if (allClaims.length === 0) return null;
+                       const STATUS_MAP: Record<string, { label: string; dot: string; bg: string }> = {
+                         pending: { label: '待审核', dot: 'bg-amber-400', bg: 'bg-amber-50 text-amber-700' },
+                         approved: { label: '已批准', dot: 'bg-emerald-400', bg: 'bg-emerald-50 text-emerald-700' },
+                         rejected: { label: '已拒绝', dot: 'bg-red-400', bg: 'bg-red-50 text-red-600' },
+                         star_submitted: { label: '已提交', dot: 'bg-violet-400', bg: 'bg-violet-50 text-violet-700' },
+                       };
+                       const pendingCount = allClaims.filter((c: any) => c.status === 'pending').length;
+                       const approvedCount = allClaims.filter((c: any) => c.status === 'approved' || c.status === 'star_submitted').length;
                        return (
-                         <div className="flex items-start md:items-center flex-col md:flex-row gap-2 md:gap-4 p-3 bg-blue-50/50 border border-blue-100/50 rounded-xl relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                         <div className="p-3 bg-blue-50/50 border border-blue-100/50 rounded-xl relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
                            <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b from-blue-400 to-indigo-500"></div>
-                           <div className="text-blue-700 font-black flex items-center shrink-0 ml-1">
-                             <span className="material-symbols-outlined text-[18px] mr-1.5 opacity-80">waving_hand</span>
-                             <span className="text-xs tracking-wider">当前报名海选池 ({pendingClaims.length}人) : </span>
-                           </div>
-                           <div className="flex flex-wrap gap-2">
-                             {pendingClaims.map((claim: any) => {
+                           <button type="button" onClick={() => setClaimsExpanded(!claimsExpanded)} className="w-full text-blue-700 font-black flex items-center ml-1 cursor-pointer hover:text-blue-800 transition-colors">
+                             <span className="material-symbols-outlined text-[18px] mr-1.5 opacity-80">group</span>
+                             <span className="text-xs tracking-wider">角色认领申请 ({allClaims.length}人</span>
+                             {pendingCount > 0 && <span className="text-xs ml-1 text-amber-600">· {pendingCount}待审</span>}
+                             {approvedCount > 0 && <span className="text-xs ml-1 text-emerald-600">· {approvedCount}已批</span>}
+                             <span className="text-xs">)</span>
+                             <span className={`material-symbols-outlined text-[16px] ml-auto mr-1 transition-transform duration-200 ${claimsExpanded ? 'rotate-180' : ''}`}>expand_more</span>
+                           </button>
+                           {claimsExpanded && (
+                           <div className="space-y-1.5 ml-1 mt-2">
+                             {allClaims.map((claim: any) => {
                                const isA = claim.role_name === 'A';
+                               const st = STATUS_MAP[claim.status] || STATUS_MAP.pending;
                                return (
-                                 <div key={claim.id} className="flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200/60 rounded-md shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-                                   <span className={`w-4 h-4 rounded shadow-sm flex items-center justify-center text-[9px] font-black text-white ${isA ? 'bg-gradient-to-br from-amber-400 to-orange-400' : 'bg-gradient-to-br from-blue-400 to-indigo-400'}`}>
+                                 <div key={claim.id} className="flex items-center gap-2 px-2.5 py-1.5 bg-white border border-slate-200/60 rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                                   <span className={`w-5 h-5 rounded-md shadow-sm flex items-center justify-center text-[10px] font-black text-white shrink-0 ${isA ? 'bg-gradient-to-br from-amber-400 to-orange-400' : 'bg-gradient-to-br from-blue-400 to-indigo-400'}`}>
                                      {(claim.user_name || '?')[0]}
                                    </span>
-                                   <span className="text-[11px] font-bold text-slate-700">{claim.user_name}</span>
-                                   <span className={`text-[9px] font-black px-1 rounded flex items-center h-4 ${isA ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                     意向 {claim.role_name}
+                                   <span className="text-[12px] font-bold text-slate-700 shrink-0">{claim.user_name}</span>
+                                   <span className={`text-[10px] font-black px-1.5 py-0.5 rounded shrink-0 ${isA ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                     {claim.role_name === 'A' ? '负责人 A' : claim.role_name === 'R' ? '执行人 R' : claim.role_name === 'C' ? '咨询 C' : claim.role_name === 'I' ? '知会 I' : claim.role_name}
                                    </span>
+                                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 ${st.bg}`}>
+                                     <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}></span>
+                                     {st.label}
+                                   </span>
+                                   {claim.reason && (
+                                     <span className="text-[11px] text-slate-500 truncate flex-1 min-w-0" title={claim.reason}>
+                                       理由: {claim.reason}
+                                     </span>
+                                   )}
                                  </div>
                                );
                              })}
                            </div>
+                           )}
                          </div>
                        );
                      })()}
+
+                     {/* 认领申请信息 (pool_join 审批时显示) */}
+                     {isPoolJoin && initialData?.join_applicant && (
+                       <div className="flex items-center gap-3 p-3 bg-amber-50/80 border border-amber-200/60 rounded-xl animate-in fade-in slide-in-from-top-2 duration-300">
+                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center shadow-sm shrink-0">
+                           <span className="material-symbols-outlined text-white text-[18px]">person_add</span>
+                         </div>
+                         <div className="flex-1 min-w-0">
+                           <div className="text-sm font-black text-amber-800">
+                             {initialData.join_applicant} 申请认领此任务
+                             {initialData.join_role && (
+                               <span className={`ml-2 text-xs font-black px-1.5 py-0.5 rounded ${initialData.join_role === 'A' ? 'bg-amber-200 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                                 意向角色: {initialData.join_role === 'A' ? '负责人 A' : initialData.join_role === 'R' ? '执行人 R' : initialData.join_role}
+                               </span>
+                             )}
+                           </div>
+                           {initialData.join_reason && (
+                             <p className="text-xs text-amber-600 mt-0.5 truncate">申请理由: {initialData.join_reason}</p>
+                           )}
+                         </div>
+                       </div>
+                     )}
 
                      {/* Summary */}
                      <div className="relative">
@@ -831,10 +975,11 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                           <div className="w-full px-4 py-3 font-bold bg-white rounded-lg shadow-sm border-0">{formData.summary}</div>
                         ) : (
                           <>
-                            <input type="text" value={formData.summary + (isRecording ? tempVoice : '')} onChange={e => !isRecording && handleUpdate('summary', e.target.value)} placeholder="目标简述..." className="w-full pl-4 pr-32 py-3 font-bold bg-white rounded-lg outline-none focus:ring-2 focus:ring-blue-100 shadow-sm border-0 transition-all" />
+                            <input type="text" value={formData.summary} onChange={e => handleUpdate('summary', e.target.value)} placeholder="目标简述..." className="w-full pl-4 pr-28 py-3 font-bold bg-white rounded-lg outline-none focus:ring-2 focus:ring-blue-100 shadow-sm border-0 transition-all" />
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                              <button onClick={isRecording ? stopRecording : startRecording} className={`p-1.5 rounded-full ${isRecording ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-100 text-slate-500'}`}><span className="material-symbols-outlined text-[20px]">mic</span></button>
-                              <button onClick={handleAIAssist} disabled={aiActivating === 'full'} className="px-2 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded shadow-sm">AI 智能拆解</button>
+                              <button onClick={handleAIAssist} disabled={aiActivating === 'full'} className={`px-2.5 py-1.5 text-xs font-bold rounded shadow-sm transition-all ${aiActivating === 'full' ? 'bg-indigo-200 text-indigo-400 animate-pulse' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
+                                {aiActivating === 'full' ? 'AI 拆解中...' : 'AI 智能拆解'}
+                              </button>
                             </div>
                           </>
                         )}
@@ -926,7 +1071,7 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                            </div>
 
                            {/* PDCA 时间规划节点 — 提案模式隐藏 */}
-                           {!isSimplifiedMode && (isHeaderEditable || formData.planTime || formData.doTime || formData.checkTime || formData.actTime) && (
+                           {!isSimplifiedMode && (
                            <div className="bg-white border-0 rounded-xl overflow-hidden shadow-sm p-4">
                               <label className="text-[11px] font-black text-rose-600 uppercase tracking-widest block mb-4 flex items-center gap-2">
                                 <span className="material-symbols-outlined text-[18px]">calendar_month</span>
@@ -1152,14 +1297,20 @@ export default function SmartTaskModal({ isOpen, onClose, onSubmit, title, type,
                                   </>
                                 )}
 
-                                {/* 主管(A)：全员签收后显示发车按钮 */}
-                                {allConfirmed && isA && (
+                                {/* 主管(A)：全员签收后显示发车按钮（flow2 申请类任务签收完自动进审批，不需手动发车） */}
+                                {allConfirmed && isA && initialData?.task_type !== 'applied' && (
                                   <button
                                     onClick={handleStartTask}
                                     className="px-8 py-2 text-sm font-black text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-lg hover:shadow-blue-200/60 transition-all"
                                   >
                                     🚀 发起任务
                                   </button>
+                                )}
+                                {/* flow2 申请类：签收完后等待上级审批 */}
+                                {allConfirmed && initialData?.task_type === 'applied' && (
+                                  <span className="text-xs font-bold text-blue-500 bg-blue-50 px-3 py-1.5 rounded-lg">
+                                    ✓ 签收完成，等待上级审批
+                                  </span>
                                 )}
                               </div>
                             );

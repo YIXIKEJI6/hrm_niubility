@@ -1,8 +1,7 @@
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-
 function requireApiKey(): string {
-  if (!DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY environment variable is not configured');
-  return DEEPSEEK_API_KEY;
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error('DEEPSEEK_API_KEY environment variable is not configured');
+  return key;
 }
 
 export async function analyzePerformance(data: {
@@ -41,7 +40,7 @@ export async function analyzePerformance(data: {
     return result.choices?.[0]?.message?.content || '分析结果生成失败';
   } catch (error: any) {
     console.error('DeepSeek AI 调用失败:', error.message);
-    return `AI 分析暂时不可用: ${error.message}`;
+    return 'AI 分析暂时不可用，请稍后重试';
   }
 }
 
@@ -90,6 +89,6 @@ export async function diagnosePerformance(plans: any[]): Promise<string> {
     return result.choices?.[0]?.message?.content || '诊断失败';
   } catch (error: any) {
     console.error('DeepSeek 诊断 API 异常:', error.message);
-    return `AI 诊断分析暂时不可用: ${error.message}`;
+    return 'AI 诊断分析暂时不可用，请稍后重试';
   }
 }

@@ -49,13 +49,45 @@ router.post('/preview', (req, res) => {
 
     let perfData: any[] = [];
     if (wantsPerf) {
-      perfData = db.prepare(`
+      // Source A: 直接任务奖金 (assigned/applied)
+      const directPerf = db.prepare(`
         SELECT assignee_id, SUM(score) as total_score, SUM(bonus) as total_bonus,
         group_concat(id || '(' || title || ')', ', ') as source_tasks
-        FROM perf_plans 
-        WHERE status IN ('approved', 'completed') AND (rewarded_at LIKE ? OR updated_at LIKE ?)
+        FROM perf_tasks
+        WHERE task_type IN ('assigned', 'applied') AND status IN ('approved', 'completed')
+          AND deleted_at IS NULL
+          AND (strftime('%Y-%m', rewarded_at) = ? OR strftime('%Y-%m', assessed_at) = ?)
         GROUP BY assignee_id
-      `).all(`%${month}%`, `%${month}%`) as any[];
+      `).all(month, month) as any[];
+
+      // Source B: 赏金池分配奖金 (bounty/proposal)
+      const bountyPerf = db.prepare(`
+        SELECT prd.user_id as assignee_id, SUM(prd.perf_score) as total_score,
+               SUM(prd.bonus_amount) as total_bonus,
+               group_concat(pt.id || '(' || pt.title || ')', ', ') as source_tasks
+        FROM pool_reward_distributions prd
+        JOIN pool_reward_plans prp ON prd.reward_plan_id = prp.id
+        JOIN perf_tasks pt ON prp.pool_task_id = pt.id
+        WHERE prp.status IN ('approved', 'paid') AND prp.pay_period = ?
+        GROUP BY prd.user_id
+      `).all(month) as any[];
+
+      // 合并两个来源
+      const perfMap = new Map<string, any>();
+      for (const d of directPerf) {
+        perfMap.set(d.assignee_id, { ...d });
+      }
+      for (const b of bountyPerf) {
+        const existing = perfMap.get(b.assignee_id);
+        if (existing) {
+          existing.total_score = (existing.total_score || 0) + (b.total_score || 0);
+          existing.total_bonus = (existing.total_bonus || 0) + (b.total_bonus || 0);
+          existing.source_tasks = [existing.source_tasks, b.source_tasks].filter(Boolean).join(', ');
+        } else {
+          perfMap.set(b.assignee_id, { ...b });
+        }
+      }
+      perfData = Array.from(perfMap.values());
     }
 
     let evalData: any[] = [];

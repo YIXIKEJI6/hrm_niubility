@@ -160,6 +160,12 @@ export default function App() {
       return <AdminPanel navigate={navigate} initialModule={mod} />;
     }
 
+    if (currentView.startsWith('company')) {
+      let taskId: number | undefined;
+      if (currentView.includes('task=')) taskId = Number(currentView.split('task=')[1].split('&')[0]);
+      return <CompanyPerformance navigate={navigate} initialTaskId={taskId} />;
+    }
+
     switch (currentView) {
       case 'dashboard':
         return <EmployeeDashboard navigate={navigate} />;
@@ -167,8 +173,6 @@ export default function App() {
         return <PersonalGoals navigate={navigate} />;
       case 'team':
         return <TeamPerformance navigate={navigate} />;
-      case 'company':
-        return <CompanyPerformance navigate={navigate} />;
       case 'hrmap':
         return <HRMap navigate={navigate} />;
       case 'panorama':

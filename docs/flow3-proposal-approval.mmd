@@ -1,0 +1,26 @@
+flowchart TD
+    A["员工打开 CompanyPerformance\n点击发布提案"] --> B{"保存草稿 or 提交?"}
+    B -->|草稿| C["POST /api/pool/tasks\nproposal_status=draft\nstatus=proposing"]
+    B -->|提交| H["proposal_status=pending_hr\n通知 HRBP 审批"]
+
+    C --> U["草稿列表\n可编辑/删除/提交"]
+    U --> H
+
+    H --> L{"HR 审批操作"}
+    L -->|通过| P["pending_admin\n通知 GM 复核"]
+    L -->|"编辑SMART+通过"| P
+    L -->|驳回| N["proposal_status=rejected\n通知提案人"]
+
+    P --> Q{"GM 复核操作"}
+    Q -->|通过| R["proposal_status=approved\nstatus=published\n全员可见"]
+    Q -->|"编辑SMART+通过"| R
+    Q -->|驳回| N
+
+    N --> S["提案人修改草稿"]
+    S --> H
+
+    R --> V["进入赏金榜\n等待认领"]
+
+    style C fill:#e3f2fd
+    style R fill:#e8f5e9
+    style N fill:#ffebee

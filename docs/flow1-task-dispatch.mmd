@@ -1,0 +1,35 @@
+flowchart TD
+    A["团队负责人打开 SmartTaskModal\n设置 R=执行人, A=自己"] --> B{"保存草稿 or 下发?"}
+    B -->|草稿| C["POST /api/perf/plans\nstatus=draft"]
+    B -->|直接下发| D["POST /api/perf/plans\nstatus=draft"]
+    D --> E["POST /plans/:id/dispatch"]
+    C -->|后续手动下发| E
+
+    E --> F["status=pending_receipt\n初始化签收状态\nR和A均需签收"]
+    F --> G["通知 R+A: 新任务待查收"]
+
+    G --> H{"R/A 签收操作"}
+    H -->|确认签收| I["receipt_status=confirmed"]
+    H -->|拒绝签收| J["status=draft\n通知负责人被拒签"]
+
+    I --> K{"全员都签收了?"}
+    K -->|否| H
+    K -->|是| L["通知A: 全员已签收\n可以发车"]
+
+    L --> M["A点击发车\nPOST /plans/:id/start-task"]
+    M --> N["status=in_progress\n任务正式启动"]
+
+    J --> O["负责人修改任务\n重新下发"]
+
+    N --> P{"执行中操作"}
+    P -->|更新进度| N
+    P -->|发起验收| R["R或A提交验收\npending_assessment"]
+
+    R --> S{"创建者评分"}
+    S --> T["assessed - completed 结案"]
+    T --> U["抄送 HRBP + GM"]
+
+    style C fill:#e3f2fd
+    style N fill:#e8f5e9
+    style T fill:#fff3e0
+    style J fill:#ffebee

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { parseUTC } from '../utils/dateUtils';
 
 interface AuditLog {
   id: number;
@@ -46,7 +47,6 @@ const STATUS_LABELS: Record<string, string> = {
   pending_review: '待审批',
   pending_hr: '待HR审核',
   pending_admin: '待总经理审批',
-  pending_dt: '待金主验收',
   pending_dept_review: '待部门审批',
   pending_receipt: '待签收',
   pending_assessment: '待评级',
@@ -79,7 +79,7 @@ function getActionIcon(action: string): { icon: string; color: string } {
 }
 
 function formatTimestamp(ts: string): { date: string; time: string; relative: string } {
-  const d = new Date(ts);
+  const d = parseUTC(ts);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
@@ -180,7 +180,7 @@ export default function AuditTimeline({ businessType, businessId, className = ''
             let duration = '';
             const nextLog = logs[logs.indexOf(log) + 1];
             if (nextLog) {
-              const ms = new Date(nextLog.created_at).getTime() - new Date(log.created_at).getTime();
+              const ms = parseUTC(nextLog.created_at).getTime() - parseUTC(log.created_at).getTime();
               if (ms > 60000) duration = formatDuration(ms);
             }
 
@@ -276,7 +276,7 @@ export function useLatestAuditInfo(businessType: string, businessId: number | st
       .then(res => {
         if (res.code === 0 && res.data?.length) {
           const last = res.data[res.data.length - 1];
-          const dwellMs = Date.now() - new Date(last.created_at).getTime();
+          const dwellMs = Date.now() - parseUTC(last.created_at).getTime();
           setInfo({
             lastAction: ACTION_LABELS[last.action] || last.action,
             lastActorName: last.actor_name || last.actor_id,
