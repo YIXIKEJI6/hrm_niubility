@@ -9,6 +9,26 @@ export interface ChangelogItem {
 
 export const changelogData: ChangelogItem[] = [
   {
+    version: 'v2.9.0',
+    date: '2026-04-12',
+    title: '🔗 统一绩效任务表 & 轨迹系统重构',
+    features: [
+      '核心架构升级：perf_plans + pool_tasks 合并为统一 perf_tasks 表，消除数据不一致根源',
+      '赏金榜轨迹新增「奖金分配」节点，实时显示奖励状态流转（待填写→HR审核→管理层确认→已发放）',
+      'SMART/PDCA 独立字段支持：创建/编辑任务时可直接传入结构化字段，无需嵌入描述文本',
+      '完整四流程文档：Flow1-4 Mermaid 流程图和测试计划',
+    ],
+    fixes: [
+      '修复轨迹 in_progress 阶段无当前节点的显示问题',
+      '修复 pending_assessment 阶段自评/考评三节点同时高亮，改为顺序激活',
+      '修复4处 RACI 不可变性违规：approver_id(A角色) 不再被流程覆盖',
+      '修复申请任务(Flow2) A角色错设为部门负责人的问题',
+      '修复 roles_config 类型不安全导致启动执行崩溃',
+      '修复 STAR 提交后无法触发满分完结的权限问题',
+    ],
+    isMajor: true,
+  },
+  {
     version: 'v2.8.0',
     date: '2026-04-11',
     title: '⭐ STAR绩效报告系统 & 部署工作流重构',
