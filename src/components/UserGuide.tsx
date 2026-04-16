@@ -77,21 +77,303 @@ const sections: GuideSection[] = [
     ),
   },
   {
-    id: 'approval',
-    icon: 'approval',
-    title: '审批流程',
+    id: 'flow1',
+    icon: 'assignment',
+    title: '流程一 · 任务下发',
     content: (
       <div className="space-y-3">
-        <p>系统提供标准化审批流程，支持多级串行/并行审批。</p>
-        <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 space-y-2">
-          <p className="text-xs font-bold text-amber-700 dark:text-amber-300">📝 审批类型</p>
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
+          <p className="text-xs font-bold text-blue-700 dark:text-blue-300 mb-1">签收制 · 无审批链 · 主管直接下发</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">团队负责人直接向下属指派绩效任务，参与人签收确认后由负责人启动执行。</p>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2 text-[10px] font-medium">
+          {['草稿','待签收','全员签收','发车启动','执行中','评估','完结'].map((s, i) => (
+            <React.Fragment key={s}>
+              {i > 0 && <span className="text-slate-300 shrink-0">→</span>}
+              <span className={`shrink-0 px-2 py-1 rounded-full ${
+                i <= 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                i <= 4 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                i === 5 ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' :
+                'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              }`}>{s}</span>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">1</span> 主管创建任务</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>入口：<b>「我的团队」→「向下发起绩效目标」</b></p>
+            <p>填写 SMART 目标、PDCA 时间、选择执行人(R)，负责人(A)默认为自己。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">2</span> 参与人签收</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>下发后 R + A 全员收到企微推送，在「我的流程 → 待我审核」中查看并<b>确认签收</b>。</p>
+            <p className="text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-lg px-3 py-1.5">⚠️ 任一人拒签 → 退回草稿，主管需修改后重新下发。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">3</span> 负责人「发车」启动</h4>
+          <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">全员签收后，仅负责人(A)有权点击「🚀 发起任务」正式启动。</p>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">4</span> 执行 → 评分 → 完结</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>执行期间可更新进度百分比、在 STAR 广场记录反思。</p>
+            <p>评估阶段由<b>创建者(主管)</b>打分(1-100)，A 可先提交自评供参考。</p>
+            <p>完结后自动抄送 HRBP + GM。</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">RACI 角色</p>
+          <div className="text-xs space-y-1 text-slate-500 dark:text-slate-400">
+            <p><b className="text-pink-600">A 负责人</b> — 主管自己（创建后不可修改）</p>
+            <p><b className="text-blue-600">R 执行人</b> — 被指派的下属（可多人）</p>
+            <p><b className="text-violet-600">评分人</b> — 创建者（即主管本人）</p>
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'flow2',
+    icon: 'front_hand',
+    title: '流程二 · 任务申请',
+    content: (
+      <div className="space-y-3">
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
+          <p className="text-xs font-bold text-blue-700 dark:text-blue-300 mb-1">签收 + 审批制 · 员工自主发起</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">员工自己发起绩效目标申请，经执行人签收 + 上级审批后自动启动执行。</p>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2 text-[10px] font-medium">
+          {['填写目标','R签收','上级审批','自动启动','执行中','上级评分','完结'].map((s, i) => (
+            <React.Fragment key={s}>
+              {i > 0 && <span className="text-slate-300 shrink-0">→</span>}
+              <span className={`shrink-0 px-2 py-1 rounded-full ${
+                i === 0 ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300' :
+                i === 1 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                i === 2 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                i <= 4 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' :
+                i === 5 ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' :
+                'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              }`}>{s}</span>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">1</span> 员工填写并提交</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>入口：<b>「我的目标」→ 右上角「+ 申请新任务」</b>，或<b>「我的团队」→「申请新任务」</b></p>
+            <p>填写 SMART 目标、PDCA 时间。可点「AI 智能拆解」从描述自动生成模板。</p>
+            <p>负责人(A)默认为自己，可指定其他执行人(R)。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">2</span> 执行人签收 → 上级审批</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>如指定了其他执行人，先等待签收确认。签收后自动流转到<b>直属上级主管</b>审批。</p>
+            <p className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg px-3 py-1.5">💡 若申请人本身是主管，审批人自动升级为上一级部门主管（防止自审）。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">3</span> 审批通过 → 自动启动</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>审批通过后任务<b>自动进入「进行中」</b>，无需手动启动。抄送 HRBP。</p>
+            <p>被驳回时可修改后点「提交修改」重新提交。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-blue-500 text-white text-[10px] flex items-center justify-center font-black">4</span> 上级评分 → 完结</h4>
+          <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">评分人为<b>上级主管</b>（非申请人自己），确保评分客观性。完结后抄送 HRBP + GM。</p>
+        </div>
+
+        <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4">
+          <p className="text-xs font-bold text-amber-700 dark:text-amber-300 mb-1">与流程一的关键区别</p>
+          <div className="text-xs space-y-1 text-slate-500 dark:text-slate-400">
+            <p>• 流程一：主管下发，<b>创建者</b>评分</p>
+            <p>• 流程二：员工申请，<b>上级主管</b>评分（非创建者自己）</p>
+            <p>• 流程二审批通过后自动启动，无需手动「发车」</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">主管视角：审批操作</p>
+          <div className="text-xs space-y-1 text-slate-500 dark:text-slate-400">
+            <p>在「我的流程 → 待我审核」中查看下属申请，可执行：</p>
+            <p>• <b className="text-green-600">同意</b> — 审批通过，任务自动启动</p>
+            <p>• <b className="text-red-600">驳回</b> — 退回修改（需填理由）</p>
+            <p>• <b className="text-blue-600">转办</b> — 委托其他同事审批（如休假时）</p>
+            <p>• <b>修改内容</b> — 审批前可切换编辑模式调整目标</p>
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'flow3',
+    icon: 'lightbulb',
+    title: '流程三 · 绩效提案',
+    content: (
+      <div className="space-y-3">
+        <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-4">
+          <p className="text-xs font-bold text-violet-700 dark:text-violet-300 mb-1">HR → GM 两级审批 · 无免审通道</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">任何员工均可发起赏金榜提案，经 HRBP 初审 + GM 终审后发榜公示。</p>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2 text-[10px] font-medium">
+          {['撰写提案','HRBP审核','GM终审','审批通过','发榜公示'].map((s, i) => (
+            <React.Fragment key={s}>
+              {i > 0 && <span className="text-slate-300 shrink-0">→</span>}
+              <span className={`shrink-0 px-2 py-1 rounded-full ${
+                i === 0 ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300' :
+                i === 1 ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
+                i === 2 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              }`}>{s}</span>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-violet-500 text-white text-[10px] flex items-center justify-center font-black">1</span> 撰写提案</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>入口：<b>「赏金榜」→ 右上角「+ 发起提案」</b></p>
+            <p>填写提案标题、SMART 内容（可插入模板）、奖金池金额、人数上限、分类、附件。</p>
+            <p className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg px-3 py-1.5">💡 提案模式下无需填 PDCA 时间和执行人，这些在认领阶段确定。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-violet-500 text-white text-[10px] flex items-center justify-center font-black">2</span> HRBP 初审</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>提交后进入 HRBP 审核。HRBP 可编辑 SMART 内容、调整奖金和人数。</p>
+            <p>通过后流转给 GM，驳回则退回提案人修改。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-violet-500 text-white text-[10px] flex items-center justify-center font-black">3</span> GM 终审</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>GM 审阅并可编辑内容后同意/驳回。</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-violet-500 text-white text-[10px] flex items-center justify-center font-black">4</span> 发榜公示</h4>
+          <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">GM 通过后，HRBP/管理员点击「一键发榜」，提案在赏金榜页面公示。</p>
+        </div>
+
+        <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
+          <p className="text-xs font-bold text-red-700 dark:text-red-300">🚫 无免审通道</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">所有人的提案都必须经过 HRBP → GM 两级审批，包括 GM 和管理员自己提交的提案。</p>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">驳回处理</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">被驳回后收到通知（附驳回理由），修改后点「提交修改」重新提交，从 HRBP 审核重新开始。</p>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'flow4',
+    icon: 'emoji_events',
+    title: '流程四 · 赏金榜认领',
+    content: (
+      <div className="space-y-3">
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4">
+          <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-1">RACI 角色认领 · 跨部门协作 · 奖金激励</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">提案发榜后，员工自主认领角色，项目执行完毕后通过 STAR 报告发放奖金。</p>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2 text-[10px] font-medium">
+          {['浏览赏金榜','申请角色','审批认领','项目执行','STAR报告','发赏归档'].map((s, i) => (
+            <React.Fragment key={s}>
+              {i > 0 && <span className="text-slate-300 shrink-0">→</span>}
+              <span className={`shrink-0 px-2 py-1 rounded-full ${
+                i === 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
+                i <= 2 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                i === 3 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' :
+                i === 4 ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' :
+                'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              }`}>{s}</span>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-emerald-500 text-white text-[10px] flex items-center justify-center font-black">1</span> 浏览并认领</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>入口：<b>「赏金榜」页面</b>，查看已发榜项目列表。</p>
+            <p>点击项目卡片 →「发起加入申请」→ 选择 RACI 角色：</p>
+          </div>
+          <div className="ml-7 bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-xs space-y-1">
+            <p><b className="text-blue-600">R 执行人</b> — 实际完成任务，可多人</p>
+            <p><b className="text-pink-600">A 负责人</b> — 对结果负总责，仅一人</p>
+            <p><b className="text-amber-600">C 咨询人</b> — 提供专业建议</p>
+            <p><b className="text-violet-600">I 知会人</b> — 了解进展即可</p>
+          </div>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-emerald-500 text-white text-[10px] flex items-center justify-center font-black">2</span> 审批认领</h4>
+          <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">依次经过：直属部门主管确认 → 项目创建者审批。通过后正式加入项目。</p>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-emerald-500 text-white text-[10px] flex items-center justify-center font-black">3</span> 项目执行</h4>
+          <p className="text-sm text-slate-600 dark:text-slate-400 ml-7">R + A 满员后，负责人(A)或 HR 启动项目。执行期间可在 STAR 广场记录反思。</p>
+
+          <h4 className="text-sm font-bold flex items-center gap-1.5"><span className="w-5 h-5 rounded bg-emerald-500 text-white text-[10px] flex items-center justify-center font-black">4</span> 完结与奖金发放</h4>
+          <div className="ml-7 text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>项目完结 → 负责人提交 STAR 报告 → HR 创建奖励分配方案。</p>
+            <p>奖励方案经 HRBP → GM 审批后，线下清算发放奖金。</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">项目创建者/负责人额外操作</p>
+          <div className="text-xs space-y-1 text-slate-500 dark:text-slate-400">
+            <p>• 审批他人的角色认领申请</p>
+            <p>• R + A 满员后启动项目</p>
+            <p>• 可选择提前完结（需填原因）</p>
+            <p>• 提交 STAR 报告并发起奖励分配</p>
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'approval',
+    icon: 'approval',
+    title: '流程中心与异常处理',
+    content: (
+      <div className="space-y-3">
+        <p>在「我的流程」页面统一管理所有审批事项。</p>
+
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-bold text-blue-700 dark:text-blue-300">📋 五大功能 Tab</p>
           <ul className="text-sm space-y-1 text-slate-700 dark:text-slate-300">
-            <li>• <b>个人目标</b> — 员工提交 → 直属领导审批</li>
-            <li>• <b>绩效池提案</b> — 提案人提交 → HR 审核 → 总经理复核</li>
-            <li>• <b>团队任务</b> — 由主管直接发布</li>
+            <li>• <b>我参与的</b> — 自己发起的 + 分配给自己的流程</li>
+            <li>• <b>待我审核</b> — 需要你操作的审批事项（红色角标提示）</li>
+            <li>• <b>我已审核</b> — 历史审批记录</li>
+            <li>• <b>抄送我的</b> — 知会通知（仅查看）</li>
+            <li>• <b>绩效池管理</b> — HR/管理员专属，管理赏金榜</li>
           </ul>
         </div>
-        <p className="text-sm text-slate-600 dark:text-slate-400">审批通知会通过企业微信实时推送。可在消息盒(导航栏铃铛图标)中查看所有通知。</p>
+
+        <div className="space-y-2">
+          <h4 className="text-sm font-bold">通用审批操作</h4>
+          <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>• <b className="text-green-600">同意</b> — 审批通过，流转到下一节点</p>
+            <p>• <b className="text-red-600">驳回</b> — 退回修改（需填理由）</p>
+            <p>• <b className="text-blue-600">转办</b> — 委托他人审批（如休假时）</p>
+            <p>• <b>修改内容</b> — 审批前可编辑任务详情</p>
+            <p>• <b>撤回申请</b> — 发起人可在审批中撤回</p>
+          </div>
+        </div>
+
+        <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-bold text-amber-700 dark:text-amber-300">⚠️ 流程异常管理（HR/管理员专属）</p>
+          <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <p>在「流程异常」Tab 中处理卡住的流程：</p>
+            <p>• <b>转派审批人</b> — 当审批人离职/休假时，转给其他人</p>
+            <p>• <b>强制推进</b> — 强制通过或驳回当前节点（需填原因）</p>
+            <p>• <b>节点补录</b> — 修复审批人缺失的异常流程</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-600 dark:text-slate-400">所有审批通知会通过企业微信实时推送。也可在导航栏消息盒(铃铛图标)中查看。</p>
       </div>
     ),
   },
@@ -291,7 +573,7 @@ export default function UserGuide({ isOpen, onClose }: UserGuideProps) {
             ))}
           </nav>
           <div className="p-4 border-t border-slate-200/60 dark:border-slate-800">
-            <p className="text-[10px] text-slate-400 text-center">You!Niubility! HRM v1.7.0</p>
+            <p className="text-[10px] text-slate-400 text-center">You!Niubility! HRM v2.9.0</p>
           </div>
         </div>
 

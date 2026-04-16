@@ -996,8 +996,8 @@ export default function CompetencyManager({ navigate, initialTestId, initialTab 
                                           
                           // Initialize temporary form state on object for easy binding
                           if (s._inputScore === undefined) {
-                             if (showScoreModal.status === 'pending_self') s._inputScore = s.self_score || displayMax / 2;
-                             else if (showScoreModal.status === 'pending_manager') s._inputScore = s.manager_score || s.self_score || displayMax / 2;
+                             if (showScoreModal.status === 'pending_self') s._inputScore = s.self_score ?? '';
+                             else if (showScoreModal.status === 'pending_manager') s._inputScore = s.manager_score ?? s.self_score ?? '';
                              else s._inputScore = s.manager_score; // readonly view
                           }
                           

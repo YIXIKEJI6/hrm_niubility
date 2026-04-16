@@ -320,15 +320,14 @@ export default function MyWorkflows({ navigate, initialTab }: MyWorkflowsProps) 
                         return;
                       }
                       const task = j.data;
-                      const desc = task.description || '';
                       mappedData = {
                         ...task,
+                        ...buildSmartTaskData(task, 'pool_task'),
                         ...item,
                         flow_type: 'pool_join',
                         status: item.status,
                         proposal_status: item.status,
                         summary: task.title,
-                        s: desc,
                         join_applicant: item.creator_name || item.user_id,
                         join_role: item.role,
                         join_reason: item.reason,

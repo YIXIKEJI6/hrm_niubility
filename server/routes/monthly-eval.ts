@@ -336,7 +336,7 @@ router.get('/user-tasks', (req, res) => {
   const db = getDb();
   try {
     const tasks = db.prepare(`
-      SELECT id, title, description, status, target_value, score, progress, bonus, rewarded_at, updated_at, created_at
+      SELECT *
       FROM perf_tasks
       WHERE assignee_id = ? AND status != 'draft' AND deleted_at IS NULL
       ORDER BY updated_at DESC

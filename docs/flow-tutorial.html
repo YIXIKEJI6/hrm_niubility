@@ -1,0 +1,1617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>绩效流程操作手册</title>
+<style>
+  :root {
+    --primary: #6366f1;
+    --primary-light: #818cf8;
+    --primary-bg: #eef2ff;
+    --success: #10b981;
+    --success-bg: #ecfdf5;
+    --warning: #f59e0b;
+    --warning-bg: #fffbeb;
+    --danger: #ef4444;
+    --danger-bg: #fef2f2;
+    --info: #3b82f6;
+    --info-bg: #eff6ff;
+    --purple: #8b5cf6;
+    --purple-bg: #f5f3ff;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-500: #6b7280;
+    --gray-700: #374151;
+    --gray-900: #111827;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -2px rgba(0,0,0,.05);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--gray-900);
+    background: var(--gray-50);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  .hero {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+    color: white;
+    padding: 48px 24px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,.08) 0%, transparent 60%);
+  }
+  .hero h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    position: relative;
+  }
+  .hero p {
+    margin-top: 8px;
+    opacity: .85;
+    font-size: 1rem;
+    position: relative;
+  }
+  .hero .version {
+    display: inline-block;
+    margin-top: 12px;
+    background: rgba(255,255,255,.2);
+    padding: 4px 16px;
+    border-radius: 999px;
+    font-size: .8rem;
+    position: relative;
+    backdrop-filter: blur(4px);
+  }
+
+  /* Container */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* Role Tabs */
+  .role-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 20px 0;
+    position: sticky;
+    top: 0;
+    background: var(--gray-50);
+    z-index: 100;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .role-tab {
+    padding: 10px 20px;
+    border: 2px solid var(--gray-200);
+    border-radius: 999px;
+    background: white;
+    cursor: pointer;
+    font-size: .9rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all .2s;
+    user-select: none;
+  }
+  .role-tab:hover { border-color: var(--primary-light); color: var(--primary); }
+  .role-tab.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+  }
+  .role-tab .badge {
+    display: inline-block;
+    background: rgba(0,0,0,.1);
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: .75rem;
+    margin-left: 6px;
+  }
+  .role-tab.active .badge { background: rgba(255,255,255,.25); }
+
+  /* Role Section */
+  .role-section { display: none; }
+  .role-section.active { display: block; }
+
+  /* Flow Card */
+  .flow-card {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 24px;
+    overflow: hidden;
+    border: 1px solid var(--gray-200);
+  }
+  .flow-header {
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .flow-header:hover { background: var(--gray-50); }
+  .flow-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    flex-shrink: 0;
+  }
+  .flow-icon.blue { background: var(--info-bg); }
+  .flow-icon.purple { background: var(--purple-bg); }
+  .flow-icon.green { background: var(--success-bg); }
+  .flow-icon.amber { background: var(--warning-bg); }
+  .flow-header h3 { font-size: 1.05rem; font-weight: 600; }
+  .flow-header .desc { color: var(--gray-500); font-size: .85rem; margin-top: 2px; }
+  .flow-header .arrow {
+    margin-left: auto;
+    font-size: 1.2rem;
+    color: var(--gray-300);
+    transition: transform .2s;
+  }
+  .flow-card.open .flow-header .arrow { transform: rotate(90deg); }
+  .flow-body { display: none; padding: 0 24px 24px; }
+  .flow-card.open .flow-body { display: block; }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: var(--gray-200);
+    margin: 16px 0;
+  }
+
+  /* Flow Diagram */
+  .flow-diagram {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 16px 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .flow-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 80px;
+    flex-shrink: 0;
+  }
+  .flow-node .dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .8rem;
+    font-weight: 600;
+    color: white;
+    position: relative;
+    z-index: 1;
+  }
+  .flow-node .dot.draft { background: var(--gray-300); }
+  .flow-node .dot.receipt { background: var(--warning); }
+  .flow-node .dot.review { background: var(--info); }
+  .flow-node .dot.progress { background: var(--primary); }
+  .flow-node .dot.assess { background: var(--purple); }
+  .flow-node .dot.done { background: var(--success); }
+  .flow-node .dot.hr { background: #ec4899; }
+  .flow-node .dot.gm { background: #f59e0b; }
+  .flow-node .dot.publish { background: #10b981; }
+  .flow-node .label {
+    margin-top: 6px;
+    font-size: .72rem;
+    color: var(--gray-500);
+    text-align: center;
+    max-width: 80px;
+    word-break: keep-all;
+  }
+  .flow-arrow {
+    width: 32px;
+    height: 2px;
+    background: var(--gray-300);
+    flex-shrink: 0;
+    position: relative;
+  }
+  .flow-arrow::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    top: -4px;
+    border: 5px solid transparent;
+    border-left-color: var(--gray-300);
+  }
+
+  /* Steps */
+  .steps { counter-reset: step; }
+  .step {
+    display: flex;
+    gap: 16px;
+    padding: 16px 0;
+    position: relative;
+  }
+  .step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 17px;
+    top: 52px;
+    bottom: 0;
+    width: 2px;
+    background: var(--gray-200);
+  }
+  .step-num {
+    counter-increment: step;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: .85rem;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .step-num::after { content: counter(step); }
+  .step-content { flex: 1; }
+  .step-content h4 {
+    font-size: .95rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .step-content p {
+    font-size: .88rem;
+    color: var(--gray-700);
+  }
+
+  /* Tips */
+  .tip {
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: .85rem;
+    margin: 12px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .tip.info { background: var(--info-bg); color: #1e40af; border-left: 3px solid var(--info); }
+  .tip.success { background: var(--success-bg); color: #065f46; border-left: 3px solid var(--success); }
+  .tip.warning { background: var(--warning-bg); color: #92400e; border-left: 3px solid var(--warning); }
+  .tip.danger { background: var(--danger-bg); color: #991b1b; border-left: 3px solid var(--danger); }
+  .tip-icon { font-size: 1rem; flex-shrink: 0; }
+
+  /* Role Badge */
+  .role-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 500;
+  }
+  .role-badge.r { background: #dbeafe; color: #1e40af; }
+  .role-badge.a { background: #fce7f3; color: #9d174d; }
+  .role-badge.c { background: #e0e7ff; color: #3730a3; }
+  .role-badge.i { background: #f3e8ff; color: #6b21a8; }
+
+  /* Table */
+  .info-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: .85rem;
+  }
+  .info-table th, .info-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--gray-200);
+  }
+  .info-table th {
+    background: var(--gray-50);
+    font-weight: 600;
+    color: var(--gray-700);
+  }
+  .info-table td { color: var(--gray-700); }
+
+  /* Screen mockup */
+  .screen-mock {
+    background: white;
+    border: 2px solid var(--gray-200);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 16px 0;
+  }
+  .screen-bar {
+    background: var(--gray-100);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: .75rem;
+    color: var(--gray-500);
+    border-bottom: 1px solid var(--gray-200);
+  }
+  .screen-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .screen-dot.r { background: #ef4444; }
+  .screen-dot.y { background: #f59e0b; }
+  .screen-dot.g { background: #22c55e; }
+  .screen-body { padding: 16px; }
+  .mock-nav {
+    display: flex;
+    gap: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--gray-200);
+    margin-bottom: 12px;
+    font-size: .8rem;
+    color: var(--gray-500);
+  }
+  .mock-nav span.active-tab {
+    color: var(--primary);
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: -13px;
+    padding-bottom: 11px;
+  }
+  .mock-btn {
+    display: inline-block;
+    padding: 6px 16px;
+    background: var(--primary);
+    color: white;
+    border-radius: 8px;
+    font-size: .8rem;
+    font-weight: 500;
+  }
+  .mock-btn.outline {
+    background: white;
+    color: var(--primary);
+    border: 1px solid var(--primary);
+  }
+  .mock-btn.success { background: var(--success); }
+  .mock-btn.danger { background: var(--danger); }
+  .mock-btn.warning { background: var(--warning); }
+  .mock-card {
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    font-size: .82rem;
+  }
+  .mock-card .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 4px;
+    font-size: .7rem;
+    font-weight: 500;
+    margin-right: 6px;
+  }
+  .mock-card .tag.blue { background: #dbeafe; color: #1d4ed8; }
+  .mock-card .tag.purple { background: #ede9fe; color: #6d28d9; }
+  .mock-card .tag.green { background: #d1fae5; color: #059669; }
+  .mock-card .tag.amber { background: #fef3c7; color: #d97706; }
+  .mock-card .tag.red { background: #fee2e2; color: #dc2626; }
+  .mock-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: .82rem;
+  }
+  .mock-field .label {
+    color: var(--gray-500);
+    min-width: 60px;
+  }
+  .mock-field .value { color: var(--gray-900); font-weight: 500; }
+  .mock-input {
+    border: 1px solid var(--gray-300);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: .82rem;
+    color: var(--gray-700);
+    background: var(--gray-50);
+    flex: 1;
+  }
+  .mock-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: flex-end;
+  }
+  .mock-modal-title {
+    font-size: .95rem;
+    font-weight: 600;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--gray-200);
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+    color: white;
+    margin: -16px -16px 12px;
+    padding: 14px 16px;
+    border-radius: 10px 10px 0 0;
+  }
+
+  /* Section Title */
+  .section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin: 32px 0 16px;
+    padding-left: 12px;
+    border-left: 4px solid var(--primary);
+  }
+
+  /* Navigation Guide */
+  .nav-guide {
+    background: white;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--gray-200);
+  }
+  .nav-guide h3 {
+    font-size: .95rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .nav-path {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+  }
+  .nav-path .crumb {
+    background: var(--primary-bg);
+    color: var(--primary);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: .82rem;
+    font-weight: 500;
+  }
+  .nav-path .sep { color: var(--gray-300); font-size: .9rem; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 32px 20px;
+    color: var(--gray-500);
+    font-size: .8rem;
+  }
+
+  /* TOC */
+  .toc {
+    background: white;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--gray-200);
+  }
+  .toc h3 { font-size: .95rem; font-weight: 600; margin-bottom: 10px; }
+  .toc ul { list-style: none; }
+  .toc li {
+    padding: 6px 0;
+    font-size: .85rem;
+    color: var(--gray-700);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .toc li:hover { color: var(--primary); }
+  .toc .toc-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--primary-light);
+    flex-shrink: 0;
+  }
+
+  /* Print */
+  @media print {
+    .role-tabs { position: static; }
+    .role-section { display: block !important; page-break-before: always; }
+    .flow-card.open .flow-body { display: block; }
+    .hero { background: #6366f1 !important; -webkit-print-color-adjust: exact; }
+  }
+
+  @media (max-width: 640px) {
+    .hero { padding: 32px 16px; }
+    .hero h1 { font-size: 1.5rem; }
+    .flow-header { padding: 16px; }
+    .flow-body { padding: 0 16px 16px; }
+    .role-tab { padding: 8px 14px; font-size: .82rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>绩效流程操作手册</h1>
+  <p>四大核心流程 · 按角色分册 · 图文详解</p>
+  <div class="version">v2.9 · 2026-04</div>
+</div>
+
+<div class="container">
+
+<!-- Role Tabs -->
+<div class="role-tabs" id="roleTabs">
+  <div class="role-tab active" data-role="employee">普通员工<span class="badge">3 个流程</span></div>
+  <div class="role-tab" data-role="manager">团队主管<span class="badge">4 个流程</span></div>
+  <div class="role-tab" data-role="hr">HRBP<span class="badge">审批+管理</span></div>
+  <div class="role-tab" data-role="gm">总经理/GM<span class="badge">终审</span></div>
+</div>
+
+<!-- ==================== 员工角色 ==================== -->
+<div class="role-section active" id="role-employee">
+
+  <div class="toc">
+    <h3>本册目录</h3>
+    <ul>
+      <li onclick="toggleFlow('emp-f1')"><span class="toc-dot"></span>流程一 · 签收主管下发的任务</li>
+      <li onclick="toggleFlow('emp-f2')"><span class="toc-dot"></span>流程二 · 自主申请新任务</li>
+      <li onclick="toggleFlow('emp-f3')"><span class="toc-dot"></span>流程三 · 发起绩效提案</li>
+      <li onclick="toggleFlow('emp-f4')"><span class="toc-dot"></span>流程四 · 认领赏金榜任务</li>
+    </ul>
+  </div>
+
+  <div class="nav-guide">
+    <h3>入口导航</h3>
+    <div class="nav-path">
+      <span class="crumb">底部 Tab「流程」</span>
+      <span class="sep">→</span>
+      <span class="crumb">我的流程</span>
+      <span class="sep">→</span>
+      <span class="crumb">查看 / 审核</span>
+    </div>
+    <div class="nav-path">
+      <span class="crumb">底部 Tab「目标」</span>
+      <span class="sep">→</span>
+      <span class="crumb">我的目标</span>
+      <span class="sep">→</span>
+      <span class="crumb">申请新任务</span>
+    </div>
+    <div class="nav-path">
+      <span class="crumb">底部 Tab「赏金榜」</span>
+      <span class="sep">→</span>
+      <span class="crumb">赏金榜</span>
+      <span class="sep">→</span>
+      <span class="crumb">发起提案 / 认领角色</span>
+    </div>
+  </div>
+
+  <!-- 员工 - 流程一：签收 -->
+  <div class="flow-card open" id="emp-f1">
+    <div class="flow-header" onclick="toggleFlow('emp-f1')">
+      <div class="flow-icon blue">📋</div>
+      <div>
+        <h3>流程一 · 签收主管下发的任务</h3>
+        <div class="desc">主管下发任务后，你需要确认签收才能开始执行</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot receipt">1</div><div class="label">收到通知</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot receipt">2</div><div class="label">确认签收</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">3</div><div class="label">等待发车</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">4</div><div class="label">执行任务</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot assess">5</div><div class="label">主管评分</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot done">6</div><div class="label">完结</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>收到任务通知</h4>
+            <p>主管下发任务后，你会收到<strong>企微消息推送</strong>和<strong>站内消息盒通知</strong>。点击通知可直接跳转到「我的流程 → 待我审核」。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>查看任务详情</h4>
+            <p>点击任务卡片打开详情弹窗，查看 SMART 目标描述、PDCA 时间安排、任务属性、奖金等信息。</p>
+
+            <div class="screen-mock">
+              <div class="screen-bar"><span class="screen-dot r"></span><span class="screen-dot y"></span><span class="screen-dot g"></span>任务详情</div>
+              <div class="screen-body">
+                <div class="mock-modal-title">📋 Q2 客户满意度提升计划 <span style="float:right;font-size:.75rem;opacity:.7">PF-000123</span></div>
+                <div class="mock-field"><span class="label">执行人 R</span><span class="value">你</span></div>
+                <div class="mock-field"><span class="label">负责人 A</span><span class="value">张经理</span></div>
+                <div class="mock-field"><span class="label">任务奖金</span><span class="value">¥ 5,000</span></div>
+                <div class="mock-field"><span class="label">任务属性</span><span class="value">重点项目</span></div>
+                <div style="margin-top:12px;padding:12px;background:var(--gray-50);border-radius:8px;font-size:.82rem;">
+                  <div style="font-weight:600;margin-bottom:4px;">SMART 目标</div>
+                  <div style="color:var(--gray-700);">S: 客户满意度 NPS 从 65 提升到 80<br>M: 每月调研 100 名客户<br>A: 联合客服团队执行<br>R: 直接影响续约率<br>T: 2026-Q2 内完成</div>
+                </div>
+                <div class="mock-actions">
+                  <div class="mock-btn danger" style="font-size:.78rem;">拒签</div>
+                  <div class="mock-btn success" style="font-size:.78rem;">确认签收 ✓</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>确认签收 或 拒签</h4>
+            <p>确认无误后点击 <strong>「确认签收 ✓」</strong>。如果对任务有异议，可以点击<strong>「拒签」</strong>，任务将退回主管重新编辑。</p>
+            <div class="tip warning">
+              <span class="tip-icon">⚠️</span>
+              <span>拒签后任务会退回草稿状态，主管需要修改后重新下发。请在拒签前与主管沟通。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>等待主管「发车」启动</h4>
+            <p>所有参与人签收完毕后，负责人（A）会点击「发起任务」正式启动，任务状态变为「进行中」。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>执行任务 & 更新进度</h4>
+            <p>在任务卡片中可以更新<strong>完成进度百分比</strong>。执行过程中可在 STAR 广场记录工作反思。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>等待评分 & 完结</h4>
+            <p>任务到达评估阶段后，主管会进行评分。评分完成后任务自动完结，同时抄送 HRBP 和 GM。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 员工 - 流程二：申请新任务 -->
+  <div class="flow-card" id="emp-f2">
+    <div class="flow-header" onclick="toggleFlow('emp-f2')">
+      <div class="flow-icon blue">✋</div>
+      <div>
+        <h3>流程二 · 自主申请新任务</h3>
+        <div class="desc">自己发起绩效目标申请，经上级审批后执行</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot draft">1</div><div class="label">填写目标</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot receipt">2</div><div class="label">R签收</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot review">3</div><div class="label">上级审批</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">4</div><div class="label">自动启动</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot assess">5</div><div class="label">上级评分</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot done">6</div><div class="label">完结</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="nav-guide" style="margin:0 0 16px;box-shadow:none;padding:12px 16px;border:1px dashed var(--gray-300);">
+        <h3 style="font-size:.85rem;">入口位置</h3>
+        <div class="nav-path">
+          <span class="crumb">底部「目标」</span><span class="sep">→</span>
+          <span class="crumb">我的目标</span><span class="sep">→</span>
+          <span class="crumb">右上角「+ 申请新任务」</span>
+        </div>
+        <div style="font-size:.8rem;color:var(--gray-500);margin-top:4px;">或：「我的团队」→「申请新任务」</div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>填写 SMART 目标</h4>
+            <p>打开任务弹窗，填写以下内容：</p>
+            <table class="info-table">
+              <tr><th>字段</th><th>说明</th><th>必填</th></tr>
+              <tr><td>任务标题</td><td>简明描述任务目标</td><td>是</td></tr>
+              <tr><td>SMART 内容</td><td>S/M/A/R/T 五维度详细描述</td><td>是</td></tr>
+              <tr><td>PDCA 时间</td><td>Plan/Do/Check/Act 四个时间节点</td><td>是</td></tr>
+              <tr><td>执行人 R</td><td>默认为自己，可指定协作人</td><td>是</td></tr>
+              <tr><td>负责人 A</td><td>你自己（自动填充）</td><td>自动</td></tr>
+              <tr><td>任务属性</td><td>常规任务/重点项目/创新探索/临时指派</td><td>否</td></tr>
+              <tr><td>任务奖金</td><td>预期奖金金额</td><td>否</td></tr>
+              <tr><td>附件</td><td>支持上传补充材料</td><td>否</td></tr>
+            </table>
+            <div class="tip info">
+              <span class="tip-icon">💡</span>
+              <span>点击「AI 智能拆解」可从一段描述自动生成 SMART 模板，省时省力。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>提交申请</h4>
+            <p>确认内容无误后，点击<strong>「发起申请」</strong>按钮。也可先点「存为草稿」稍后再提交。</p>
+            <p>提交后，如果指定了其他执行人（R），会先进入<strong>签收环节</strong>等待 R 确认。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>等待上级审批</h4>
+            <p>签收完成后自动流转到<strong>直属上级主管</strong>审批。</p>
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;margin-top:6px;">
+              <li>如果你本身就是主管，审批人会自动升级为<strong>上一级部门主管</strong></li>
+              <li>审批人不能是你自己（系统自动防止"运动员兼裁判"）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审批通过 → 自动启动</h4>
+            <p>审批通过后任务自动进入「进行中」，<strong>无需手动启动</strong>。同时抄送 HRBP。</p>
+            <div class="tip success">
+              <span class="tip-icon">✅</span>
+              <span>审批被驳回？别担心，修改内容后点击「提交修改」可重新提交审批。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>执行 & 上级评分</h4>
+            <p>执行期间更新进度。任务完成后进入评估阶段，<strong>由上级主管评分</strong>（非你自己），完结后抄送 HRBP + GM。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tip warning">
+        <span class="tip-icon">🔑</span>
+        <span><strong>与流程一的关键区别：</strong>流程二的评分人是你的上级主管，而不是任务创建者（你自己）。这确保了评分的客观性。</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 员工 - 流程三：提案 -->
+  <div class="flow-card" id="emp-f3">
+    <div class="flow-header" onclick="toggleFlow('emp-f3')">
+      <div class="flow-icon purple">💡</div>
+      <div>
+        <h3>流程三 · 发起绩效提案</h3>
+        <div class="desc">提出跨部门赏金榜项目提案，经 HR → GM 两级审批后发榜</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot draft">1</div><div class="label">撰写提案</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot hr">2</div><div class="label">HRBP 审核</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot gm">3</div><div class="label">GM 审核</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot publish">4</div><div class="label">审批通过</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot publish">5</div><div class="label">发榜公示</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="nav-guide" style="margin:0 0 16px;box-shadow:none;padding:12px 16px;border:1px dashed var(--gray-300);">
+        <h3 style="font-size:.85rem;">入口位置</h3>
+        <div class="nav-path">
+          <span class="crumb">底部「赏金榜」</span><span class="sep">→</span>
+          <span class="crumb">赏金榜页面</span><span class="sep">→</span>
+          <span class="crumb">右上角「+ 发起提案」</span>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>撰写提案</h4>
+            <p>在赏金榜页面点击「发起提案」，打开简化版任务弹窗：</p>
+            <table class="info-table">
+              <tr><th>字段</th><th>说明</th></tr>
+              <tr><td>提案标题</td><td>项目名称</td></tr>
+              <tr><td>SMART 内容</td><td>可点击「插入 SMART 模板」快速填写</td></tr>
+              <tr><td>奖金池</td><td>项目总奖金金额</td></tr>
+              <tr><td>人数上限</td><td>项目可参与的最大人数</td></tr>
+              <tr><td>分类</td><td>部门/项目分类标签</td></tr>
+              <tr><td>附件</td><td>项目方案文档等</td></tr>
+            </table>
+            <div class="tip info">
+              <span class="tip-icon">📝</span>
+              <span>提案模式下无需填 PDCA 时间和执行人，这些在发榜认领阶段确定。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>提交 → HRBP 审核</h4>
+            <p>点击「发起申请」提交。提案进入 <strong>HRBP 审核</strong> 环节。HRBP 可以编辑 SMART 内容、调整奖金和人数。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>GM 终审</h4>
+            <p>HRBP 通过后流转到 <strong>GM（总经理）</strong>进行终审。GM 同样可以编辑内容。</p>
+            <div class="tip danger">
+              <span class="tip-icon">🚫</span>
+              <span><strong>无免审通道：</strong>所有人的提案都必须经过 HR → GM 两级审批，包括 GM 和管理员自己提交的提案。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审批通过 → 等待发榜</h4>
+            <p>GM 审批通过后，提案状态变为「已通过」。HRBP 或管理员点击「一键发榜」后在赏金榜公示，其他员工可以认领角色。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>驳回处理</h4>
+            <p>如果在任一环节被驳回，你会收到通知，附带驳回理由。修改后可以点击<strong>「提交修改」</strong>重新提交，流程从 HRBP 审核重新开始。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tip info">
+        <span class="tip-icon">👀</span>
+        <span>在「我的流程 → 我参与的」可以随时查看提案的审批进度和轨迹。</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 员工 - 流程四：认领 -->
+  <div class="flow-card" id="emp-f4">
+    <div class="flow-header" onclick="toggleFlow('emp-f4')">
+      <div class="flow-icon green">🏆</div>
+      <div>
+        <h3>流程四 · 认领赏金榜任务</h3>
+        <div class="desc">在赏金榜上认领 RACI 角色，参与跨部门项目</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot publish">1</div><div class="label">浏览赏金榜</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot receipt">2</div><div class="label">申请角色</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot review">3</div><div class="label">审批认领</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">4</div><div class="label">项目执行</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot assess">5</div><div class="label">STAR 报告</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot done">6</div><div class="label">发赏归档</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>浏览赏金榜</h4>
+            <p>进入「赏金榜」页面，查看已发榜的项目列表。每个项目卡片展示标题、奖金、已认领/上限人数。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>选择角色并申请</h4>
+            <p>点击项目卡片进入详情，点击<strong>「发起加入申请」</strong>，选择你要认领的 RACI 角色：</p>
+            <table class="info-table">
+              <tr><th>角色</th><th>含义</th><th>说明</th></tr>
+              <tr><td><span class="role-badge r">R 执行人</span></td><td>负责执行</td><td>实际完成任务的人</td></tr>
+              <tr><td><span class="role-badge a">A 负责人</span></td><td>最终负责</td><td>对结果负总责，每个任务仅一人</td></tr>
+              <tr><td><span class="role-badge c">C 咨询人</span></td><td>提供建议</td><td>协助把关或提供专业意见</td></tr>
+              <tr><td><span class="role-badge i">I 知会人</span></td><td>知情即可</td><td>了解进展，无需参与执行</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>等待审批</h4>
+            <p>你的认领申请会依次经过<strong>直属部门主管确认</strong>和<strong>项目创建者审批</strong>。审批通过后你正式加入项目。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>参与执行</h4>
+            <p>R + A 角色满员后，负责人（A）或 HR 启动项目。执行期间可在 STAR 广场记录反思。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>完结 & 获得奖励</h4>
+            <p>项目完结后，负责人提交 STAR 报告，HR 审核并分配奖金，奖金通过线下清算发放。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== 主管角色 ==================== -->
+<div class="role-section" id="role-manager">
+
+  <div class="toc">
+    <h3>本册目录</h3>
+    <ul>
+      <li onclick="toggleFlow('mgr-f1')"><span class="toc-dot"></span>流程一 · 向团队下发任务</li>
+      <li onclick="toggleFlow('mgr-f2')"><span class="toc-dot"></span>流程二 · 审批下属的任务申请</li>
+      <li onclick="toggleFlow('mgr-f3')"><span class="toc-dot"></span>流程三 · 发起/管理提案</li>
+      <li onclick="toggleFlow('mgr-f4')"><span class="toc-dot"></span>流程四 · 管理赏金榜项目</li>
+      <li onclick="toggleFlow('mgr-assess')"><span class="toc-dot"></span>通用 · 任务评分操作</li>
+    </ul>
+  </div>
+
+  <!-- 主管 - 流程一：下发 -->
+  <div class="flow-card open" id="mgr-f1">
+    <div class="flow-header" onclick="toggleFlow('mgr-f1')">
+      <div class="flow-icon blue">📤</div>
+      <div>
+        <h3>流程一 · 向团队下发绩效目标</h3>
+        <div class="desc">直接指派任务给团队成员，签收制（无需审批链）</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot draft">1</div><div class="label">创建任务</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot receipt">2</div><div class="label">下发签收</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">3</div><div class="label">全员签收</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">4</div><div class="label">发车启动</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot assess">5</div><div class="label">你来评分</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot done">6</div><div class="label">完结抄送</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="nav-guide" style="margin:0 0 16px;box-shadow:none;padding:12px 16px;border:1px dashed var(--gray-300);">
+        <h3 style="font-size:.85rem;">入口位置</h3>
+        <div class="nav-path">
+          <span class="crumb">「我的团队」</span><span class="sep">→</span>
+          <span class="crumb">「向下发起绩效目标」</span>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>创建任务</h4>
+            <p>在「我的团队」页面点击「向下发起绩效目标」，填写：</p>
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;margin-top:4px;">
+              <li><strong>执行人 R</strong>：选择团队成员（可多选）</li>
+              <li><strong>负责人 A</strong>：默认是你自己</li>
+              <li><strong>SMART 内容</strong>：详细的目标描述</li>
+              <li><strong>PDCA 时间</strong>：Plan/Do/Check/Act 四个时间节点</li>
+              <li><strong>任务属性</strong>、<strong>奖金</strong>等</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>下发任务</h4>
+            <p>确认内容后点击<strong>「发起申请」</strong>。任务进入「待签收」状态，系统自动推送通知给所有参与人（R + A）。</p>
+            <div class="tip info">
+              <span class="tip-icon">💡</span>
+              <span>你也可以先「存为草稿」，反复修改后再正式下发。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>等待全员签收</h4>
+            <p>R 和 A 全员确认签收后，你会收到通知。任务卡片上会显示签收状态。</p>
+            <div class="tip warning">
+              <span class="tip-icon">⚠️</span>
+              <span>任一参与人拒签 → 任务退回草稿。你需要和拒签人沟通后修改内容重新下发。</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>点击「发车」启动任务</h4>
+            <p>全员签收完毕后，只有<strong>负责人（A = 你）</strong>有权点击<strong>「🚀 发起任务」</strong>正式启动。</p>
+
+            <div class="screen-mock">
+              <div class="screen-bar"><span class="screen-dot r"></span><span class="screen-dot y"></span><span class="screen-dot g"></span>任务卡片底部</div>
+              <div class="screen-body">
+                <div style="text-align:center;padding:8px 0;color:var(--success);font-size:.85rem;">✅ 全员已签收</div>
+                <div class="mock-actions" style="justify-content:center;">
+                  <div class="mock-btn" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);font-size:.85rem;">🚀 发起任务</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>评分完结</h4>
+            <p>任务到达评估阶段后，<strong>你作为创建者</strong>进行最终评分（1-100 分）。评分前 A 可先提交自评。评分完成后任务自动完结，抄送 HRBP + GM。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主管 - 流程二：审批 -->
+  <div class="flow-card" id="mgr-f2">
+    <div class="flow-header" onclick="toggleFlow('mgr-f2')">
+      <div class="flow-icon blue">✅</div>
+      <div>
+        <h3>流程二 · 审批下属的任务申请</h3>
+        <div class="desc">下属自主申请的任务需要你的审批</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot receipt">1</div><div class="label">收到通知</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot review">2</div><div class="label">审阅内容</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot review">3</div><div class="label">同意/驳回</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot progress">4</div><div class="label">自动启动</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot assess">5</div><div class="label">你来评分</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>收到审批通知</h4>
+            <p>下属提交任务申请后，你会在<strong>「我的流程 → 待我审核」</strong>看到待审批事项（有红色角标提示）。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审阅并决策</h4>
+            <p>打开任务详情，查看 SMART 目标和 PDCA 安排。你有三个操作选项：</p>
+
+            <div class="screen-mock">
+              <div class="screen-bar"><span class="screen-dot r"></span><span class="screen-dot y"></span><span class="screen-dot g"></span>审批操作区</div>
+              <div class="screen-body">
+                <div style="margin-bottom:12px;font-size:.85rem;color:var(--gray-700);">你可以在审批前修改任务内容（点击「修改内容」切换为编辑模式）</div>
+                <div class="mock-actions" style="justify-content:center;gap:12px;">
+                  <div class="mock-btn outline" style="font-size:.82rem;">转办</div>
+                  <div class="mock-btn danger" style="font-size:.82rem;">驳回</div>
+                  <div class="mock-btn success" style="font-size:.82rem;">同意</div>
+                </div>
+              </div>
+            </div>
+
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;margin-top:8px;">
+              <li><strong>同意</strong>：审批通过，任务自动启动</li>
+              <li><strong>驳回</strong>：退回给申请人修改，需填写驳回理由</li>
+              <li><strong>转办</strong>：交给其他同事审批（如休假时委托）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>后续评分</h4>
+            <p>审批通过的申请类任务，<strong>由你（上级主管）</strong>进行最终评分，而非申请人自己。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主管 - 流程三 -->
+  <div class="flow-card" id="mgr-f3">
+    <div class="flow-header" onclick="toggleFlow('mgr-f3')">
+      <div class="flow-icon purple">💡</div>
+      <div>
+        <h3>流程三 · 发起/管理提案</h3>
+        <div class="desc">主管也可以发起提案，同样需要 HR → GM 审批</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="tip danger">
+        <span class="tip-icon">🚫</span>
+        <span><strong>重要：</strong>即使你是团队负责人，提案也必须走完 HRBP → GM 全流程审批，没有免审通道。操作方式与普通员工一致，请参考「员工手册 → 流程三」。</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主管 - 流程四 -->
+  <div class="flow-card" id="mgr-f4">
+    <div class="flow-header" onclick="toggleFlow('mgr-f4')">
+      <div class="flow-icon green">🏆</div>
+      <div>
+        <h3>流程四 · 管理赏金榜项目</h3>
+        <div class="desc">审批下属认领、启动项目、提交 STAR 报告</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审批认领申请</h4>
+            <p>你的下属申请认领赏金榜角色时，<strong>部门主管需确认</strong>。在「待我审核」中查看并同意/拒绝。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>作为项目创建者的额外操作</h4>
+            <p>如果你是项目提案人：</p>
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;margin-top:4px;">
+              <li>审批他人的角色认领申请</li>
+              <li>R + A 满员后<strong>启动项目</strong></li>
+              <li>项目结束后<strong>提交 STAR 报告</strong></li>
+              <li>可选择<strong>提前完结</strong>（需填写原因）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>线下清算</h4>
+            <p>STAR 报告审核通过后，HR 会创建奖励分配方案。方案审批完成后，你可以点击<strong>「💰 线下清算并结案」</strong>确认奖金发放。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主管 - 评分 -->
+  <div class="flow-card" id="mgr-assess">
+    <div class="flow-header" onclick="toggleFlow('mgr-assess')">
+      <div class="flow-icon amber">⭐</div>
+      <div>
+        <h3>通用 · 任务评分操作</h3>
+        <div class="desc">对下属完成的任务进行考评打分</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <table class="info-table">
+        <tr><th>场景</th><th>评分人</th><th>自评人</th></tr>
+        <tr><td>流程一（你下发的任务）</td><td><strong>你</strong>（创建者）</td><td>负责人 A（可提交自评）</td></tr>
+        <tr><td>流程二（下属申请的任务）</td><td><strong>你</strong>（上级主管）</td><td>负责人 A（可提交自评）</td></tr>
+      </table>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>收到评分通知</h4>
+            <p>任务进入「待评估」状态后，在「待我审核」中会出现评分任务。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>查看自评（如有）</h4>
+            <p>A 如果已提交自评分（1-100），会显示在任务详情中供你参考。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>打分完结</h4>
+            <p>你打分（1-100）后，任务自动从「已评估」流转到「已完结」。系统自动抄送 HRBP + GM。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== HR 角色 ==================== -->
+<div class="role-section" id="role-hr">
+
+  <div class="toc">
+    <h3>本册目录</h3>
+    <ul>
+      <li onclick="toggleFlow('hr-f3')"><span class="toc-dot"></span>流程三 · 审核绩效提案（HRBP 初审）</li>
+      <li onclick="toggleFlow('hr-reward')"><span class="toc-dot"></span>奖励分配方案审核</li>
+      <li onclick="toggleFlow('hr-publish')"><span class="toc-dot"></span>发榜操作</li>
+      <li onclick="toggleFlow('hr-exception')"><span class="toc-dot"></span>流程异常管理</li>
+    </ul>
+  </div>
+
+  <!-- HR - 提案审核 -->
+  <div class="flow-card open" id="hr-f3">
+    <div class="flow-header" onclick="toggleFlow('hr-f3')">
+      <div class="flow-icon purple">🔍</div>
+      <div>
+        <h3>流程三 · 审核绩效提案（HRBP 初审）</h3>
+        <div class="desc">所有提案必须经过你的初审，再流转给 GM</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot draft">提交</div><div class="label">员工提交</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot hr" style="width:42px;height:42px;font-size:.7rem;">HRBP</div><div class="label">你审核</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot gm">GM</div><div class="label">终审</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot publish">发榜</div><div class="label">公示</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>在「待我审核」中查看待审提案</h4>
+            <p>员工提交的提案会出现在你的「我的流程 → 待我审核」列表中，带有 <span class="role-badge" style="background:#ede9fe;color:#6d28d9;">绩效提案</span> 标签。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审阅并可编辑内容</h4>
+            <p>打开提案详情后，你可以：</p>
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;margin-top:4px;">
+              <li>点击<strong>「修改内容」</strong>切换编辑模式</li>
+              <li>修改 SMART 内容、调整奖金金额、人数上限、分类等</li>
+              <li>修改后内容会同步保存</li>
+            </ul>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审批决策</h4>
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;">
+              <li><strong>同意</strong> → 流转给 GM 终审</li>
+              <li><strong>驳回</strong> → 退回提案人修改（需填写理由）</li>
+              <li><strong>转办</strong> → 委托其他 HRBP 审核</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HR - 奖励方案 -->
+  <div class="flow-card" id="hr-reward">
+    <div class="flow-header" onclick="toggleFlow('hr-reward')">
+      <div class="flow-icon amber">💰</div>
+      <div>
+        <h3>奖励分配方案审核</h3>
+        <div class="desc">赏金榜项目完结后，审核奖金分配方案</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot assess">STAR</div><div class="label">提交报告</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot hr" style="width:42px;height:42px;font-size:.7rem;">HRBP</div><div class="label">你审核</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot gm">GM</div><div class="label">确认</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot done">发放</div><div class="label">线下清算</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>收到奖励方案</h4>
+            <p>项目创建者完结项目并提交 STAR 报告后，会创建奖励分配方案。方案出现在你的「待我审核」中，带有 <span class="role-badge" style="background:#fef3c7;color:#d97706;">奖励分配</span> 标签。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审核奖金分配</h4>
+            <p>查看各参与人的奖金分配金额和比例。确认合理后点击「同意」流转给 GM 终审。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>GM 确认后线下发放</h4>
+            <p>GM 终审通过后，由你确认线下清算发放奖金。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HR - 发榜 -->
+  <div class="flow-card" id="hr-publish">
+    <div class="flow-header" onclick="toggleFlow('hr-publish')">
+      <div class="flow-icon green">📢</div>
+      <div>
+        <h3>发榜操作</h3>
+        <div class="desc">GM 审批通过的提案，由你一键发榜公示</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>查看已通过的提案</h4>
+            <p>在「我的流程 → 绩效池管理」中可以看到已审批通过但未发榜的提案。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>一键发榜</h4>
+            <p>确认无误后点击<strong>「一键发榜」</strong>，提案在赏金榜页面公示，所有员工可以认领角色。</p>
+            <div class="screen-mock">
+              <div class="screen-bar"><span class="screen-dot r"></span><span class="screen-dot y"></span><span class="screen-dot g"></span>审批操作区</div>
+              <div class="screen-body">
+                <div class="mock-actions" style="justify-content:center;">
+                  <div class="mock-btn" style="background: linear-gradient(135deg, #10b981, #059669);font-size:.85rem;">📢 一键发榜</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HR - 异常管理 -->
+  <div class="flow-card" id="hr-exception">
+    <div class="flow-header" onclick="toggleFlow('hr-exception')">
+      <div class="flow-icon amber">⚠️</div>
+      <div>
+        <h3>流程异常管理</h3>
+        <div class="desc">处理卡住的流程、转派审批人、强制推进</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="nav-guide" style="margin:0 0 16px;box-shadow:none;padding:12px 16px;border:1px dashed var(--gray-300);">
+        <h3 style="font-size:.85rem;">入口位置</h3>
+        <div class="nav-path">
+          <span class="crumb">「我的流程」</span><span class="sep">→</span>
+          <span class="crumb">「流程异常」Tab</span>
+        </div>
+        <div style="font-size:.8rem;color:var(--gray-500);margin-top:4px;">仅 HRBP 和管理员可见</div>
+      </div>
+
+      <h4 style="font-size:.9rem;margin:16px 0 8px;">卡住流程</h4>
+      <p style="font-size:.85rem;color:var(--gray-700);">系统自动检测长时间未处理的流程，列出相关任务和当前卡住的审批人。</p>
+      <table class="info-table">
+        <tr><th>操作</th><th>说明</th></tr>
+        <tr><td><strong>转派</strong></td><td>将审批权限转给其他人（如审批人休假/离职），需填写转派原因</td></tr>
+        <tr><td><strong>强制推进</strong></td><td>强制通过或强制驳回当前节点，需填写原因（至少 5 字）</td></tr>
+      </table>
+
+      <h4 style="font-size:.9rem;margin:16px 0 8px;">节点补录</h4>
+      <p style="font-size:.85rem;color:var(--gray-700);">修复因系统异常导致审批人缺失的流程。手动指定审批人/执行人后，流程可以正常流转。</p>
+
+      <div class="tip warning">
+        <span class="tip-icon">⚠️</span>
+        <span><strong>谨慎操作：</strong>强制推进和转派都会记录在流程审计日志中，请确保有充分理由。</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== GM 角色 ==================== -->
+<div class="role-section" id="role-gm">
+
+  <div class="toc">
+    <h3>本册目录</h3>
+    <ul>
+      <li onclick="toggleFlow('gm-f3')"><span class="toc-dot"></span>流程三 · 提案终审</li>
+      <li onclick="toggleFlow('gm-reward')"><span class="toc-dot"></span>奖励方案终审</li>
+      <li onclick="toggleFlow('gm-cc')"><span class="toc-dot"></span>抄送知会</li>
+    </ul>
+  </div>
+
+  <!-- GM - 提案终审 -->
+  <div class="flow-card open" id="gm-f3">
+    <div class="flow-header" onclick="toggleFlow('gm-f3')">
+      <div class="flow-icon purple">🔏</div>
+      <div>
+        <h3>流程三 · 提案终审</h3>
+        <div class="desc">HRBP 初审通过的提案需要你的最终审批</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="flow-diagram">
+        <div class="flow-node"><div class="dot draft">提交</div><div class="label">员工</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot hr" style="width:42px;height:42px;font-size:.7rem;">HRBP</div><div class="label">初审通过</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot gm" style="width:42px;height:42px;font-size:.7rem;border:3px solid #d97706;">你</div><div class="label">终审</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="dot publish">发榜</div><div class="label">公示</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>查看待审提案</h4>
+            <p>在<strong>「我的流程 → 待我审核」</strong>中查看 HRBP 已通过的提案。你可以查看 HRBP 可能做过的修改。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>审批决策</h4>
+            <p>你可以：</p>
+            <ul style="font-size:.85rem;color:var(--gray-700);padding-left:18px;">
+              <li><strong>修改内容</strong> → 调整 SMART、奖金、人数等</li>
+              <li><strong>同意</strong> → 提案通过，等待发榜公示</li>
+              <li><strong>驳回</strong> → 退回提案人（需填理由），提案人修改后重新走 HRBP → GM 流程</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="tip danger">
+        <span class="tip-icon">🚫</span>
+        <span><strong>即使你自己提交的提案</strong>，也必须经过 HRBP 初审后才会到你的终审环节。系统会自动防止"运动员兼裁判"情况 — 如果你既是提案人又是审批人，系统可能自动跳过你的审批节点并升级到超级管理员。</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- GM - 奖励终审 -->
+  <div class="flow-card" id="gm-reward">
+    <div class="flow-header" onclick="toggleFlow('gm-reward')">
+      <div class="flow-icon amber">💰</div>
+      <div>
+        <h3>奖励分配方案终审</h3>
+        <div class="desc">确认 HRBP 审核通过的奖金分配方案</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>查看奖励方案</h4>
+            <p>在「待我审核」中查看带有 <span class="role-badge" style="background:#fef3c7;color:#d97706;">奖励分配</span> 标签的方案。方案包含每位参与者的奖金分配明细。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-content">
+            <h4>确认通过</h4>
+            <p>审阅金额和分配比例无误后，点击<strong>「同意」</strong>。HR 随后进行线下清算发放。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GM - 抄送 -->
+  <div class="flow-card" id="gm-cc">
+    <div class="flow-header" onclick="toggleFlow('gm-cc')">
+      <div class="flow-icon blue">📬</div>
+      <div>
+        <h3>抄送知会</h3>
+        <div class="desc">了解全公司绩效任务的完结情况</div>
+      </div>
+      <span class="arrow">›</span>
+    </div>
+    <div class="flow-body">
+      <p style="font-size:.88rem;color:var(--gray-700);">以下事件会抄送给你：</p>
+      <table class="info-table">
+        <tr><th>事件</th><th>说明</th></tr>
+        <tr><td>任务完结</td><td>所有绩效任务（流程一/二）完结后自动抄送</td></tr>
+        <tr><td>审批通过</td><td>下属任务申请审批通过时抄送</td></tr>
+        <tr><td>异常升级</td><td>审批人缺失时系统自动升级到 GM</td></tr>
+      </table>
+      <p style="font-size:.85rem;color:var(--gray-500);margin-top:8px;">在「我的流程 → 抄送我的」Tab 中统一查看所有抄送通知。</p>
+    </div>
+  </div>
+
+</div>
+
+</div><!-- container -->
+
+<div class="footer">
+  <p>绩效流程操作手册 v2.9 · 2026 年 4 月</p>
+  <p style="margin-top:4px;">如有疑问请联系 HRBP 或系统管理员</p>
+</div>
+
+<script>
+// Role tabs
+document.querySelectorAll('.role-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.role-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.role-section').forEach(s => s.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('role-' + tab.dataset.role).classList.add('active');
+  });
+});
+
+// Flow accordion
+function toggleFlow(id) {
+  const card = document.getElementById(id);
+  if (card) card.classList.toggle('open');
+}
+</script>
+</body>
+</html>

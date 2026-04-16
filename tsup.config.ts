@@ -10,11 +10,11 @@ export default defineConfig({
   clean: true,
   sourcemap: false,
   // Don't bundle native modules
-  external: ['better-sqlite3'],
+  external: ['better-sqlite3', 'proxy-agent'],
   // Inline other dependencies
   noExternal: [
     'dotenv', 'express', 'cors', 'axios', 'jsonwebtoken',
-    'bcryptjs', 'uuid', '@google/genai'
+    'bcryptjs', 'uuid', '@google/genai', 'ali-oss'
   ],
   banner: {
     js: `

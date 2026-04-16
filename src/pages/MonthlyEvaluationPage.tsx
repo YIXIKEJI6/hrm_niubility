@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import SmartTaskModal from '../components/SmartTaskModal';
+import { buildSmartTaskData } from '../utils/taskDataMapper';
 
 interface EvalTask {
   reviewer_task_id: number;
@@ -721,7 +722,7 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                     <label className="block text-sm font-bold text-slate-700 mb-2">绩效发薪依据得分 <span className="text-red-500">*</span></label>
                     <div className={`w-full flex items-center justify-center rounded-2xl py-5 mb-3 transition-all duration-300 ${Number(scoreInput) >= 81 ? 'bg-emerald-50 border-2 border-emerald-200' : Number(scoreInput) >= 61 ? 'bg-amber-50 border-2 border-amber-200' : Number(scoreInput) > 0 ? 'bg-red-50 border-2 border-red-200' : 'bg-slate-50 border-2 border-slate-200'}`}>
                       <span className={`text-6xl font-black tracking-tighter transition-colors duration-300 tabular-nums ${Number(scoreInput) >= 81 ? 'text-emerald-600' : Number(scoreInput) >= 61 ? 'text-amber-600' : Number(scoreInput) > 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                        {scoreInput || '–'}
+                        {scoreInput !== '' ? scoreInput : '?'}
                       </span>
                       {Number(scoreInput) > 0 && <span className={`text-lg font-bold ml-1 mt-4 ${Number(scoreInput) >= 81 ? 'text-emerald-500' : Number(scoreInput) >= 61 ? 'text-amber-500' : 'text-red-400'}`}>分</span>}
                     </div>
@@ -730,7 +731,7 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
                         {Number(scoreInput) >= 81 ? '✓ 优秀 — 超额完成目标，表现卓越' : Number(scoreInput) >= 61 ? '◎ 达标 — 基本完成目标，需提升' : '⚠ 不达标 — 未完成目标，请填写评价'}
                       </div>
                     )}
-                    <input type="number" min="0" max="100" value={scoreInput || ''} onChange={e => setScoreInput(Math.min(100, Math.max(0, Number(e.target.value))))} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all text-xl font-black text-center text-slate-700 bg-white" placeholder="输入分数 0-100" autoFocus />
+                    <input type="number" min="0" max="100" value={scoreInput ?? ''} onChange={e => setScoreInput(Math.min(100, Math.max(0, Number(e.target.value))))} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all text-xl font-black text-center text-slate-700 bg-white" placeholder="输入分数 0-100" autoFocus />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">综合简要评价 {Number(scoreInput) < 61 && Number(scoreInput) > 0 ? <span className="text-red-500 text-xs font-semibold">(不达标时必填)</span> : '(选填)'}</label>
@@ -836,17 +837,7 @@ export default function MonthlyEvaluationPage({ navigate }: { navigate: (view: s
           title="任务详情"
           type="personal"
           users={[]}
-          initialData={{
-            id: String(previewTask.id),
-            title: previewTask.title,
-            description: previewTask.description,
-            status: previewTask.status,
-            metric: previewTask.metric,
-            target: previewTask.target,
-            score: previewTask.score,
-            progress: previewTask.progress,
-            reward: previewTask.reward,
-          }}
+          initialData={buildSmartTaskData(previewTask, 'perf_plan')}
           readonly={true}
         />
       )}

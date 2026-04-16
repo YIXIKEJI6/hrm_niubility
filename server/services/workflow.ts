@@ -122,7 +122,7 @@ export async function transitionPlan(
       notifyUsers.push(plan.creator_id);
       break;
     case 'assessed':
-      if (extra?.score != null) { setClauses.push('score = ?'); params.push(extra.score); }
+      if (extra?.score != null) { setClauses.push('score = ?'); params.push(extra.score); setClauses.push('progress = ?'); params.push(100); }
       setClauses.push('assessed_at = ?'); params.push(now);
       notifyAction = 'assessed';
       if (plan.assignee_id) notifyUsers.push(plan.assignee_id);

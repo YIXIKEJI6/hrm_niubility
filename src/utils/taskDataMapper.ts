@@ -260,5 +260,8 @@ export function buildSmartTaskData(
     progress: raw.progress,
     collaborators: raw.collaborators,
     informed_parties: raw.informed_parties,
+    judge_id: raw.judge_id || null,
+    judge_name: raw.judge_name || null,
+    dept_head_id: raw.dept_head_id || null,
   };
 }
