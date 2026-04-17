@@ -75,6 +75,9 @@ function OrgModule() {
   const [editUser, setEditUser] = useState<any>(null);
   const [editUserForm, setEditUserForm] = useState<any>({});
   const [userSaving, setUserSaving] = useState(false);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [addUserForm, setAddUserForm] = useState({ id: '', name: '', title: '', department_id: 0, mobile: '', email: '' });
+  const [addUserSaving, setAddUserSaving] = useState(false);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -107,6 +110,28 @@ function OrgModule() {
     if (res.code === 0) {
       setMsg('✅ 保存成功');
       setEditUser(null);
+      if (editDept) {
+        const deptRes = await apiCall(`/api/org/departments/${editDept.id}`, 'GET');
+        if (deptRes.code === 0) setEditDept(deptRes.data);
+      }
+    } else {
+      setMsg(`❌ ${res.message}`);
+    }
+  };
+
+  const handleAddUser = async () => {
+    if (!addUserForm.id.trim() || !addUserForm.name.trim()) {
+      setMsg('❌ 工号和姓名为必填项');
+      return;
+    }
+    setAddUserSaving(true);
+    const res = await apiCall('/api/org/users', 'POST', addUserForm);
+    setAddUserSaving(false);
+    if (res.code === 0) {
+      setMsg(`✅ ${res.message}`);
+      setShowAddUser(false);
+      setAddUserForm({ id: '', name: '', title: '', department_id: editDept?.id || 0, mobile: '', email: '' });
+      refetch();
       if (editDept) {
         const deptRes = await apiCall(`/api/org/departments/${editDept.id}`, 'GET');
         if (deptRes.code === 0) setEditDept(deptRes.data);
@@ -164,7 +189,13 @@ function OrgModule() {
               <span className="material-symbols-outlined text-[18px]">close</span>
             </button>
           </div>
-          <p className="text-xs text-slate-500 mb-3">{editDept.members?.length || 0} 名成员</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-slate-500">{editDept.members?.length || 0} 名成员</p>
+            <button onClick={() => { setShowAddUser(true); setAddUserForm({ id: '', name: '', title: '', department_id: editDept.id, mobile: '', email: '' }); }}
+              className="px-2 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">person_add</span>新增员工
+            </button>
+          </div>
           <div className="space-y-2">
             {editDept.members?.map((m: any) => (
               <div key={m.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2">
@@ -213,6 +244,33 @@ function OrgModule() {
               <button onClick={handleSaveUser} disabled={userSaving}
                 className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60">
                 {userSaving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={() => setShowAddUser(false)}>
+          <div className="bg-white rounded-2xl p-6 w-96 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h4 className="font-bold text-slate-800 mb-4">新增员工</h4>
+            <div className="space-y-3">
+              {[['id', '工号 (企微UserId)'], ['name', '姓名'], ['title', '职位'], ['mobile', '手机号'], ['email', '邮箱']].map(([field, label]) => (
+                <div key={field}>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">{label}{(field === 'id' || field === 'name') && <span className="text-red-500 ml-0.5">*</span>}</label>
+                  <input className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={field === 'id' ? '与企业微信 UserId 一致' : ''}
+                    value={(addUserForm as any)[field] || ''} onChange={e => setAddUserForm({ ...addUserForm, [field]: e.target.value })} />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-3">将自动归入「{editDept?.name}」部门</p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setShowAddUser(false)} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">取消</button>
+              <button onClick={handleAddUser} disabled={addUserSaving}
+                className="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-60">
+                {addUserSaving ? '添加中...' : '添加'}
               </button>
             </div>
           </div>

@@ -105,14 +105,83 @@ git checkout -- src/App.tsx src/context/AuthContext.tsx
 
 确保本地代码恢复到包含 DevRoleSwitcher 和 Mock 登录的完整状态。
 
-### 9. 汇报结果
+### 9. 验证服务器端口与 Nginx 配置
+
+部署完成后，SSH 到服务器验证端口配置是否正确。
+
+#### 9.1 检查生产 `.env` 端口
+
+```bash
+ssh administrator@8.129.5.180 "powershell -Command \"Get-Content 'C:\\hrm-niubility\\.env' | Select-String 'SERVER_PORT'\""
+```
+
+- 必须为 `SERVER_PORT=3000`
+- 如果不是 3000，自动修改为 3000 并重启 HrmNiubility 服务：
+  ```bash
+  ssh administrator@8.129.5.180 "powershell -Command \"(Get-Content 'C:\\hrm-niubility\\.env') -replace 'SERVER_PORT=\d+', 'SERVER_PORT=3000' | Set-Content 'C:\\hrm-niubility\\.env'\""
+  ssh administrator@8.129.5.180 "C:\\nssm\\win64\\nssm.exe restart HrmNiubility"
+  ```
+
+#### 9.2 检查 Nginx 反向代理
+
+```bash
+ssh administrator@8.129.5.180 "powershell -Command \"Get-Content 'C:\\nginx\\conf\\nginx.conf' | Select-String 'proxy_pass'\""
+```
+
+- 必须为 `proxy_pass http://127.0.0.1:3000;`
+- 如果不是 3000，自动修改并重启 nginx：
+  ```bash
+  ssh administrator@8.129.5.180 "powershell -Command \"(Get-Content 'C:\\nginx\\conf\\nginx.conf') -replace 'proxy_pass http://127.0.0.1:\d+', 'proxy_pass http://127.0.0.1:3000' | Set-Content 'C:\\nginx\\conf\\nginx.conf'\""
+  ssh administrator@8.129.5.180 "powershell -Command \"Stop-Process -Name nginx -Force; Start-Sleep -Seconds 2; Start-Process -FilePath 'C:\\nginx\\nginx.exe' -WorkingDirectory 'C:\\nginx'\""
+  ```
+
+#### 9.3 验证服务可达
+
+等待 5 秒后检查：
+
+```bash
+# 服务器内部验证
+ssh administrator@8.129.5.180 "curl -s -o NUL -w \"%{http_code}\" http://localhost:3000/"
+# 外部域名验证
+curl -s -o /dev/null -w "%{http_code}" https://nb.szyixikeji.com/ --max-time 10
+```
+
+- 两者都应返回 HTTP 200
+- 如果域名返回 502，检查 nginx 是否正确重启
+
+#### 9.4 确认测试服务未受影响
+
+```bash
+ssh administrator@8.129.5.180 "curl -s -o NUL -w \"%{http_code}\" http://localhost:4001/"
+```
+
+- 应返回 HTTP 200，确认测试服务 HrmNiubilityTest 未被影响
+
+### 10. 汇报结果
 
 - 版本号：v{旧版本} → v{新版本}
 - commit hash
 - GitHub 推送状态
 - 构建状态（已确认不含开发功能，modules 数量）
 - 生产部署是否成功
-- 生产服务器访问地址
+- 端口验证：生产 3000 / 测试 4001
+- Nginx 反向代理状态
+- 生产服务器访问地址：https://nb.szyixikeji.com
+
+## 服务器架构
+
+```
+用户 → https://nb.szyixikeji.com (443)
+       → Nginx (SSL 终止)
+       → proxy_pass http://127.0.0.1:3000 (生产 HrmNiubility)
+
+测试 → http://8.129.5.180:4001 (测试 HrmNiubilityTest)
+```
+
+- 生产服务名：`HrmNiubility`，端口 3000
+- 测试服务名：`HrmNiubilityTest`，端口 4001
+- NSSM 路径：`C:\nssm\win64\nssm.exe`
+- Nginx 配置：`C:\nginx\conf\nginx.conf`
 
 ## 安全保障
 
@@ -120,9 +189,12 @@ git checkout -- src/App.tsx src/context/AuthContext.tsx
 - **环境变量**：生产服务器 `.env` 设置 `NODE_ENV=production` 且不设置 `ALLOW_MOCK_LOGIN`
 - **后端保护**：即使有人手动调用 mock 登录 API，后端在 `NODE_ENV=production` 时也会拒绝
 - **文件恢复**：构建后自动 `git checkout` 恢复，本地/GitHub 代码始终保留完整开发功能
+- **端口校验**：部署后自动验证端口配置和 Nginx 代理，防止端口冲突导致 502
 
 ## 异常处理
 
 - 构建失败 → 先 `git checkout` 恢复文件 → 报告错误
 - 部署脚本失败 → 报告错误（文件已在步骤 8 恢复）
 - GitHub 推送失败 → 停止，不继续部署到生产
+- 端口配置错误 → 自动修复 `.env` 和 Nginx → 重启服务 → 重新验证
+- Nginx 502 → 强制重启 nginx 进程（Stop-Process + Start-Process）

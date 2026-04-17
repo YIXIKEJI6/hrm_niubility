@@ -22,7 +22,7 @@ router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, re
     // 2. 拉取企微部门列表
     const departments = await getDepartmentList();
 
-    const deptStmt = db.prepare(`INSERT OR REPLACE INTO departments (id, name, parent_id) VALUES (?, ?, ?)`);
+    const deptStmt = db.prepare(`INSERT OR IGNORE INTO departments (id, name, parent_id) VALUES (?, ?, ?)`);
     // 只插入新用户，不覆盖已有用户的编辑信息
     const userStmt = db.prepare(
       `INSERT OR IGNORE INTO users (id, name, title, department_id, avatar_url, mobile, email, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -80,11 +80,11 @@ router.post('/sync', authMiddleware, requireRole('admin', 'hr'), async (_req, re
       }
     }
 
-    // 5. 同步部门 leader
+    // 5. 同步部门 leader（仅填充本地未设置的，不覆盖已手动指定的负责人）
     for (const dept of departments) {
       if (dept.department_leader && dept.department_leader.length > 0) {
         const leaderId = Array.isArray(dept.department_leader) ? dept.department_leader[0] : dept.department_leader;
-        db.prepare('UPDATE departments SET leader_user_id = ? WHERE id = ?').run(leaderId, dept.id);
+        db.prepare('UPDATE departments SET leader_user_id = ? WHERE id = ? AND (leader_user_id IS NULL OR leader_user_id = ?)').run(leaderId, dept.id, '');
       }
     }
 
@@ -170,6 +170,29 @@ router.get('/users', authMiddleware, (_req, res) => {
   return res.json({ code: 0, data: users });
 });
 
+
+// 手动新增员工 (HR / Admin)
+router.post('/users', authMiddleware, requireRole('admin', 'hr'), (req: AuthRequest, res) => {
+  const { id, name, title, department_id, mobile, email } = req.body;
+  const db = getDb();
+
+  if (!id?.trim()) return res.status(400).json({ code: 400, message: '工号不能为空' });
+  if (!name?.trim()) return res.status(400).json({ code: 400, message: '姓名不能为空' });
+
+  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(id.trim());
+  if (existing) return res.status(400).json({ code: 400, message: `工号「${id.trim()}」已存在` });
+
+  if (department_id) {
+    const dept = db.prepare('SELECT id FROM departments WHERE id = ?').get(department_id);
+    if (!dept) return res.status(400).json({ code: 400, message: '所选部门不存在' });
+  }
+
+  db.prepare(
+    `INSERT INTO users (id, name, title, department_id, mobile, email, status, role) VALUES (?, ?, ?, ?, ?, ?, 'active', 'employee')`
+  ).run(id.trim(), name.trim(), title || '', department_id || 0, mobile || '', email || '');
+
+  return res.json({ code: 0, message: `已添加员工「${name.trim()}」` });
+});
 
 // 更新用户信息 (HR / Admin)
 router.put('/users/:id', authMiddleware, requireRole('admin', 'hr'), (req: AuthRequest, res) => {
