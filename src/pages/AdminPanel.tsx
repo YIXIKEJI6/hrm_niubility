@@ -88,7 +88,12 @@ function OrgModule() {
       setMsg(`✅ 同步成功：${result.data.departments} 个部门，${result.data.members} 名成员（新增 ${result.data.new_members || 0}，更新 ${result.data.updated_members || 0}）${result.data.failed_departments?.length ? `\n⚠️ 失败部门: ${result.data.failed_departments.join('、')}` : ''}`);
       refetch();
     } else {
-      setMsg(`❌ 同步失败：${result.message}`);
+      // 拉取API被企微封禁时，提示回调模式
+      if (result.message?.includes('60011') || result.message?.includes('48009')) {
+        setMsg('⚠️ 企微已禁用拉取式同步（API权限受限）。已启用通讯录回调推送：未来企微通讯录变更将自动同步。如需补录现有员工，请使用「新增员工」手动添加。');
+      } else {
+        setMsg(`❌ 同步失败：${result.message}`);
+      }
     }
   };
 
@@ -166,13 +171,19 @@ function OrgModule() {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-4">
           <h4 className="font-bold text-slate-700">部门架构</h4>
-          <button onClick={handleSync} disabled={syncing}
-            className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-60">
-            <span className="material-symbols-outlined text-[14px]">{syncing ? 'hourglass_empty' : 'sync'}</span>
-            {syncing ? '同步中...' : '同步企微通讯录'}
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              回调同步已启用
+            </span>
+            <button onClick={handleSync} disabled={syncing}
+              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-60">
+              <span className="material-symbols-outlined text-[14px]">{syncing ? 'hourglass_empty' : 'sync'}</span>
+              {syncing ? '同步中...' : '全量拉取同步'}
+            </button>
+          </div>
         </div>
-        {msg && <div className="mb-3 text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{msg}</div>}
+        {msg && <div className="mb-3 text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2 whitespace-pre-line">{msg}</div>}
         {loading ? <div className="text-center py-8 text-slate-400">加载中...</div> : (
           <div className="bg-slate-50 rounded-xl p-3">
             {tree?.length ? renderTree(tree) : <p className="text-sm text-slate-400 text-center py-4">暂无部门数据</p>}
@@ -2075,7 +2086,13 @@ export default function AdminPanel({ navigate, initialModule }: { navigate: (vie
     if (action === 'sync') {
       setActionMsg('正在同步企微通讯录...');
       const res = await apiCall('/api/org/sync', 'POST');
-      setActionMsg(res.code === 0 ? `✅ 同步成功：${res.data.departments} 个部门，${res.data.members} 名成员（新增 ${res.data.new_members || 0}，更新 ${res.data.updated_members || 0}）` : `❌ ${res.message}`);
+      if (res.code === 0) {
+        setActionMsg(`✅ 同步成功：${res.data.departments} 个部门，${res.data.members} 名成员（新增 ${res.data.new_members || 0}，更新 ${res.data.updated_members || 0}）`);
+      } else if (res.message?.includes('60011') || res.message?.includes('48009')) {
+        setActionMsg('⚠️ 拉取式同步受限（企微API权限），已启用回调推送自动同步。');
+      } else {
+        setActionMsg(`❌ ${res.message}`);
+      }
     } else if (action === 'generate') {
       const month = new Date().toISOString().slice(0, 7);
       setActionMsg(`正在生成 ${month} 工资表...`);
