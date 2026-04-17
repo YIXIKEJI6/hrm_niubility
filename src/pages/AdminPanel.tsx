@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar';
 import PerfModuleV2 from '../components/PerfModuleV2';
 import { useAuth } from '../context/AuthContext';
 
-type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | 'admin_mgmt' | 'approval_flows' | 'workflow_fix' | 'team_scope' | null;
+type Module = 'org' | 'perf' | 'salary' | 'msg' | 'pool' | 'settings' | 'permissions' | 'admin_mgmt' | 'workflow_fix' | 'team_scope' | null;
 
 
 function useApiGet(url: string, deps: any[] = []) {
@@ -840,177 +840,6 @@ function SettingsModule({ currentUser }: { currentUser: any }) {
   );
 }
 
-function ApprovalFlowModule() {
-  /* ── 内置流程定义（只读，不可修改） ── */
-  const BUILT_IN_FLOWS = [
-    {
-      name: '团队任务派发',
-      icon: 'send',
-      desc: '主管向下级派发团队或专项单据任务，直接下达',
-      bizTags: ['任务下发', '免审触达'],
-      nodes: [
-        { type: 'initiator', label: '发单人', color: 'bg-blue-500', detail: '主管/项目经理' },
-        { type: 'cc', label: '系统广播', color: 'bg-teal-500', detail: '发送企微卡片通知' },
-        { type: 'approver', label: '接收与启动', color: 'bg-emerald-500', detail: '责任验收人(A)确认签收' },
-      ],
-    },
-    {
-      name: '个人目标申请',
-      icon: 'track_changes',
-      desc: '员工向上提出个人OKR/绩效目标，走行政汇报线',
-      bizTags: ['目标管理', '行政树寻血'],
-      nodes: [
-        { type: 'initiator', label: '发起人', color: 'bg-blue-500', detail: '申请人本人' },
-        { type: 'approver', label: '直属分管', color: 'bg-orange-500', detail: '部门直管领导初审' },
-        { type: 'approver', label: '老总复核', color: 'bg-orange-500', detail: '更高层级总办(兜底防跳)' },
-        { type: 'cc', label: '人事备案', color: 'bg-teal-500', detail: 'HRBP归档知会' },
-      ],
-    },
-    {
-      name: '赏金任务提案',
-      icon: 'lightbulb',
-      desc: '打破部门边界，员工发起新的悬赏池榜单提议',
-      bizTags: ['悬赏集市', '财务风控线'],
-      nodes: [
-        { type: 'initiator', label: '提案人', color: 'bg-blue-500', detail: '任何员工皆可' },
-        { type: 'approver', label: '人事评审', color: 'bg-orange-500', detail: 'HR统筹算账与设定(A角色)' },
-        { type: 'approver', label: '总经理核准', color: 'bg-pink-500', detail: '总办终审立项发布' },
-        { type: 'cc', label: '上架市集', color: 'bg-teal-500', detail: '同步至悬赏大厅看板' },
-      ],
-    },
-    {
-      name: '赏金认领与参与',
-      icon: 'front_hand',
-      desc: '员工抢单认领公开悬赏任务，入局瓜分奖励金',
-      bizTags: ['任务抢单', '人事卡关'],
-      nodes: [
-        { type: 'initiator', label: '认领人', color: 'bg-blue-500', detail: '意向接单的员工' },
-        { type: 'approver', label: '人事录用配置', color: 'bg-orange-500', detail: 'HR评估是否录用并绑定岗位' },
-        { type: 'approver', label: '总经理批示', color: 'bg-pink-500', detail: '跨级裁决(若需)' },
-      ],
-    },
-    {
-      name: '任务验收与评价',
-      icon: 'fact_check',
-      desc: '执行期末，对交付成果打分评价',
-      bizTags: ['执行终结', '闭环验收'],
-      nodes: [
-        { type: 'initiator', label: '提报交付', color: 'bg-blue-500', detail: '具体执行人(R角色)' },
-        { type: 'approver', label: '质检验收', color: 'bg-emerald-500', detail: '指定负责人(A角色)评价' },
-        { type: 'cc', label: '旁路知悉', color: 'bg-teal-500', detail: '咨询过及需感知的周边人员' },
-      ],
-    },
-    {
-      name: '绩效发奖与出账',
-      icon: 'payments',
-      desc: '月结核算分润，生成并确认最终财务对账单',
-      bizTags: ['薪税结算', '入账归表'],
-      nodes: [
-        { type: 'initiator', label: 'HR排表', color: 'bg-blue-500', detail: '梳理绩效明细与流水单' },
-        { type: 'approver', label: '业务背书', color: 'bg-orange-500', detail: '涉及部门的负责人无异议签批' },
-        { type: 'approver', label: '法座敲定', color: 'bg-pink-500', detail: '总经理一锤定音指令下发' },
-      ],
-    },
-  ];
-
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <p className="text-xs text-slate-500">以下为系统内置审批流程，所有流程均已启用且不可修改</p>
-        </div>
-        <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200/60">
-          <span className="material-symbols-outlined text-[14px]" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
-          {BUILT_IN_FLOWS.length} 个内置流程
-        </span>
-      </div>
-
-      <div className="space-y-3">
-        {BUILT_IN_FLOWS.map((flow, idx) => {
-          const isExpanded = expandedIdx === idx;
-          return (
-            <div key={idx}
-              className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 overflow-hidden transition-all hover:shadow-sm">
-              {/* Header Row */}
-              <div className="flex items-center justify-between p-4 cursor-pointer select-none"
-                onClick={() => setExpandedIdx(isExpanded ? null : idx)}>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#0060a9] flex items-center justify-center shadow-sm">
-                    <span className="material-symbols-outlined text-white text-lg">{flow.icon}</span>
-                  </div>
-                  <div>
-                    <h5 className="text-sm font-bold text-slate-700 dark:text-slate-200">{flow.name}</h5>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-slate-400">{flow.desc}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded font-medium">
-                        {flow.bizTags.join(' · ')}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* 已启用标识 */}
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    已启用
-                  </span>
-                  {/* 节点数 */}
-                  <span className="text-[11px] text-slate-400 font-medium">{flow.nodes.length} 个节点</span>
-                  {/* 展开箭头 */}
-                  <span className={`material-symbols-outlined text-[18px] text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
-                    expand_more
-                  </span>
-                </div>
-              </div>
-
-              {/* Expanded: Flow Visualization */}
-              {isExpanded && (
-                <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 px-6 py-5">
-                  <div className="flex items-center gap-0">
-                    {flow.nodes.map((node, nIdx) => (
-                      <React.Fragment key={nIdx}>
-                        {/* Node */}
-                        <div className="flex flex-col items-center min-w-[140px]">
-                          <div className={`w-9 h-9 rounded-full ${node.color} flex items-center justify-center shadow-sm`}>
-                            <span className="material-symbols-outlined text-white text-[16px]">
-                              {node.type === 'initiator' ? 'person' : node.type === 'approver' ? 'how_to_reg' : 'forward_to_inbox'}
-                            </span>
-                          </div>
-                          <span className="mt-1.5 text-xs font-bold text-slate-700 dark:text-slate-200">{node.label}</span>
-                          <span className="mt-0.5 text-[10px] text-slate-400 text-center leading-tight max-w-[130px]">{node.detail}</span>
-                        </div>
-                        {/* Arrow connector */}
-                        {nIdx < flow.nodes.length - 1 && (
-                          <div className="flex items-center mx-1 -mt-5">
-                            <div className="w-8 h-0.5 bg-slate-300 dark:bg-slate-600" />
-                            <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-[14px] -ml-1">chevron_right</span>
-                          </div>
-                        )}
-                      </React.Fragment>
-                    ))}
-                    {/* End marker */}
-                    <div className="flex items-center mx-1 -mt-5">
-                      <div className="w-8 h-0.5 bg-slate-300 dark:bg-slate-600" />
-                      <span className="material-symbols-outlined text-slate-300 dark:text-slate-600 text-[14px] -ml-1">chevron_right</span>
-                    </div>
-                    <div className="flex flex-col items-center min-w-[80px]">
-                      <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-500">
-                        <span className="material-symbols-outlined text-slate-400 text-[16px]">flag</span>
-                      </div>
-                      <span className="mt-1.5 text-xs font-bold text-slate-400">结束</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 
 // ─── MODULE: 权限管理 ─────────────────────────────────────────────────
@@ -2065,12 +1894,11 @@ function TeamScopeModule() {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────
 const MODULES = [
   { key: 'org', label: '同步通讯录', desc: '同步企业微信通讯录，管理部门与人员信息', icon: 'account_tree', color: 'blue', hoverColor: 'hover:border-blue-400/30', iconBg: 'bg-blue-50', iconColor: 'text-[#0060a9]', stats: ['一键同步', '组织映射'] },
-  { key: 'admin_mgmt', label: '高层角色配置', desc: '最高管理员专属，配置总经理、副总、HRBP特权角色', icon: 'shield_person', color: 'cyan', hoverColor: 'hover:border-cyan-400/30', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600', stats: ['特权分配', '兜底机制'], superAdminOnly: true },
+  { key: 'org_chart', label: '组织架构管理', desc: '可视化查看部门层级与成员详情，调整部门与离职管理', icon: 'corporate_fare', color: 'cyan', hoverColor: 'hover:border-cyan-400/30', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600', stats: ['部门层级', '成员管理'], redirect: 'org' },
   { key: 'msg', label: '消息推送', desc: '企业微信消息推送、审批卡片与推送记录', icon: 'send', color: 'purple', hoverColor: 'hover:border-purple-400/30', iconBg: 'bg-purple-50', iconColor: 'text-purple-600', stats: ['卡片交互', '推送记录'] },
   { key: 'settings', label: '系统设置', desc: '企微配置、AI分析设置、数据备份与恢复', icon: 'settings', color: 'slate', hoverColor: 'hover:border-slate-400/30', iconBg: 'bg-slate-100', iconColor: 'text-slate-600', stats: ['企微配置', '数据备份'] },
   { key: 'permissions', label: '权限管理', desc: '按角色管控功能、操作及字段访问权限', icon: 'admin_panel_settings', color: 'violet', hoverColor: 'hover:border-violet-400/30', iconBg: 'bg-violet-50', iconColor: 'text-violet-600', stats: ['功能权限', '字段权限'] },
   { key: 'team_scope', label: '团队可视范围', desc: '为指定人员自由匹配团队成员，单独管理其数据可视范围', icon: 'manage_accounts', color: 'indigo', hoverColor: 'hover:border-indigo-400/30', iconBg: 'bg-indigo-50', iconColor: 'text-indigo-600', stats: ['自由匹配', '仅限视图'] },
-  { key: 'approval_flows', label: '全景工作流视图', desc: '查看系统当前运转的 6 大核心业务审批引擎底层流路', icon: 'account_tree', color: 'teal', hoverColor: 'hover:border-teal-400/30', iconBg: 'bg-teal-50', iconColor: 'text-teal-600', stats: ['6大业务流', '引擎驱动'] },
   { key: 'workflow_fix', label: '异常流程检测', desc: '管理悬停、报错或节点丢失的流程审批与任务记录（已整合至「我的工作流」→「流程异常」）', icon: 'healing', color: 'red', hoverColor: 'hover:border-red-400/30', iconBg: 'bg-red-50', iconColor: 'text-red-500', stats: ['跳转工作流', '一站式管理'], redirect: 'workflows?tab=exception_mgmt' },
 ];
 
@@ -2152,9 +1980,20 @@ export default function AdminPanel({ navigate, initialModule }: { navigate: (vie
                   {activeModule === 'msg' && <MsgModule />}
                   {activeModule === 'pool' && <PoolModule />}
                   {activeModule === 'settings' && <SettingsModule currentUser={currentUser} />}
-                  {activeModule === 'permissions' && <PermissionsModule />}
+                  {activeModule === 'permissions' && (
+                    <>
+                      {currentUser?.is_super_admin && (
+                        <button onClick={() => setActiveModule('admin_mgmt')}
+                          className="mb-4 flex items-center gap-2 px-3 py-2 text-xs bg-cyan-50 text-cyan-700 border border-cyan-200/60 rounded-lg hover:bg-cyan-100 transition-colors">
+                          <span className="material-symbols-outlined text-[16px]" style={{ fontVariationSettings: "'FILL' 1" }}>shield_person</span>
+                          高层角色配置
+                          <span className="material-symbols-outlined text-[14px] text-cyan-400 ml-auto">chevron_right</span>
+                        </button>
+                      )}
+                      <PermissionsModule />
+                    </>
+                  )}
                   {activeModule === 'admin_mgmt' && <TopRoleMgmtModule />}
-                  {activeModule === 'approval_flows' && <ApprovalFlowModule />}
                   {activeModule === 'workflow_fix' && <WorkflowFixModule />}
                   {activeModule === 'team_scope' && <TeamScopeModule />}
 

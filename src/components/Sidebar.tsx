@@ -36,7 +36,6 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
     { id: 'company', icon: 'local_fire_department', label: '赏金榜', permKey: 'view_company_pool', special: true },
     { id: 'hrmap', icon: 'map', label: '人力地图', permKey: 'view_hr_map' },
     { id: 'panorama', icon: 'view_quilt', label: '全景仪表盘', permKey: 'view_panorama' },
-    { id: 'org', icon: 'account_tree', label: '组织关系', permKey: 'view_org_chart' },
     { id: 'schedule', icon: 'calendar_month', label: '排班请假', permKey: 'view_schedule' },
   ].filter(item => !item.permKey || hasPermission(item.permKey));
 
@@ -641,10 +640,9 @@ export default function Sidebar({ currentView, navigate }: SidebarProps) {
               { icon: 'groups', label: '我的团队', color: 'text-indigo-500', view: 'team' },
               { icon: 'map', label: '人力地图', color: 'text-teal-500', view: 'hrmap' },
               { icon: 'view_quilt', label: '全景仪表盘', color: 'text-purple-500', view: 'panorama' },
-              { icon: 'account_tree', label: '组织关系', color: 'text-cyan-500', view: 'org' },
               { icon: 'account_balance_wallet', label: '数字薪酬', color: 'text-amber-500', view: 'perf-accounting' },
             ].filter(item => {
-              const permMap: Record<string, string> = { team: 'view_team_perf', hrmap: 'view_hr_map', panorama: 'view_panorama', org: 'view_org_chart' };
+              const permMap: Record<string, string> = { team: 'view_team_perf', hrmap: 'view_hr_map', panorama: 'view_panorama' };
               return !permMap[item.view] || hasPermission(permMap[item.view]);
             }).map(item => (
               <button key={item.view}
