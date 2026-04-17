@@ -1,7 +1,8 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { getDb } from '../config/database';
 import { authMiddleware, requireRole, requireSuperAdmin, AuthRequest, isSuperAdmin, SUPER_ADMIN_ID } from '../middleware/auth';
 import { getDepartmentList, getDepartmentMembers } from '../services/wecom';
+import { verifySignature, decryptMsg, parseXml } from '../utils/wecom-crypto';
 
 const router = Router();
 
@@ -542,6 +543,194 @@ router.get('/my-superior', authMiddleware, (req: AuthRequest, res) => {
 
   // 未找到直属上级
   return res.json({ code: 0, data: null });
+});
+
+// ─── 企微通讯录回调验证 (GET) ────────────────────────────────
+// 在企微管理后台「设置接收事件服务器」时，企微会发 GET 请求验证 URL 有效性
+router.get('/contact-callback', (req: Request, res: Response) => {
+  const { msg_signature, timestamp, nonce, echostr } = req.query;
+
+  if (!msg_signature || !timestamp || !nonce || !echostr) {
+    return res.send('contact callback endpoint ready');
+  }
+
+  const valid = verifySignature(
+    msg_signature as string,
+    timestamp as string,
+    nonce as string,
+    echostr as string
+  );
+
+  if (!valid) {
+    console.error('[Contact Callback] 签名验证失败');
+    return res.status(403).send('签名验证失败');
+  }
+
+  try {
+    const decrypted = decryptMsg(echostr as string);
+    console.log('[Contact Callback] URL 验证成功');
+    return res.send(decrypted);
+  } catch (err) {
+    console.error('[Contact Callback] echostr 解密失败:', err);
+    return res.status(500).send('解密失败');
+  }
+});
+
+// ─── 企微通讯录变更回调 (POST) ────────────────────────────────
+// 接收 change_contact 事件：员工/部门的新增、修改、删除
+router.post('/contact-callback', (req: Request, res: Response) => {
+  const { msg_signature, timestamp, nonce } = req.query;
+
+  // 解析请求体中的加密 XML
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  let eventData: Record<string, string>;
+
+  try {
+    const xmlObj = parseXml(rawBody);
+    const encrypted = xmlObj.Encrypt;
+
+    if (!encrypted || !msg_signature) {
+      return res.send('success');
+    }
+
+    const valid = verifySignature(
+      msg_signature as string,
+      timestamp as string,
+      nonce as string,
+      encrypted
+    );
+
+    if (!valid) {
+      console.error('[Contact Callback] 签名验证失败');
+      return res.send('success');
+    }
+
+    const decrypted = decryptMsg(encrypted);
+    eventData = parseXml(decrypted);
+  } catch (err) {
+    console.error('[Contact Callback] 解析失败:', err);
+    return res.send('success');
+  }
+
+  const event = eventData.Event;
+  const changeType = eventData.ChangeType;
+
+  // 仅处理通讯录变更事件
+  if (event !== 'change_contact' || !changeType) {
+    return res.send('success');
+  }
+
+  console.log(`[Contact Callback] ${changeType}`, JSON.stringify(eventData));
+
+  const db = getDb();
+
+  try {
+    switch (changeType) {
+      // ── 员工变更 ──────────────────────────────────────
+      case 'create_user': {
+        const userId = eventData.UserID;
+        if (!userId) break;
+        // INSERT OR IGNORE：不覆盖已有用户的本地编辑信息
+        const mainDept = eventData.MainDepartment || eventData.Department?.split(',')[0] || '0';
+        db.prepare(
+          `INSERT OR IGNORE INTO users (id, name, title, department_id, avatar_url, mobile, email, status, synced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`
+        ).run(
+          userId,
+          eventData.Name || userId,
+          eventData.Position || '',
+          parseInt(mainDept) || 0,
+          eventData.Avatar || '',
+          eventData.Mobile || '',
+          eventData.Email || '',
+          new Date().toISOString()
+        );
+        console.log(`[Contact Callback] 新增员工: ${eventData.Name || userId}`);
+        break;
+      }
+
+      case 'update_user': {
+        const userId = eventData.UserID;
+        if (!userId) break;
+        // 仅更新企微推送的字段，不覆盖本地 role/status 等管理字段
+        const updates: string[] = [];
+        const values: (string | number)[] = [];
+
+        if (eventData.Name) { updates.push('name = ?'); values.push(eventData.Name); }
+        if (eventData.Position) { updates.push('title = ?'); values.push(eventData.Position); }
+        if (eventData.MainDepartment) { updates.push('department_id = ?'); values.push(parseInt(eventData.MainDepartment) || 0); }
+        if (eventData.Avatar) { updates.push('avatar_url = ?'); values.push(eventData.Avatar); }
+        if (eventData.Mobile) { updates.push('mobile = ?'); values.push(eventData.Mobile); }
+        if (eventData.Email) { updates.push('email = ?'); values.push(eventData.Email); }
+
+        if (updates.length > 0) {
+          updates.push('synced_at = ?');
+          values.push(new Date().toISOString());
+          values.push(userId);
+          db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+          console.log(`[Contact Callback] 更新员工: ${eventData.Name || userId}`);
+        }
+        break;
+      }
+
+      case 'delete_user': {
+        const userId = eventData.UserID;
+        if (!userId) break;
+        // 标记为离职，不物理删除
+        db.prepare("UPDATE users SET status = 'resigned' WHERE id = ?").run(userId);
+        console.log(`[Contact Callback] 员工离职: ${userId}`);
+        break;
+      }
+
+      // ── 部门变更 ──────────────────────────────────────
+      case 'create_party': {
+        const deptId = eventData.Id;
+        if (!deptId) break;
+        db.prepare(
+          `INSERT OR IGNORE INTO departments (id, name, parent_id) VALUES (?, ?, ?)`
+        ).run(
+          parseInt(deptId),
+          eventData.Name || `部门${deptId}`,
+          parseInt(eventData.ParentId || '0')
+        );
+        console.log(`[Contact Callback] 新增部门: ${eventData.Name || deptId}`);
+        break;
+      }
+
+      case 'update_party': {
+        const deptId = eventData.Id;
+        if (!deptId) break;
+        const deptUpdates: string[] = [];
+        const deptValues: (string | number)[] = [];
+
+        if (eventData.Name) { deptUpdates.push('name = ?'); deptValues.push(eventData.Name); }
+        if (eventData.ParentId) { deptUpdates.push('parent_id = ?'); deptValues.push(parseInt(eventData.ParentId)); }
+
+        if (deptUpdates.length > 0) {
+          deptValues.push(parseInt(deptId));
+          db.prepare(`UPDATE departments SET ${deptUpdates.join(', ')} WHERE id = ?`).run(...deptValues);
+          console.log(`[Contact Callback] 更新部门: ${eventData.Name || deptId}`);
+        }
+        break;
+      }
+
+      case 'delete_party': {
+        const deptId = eventData.Id;
+        if (!deptId) break;
+        const id = parseInt(deptId);
+        // 将该部门下的用户移到根部门，防止幽灵关联
+        db.prepare('UPDATE users SET department_id = 0 WHERE department_id = ?').run(id);
+        db.prepare('DELETE FROM departments WHERE id = ?').run(id);
+        console.log(`[Contact Callback] 删除部门: ${deptId}`);
+        break;
+      }
+    }
+  } catch (err) {
+    console.error(`[Contact Callback] 处理 ${changeType} 失败:`, err);
+  }
+
+  // 企微要求在 5 秒内返回 "success"
+  return res.send('success');
 });
 
 export default router;
