@@ -10,7 +10,7 @@ interface ShiftType { id: number; name: string; code: string; color: string; sta
 interface LeaveType { id: number; name: string; code: string; color: string; need_approval: number; max_days: number | null; unit: string; sort_order: number; enabled: number }
 interface CalendarUser { id: string; name: string; avatar_url: string; title: string; department_id: number }
 interface ShiftRecord { id: number; user_id: string; date: string; shift_type: string; shift_label: string; department_id: number; note: string }
-interface LeaveRecord { id: number; user_id: string; leave_type_id: number; start_date: string; end_date: string; duration: number; reason: string; status: string; leave_type_name: string; leave_type_color: string; user_name: string; dept_name: string; created_at: string }
+interface LeaveRecord { id: number; user_id: string; leave_type_id: number; start_date: string; end_date: string; duration: number; reason: string; status: string; leave_type_name: string; leave_type_color: string; user_name: string; dept_name: string; created_at: string; wecom_sp_no?: string }
 interface Dept { id: number; name: string }
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
@@ -547,6 +547,46 @@ function LeavesTab({ userId, canViewDept, canApprove }: { userId: string; canVie
                   <span className="font-bold text-blue-600">{l.duration} 天</span>
                 </div>
                 {l.reason && <p className="mt-2 text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">{l.reason}</p>}
+
+                {/* 审批流程节点 */}
+                <div className="mt-3 flex items-center gap-1 py-2 px-3 bg-slate-50/80 rounded-xl">
+                  <span className="material-symbols-outlined text-[11px] text-slate-400 mr-1">route</span>
+                  {/* 节点1: 提交申请 — 始终完成 */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                    <span className="text-[10px] font-bold text-slate-600">提交申请</span>
+                    <span className="text-[9px] text-slate-400">{viewMode === 'dept' ? l.user_name : '我'}</span>
+                  </div>
+                  <span className="text-slate-300 text-[10px] mx-0.5">›</span>
+                  {/* 节点2: 审批 */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      l.status === 'pending' ? 'bg-amber-400 animate-pulse' :
+                      l.status === 'rejected' ? 'bg-red-500' :
+                      l.status === 'cancelled' ? 'bg-slate-300' : 'bg-green-500'
+                    }`} />
+                    <span className="text-[10px] font-bold text-slate-600">
+                      {l.status === 'rejected' ? '已驳回' : l.status === 'cancelled' ? '已撤销' : '主管审批'}
+                    </span>
+                    {l.status === 'pending' && <span className="text-[9px] text-amber-500 font-medium">审批中</span>}
+                  </div>
+                  <span className="text-slate-300 text-[10px] mx-0.5">›</span>
+                  {/* 节点3: 完成 */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      l.status === 'approved' ? 'bg-green-500' :
+                      l.status === 'rejected' || l.status === 'cancelled' ? 'bg-slate-200' : 'bg-slate-300'
+                    }`} />
+                    <span className={`text-[10px] font-bold ${l.status === 'approved' ? 'text-green-600' : 'text-slate-400'}`}>
+                      {l.status === 'approved' ? '已通过' : '完成'}
+                    </span>
+                  </div>
+                  {/* 企微审批单号 */}
+                  {l.wecom_sp_no && (
+                    <span className="ml-auto text-[8px] font-mono text-slate-300">企微#{l.wecom_sp_no}</span>
+                  )}
+                </div>
+
                 <div className="mt-3 flex gap-2 justify-end">
                   {l.status === 'pending' && l.user_id === userId && (
                     <button onClick={() => handleCancel(l.id)} className="text-[10px] font-bold text-red-500 px-3 py-1 rounded-lg hover:bg-red-50 transition-all">撤销</button>

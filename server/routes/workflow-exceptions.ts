@@ -41,8 +41,8 @@ router.get('/stuck', authMiddleware, hrGuard, (req: AuthRequest, res) => {
       'perf_plan' as flow_type,
       CAST((julianday('now') - julianday(pp.updated_at)) AS INTEGER) as stuck_days
     FROM perf_tasks pp
-    LEFT JOIN users cu ON pp.creator_id = cu.id AND cu.deleted_at IS NULL
-    LEFT JOIN users au ON pp.approver_id = au.id AND au.deleted_at IS NULL
+    LEFT JOIN users cu ON pp.creator_id = cu.id
+    LEFT JOIN users au ON pp.approver_id = au.id
     LEFT JOIN departments d ON cu.department_id = d.id
     WHERE pp.status IN ('pending_review', 'pending_dept_review', 'submitted')
       AND (
